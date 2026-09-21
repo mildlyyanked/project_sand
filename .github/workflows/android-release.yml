@@ -84,6 +84,7 @@ jobs:
             echo "stable=false" >> "$GITHUB_OUTPUT"
           fi
           {
+            echo
             echo "SAND_STORE_FILE=release.keystore"
             echo "SAND_STORE_PASSWORD=$KEYSTORE_PASSWORD"
             echo "SAND_KEY_ALIAS=$KEY_ALIAS"
