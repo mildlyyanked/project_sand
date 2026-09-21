@@ -91,9 +91,33 @@ jobs:
           } >> android/gradle.properties
           node scripts/android-signing.js
 
+      - name: Trace node invocations
+        # Gradle swallows stderr from the node one-liners it runs at configure time.
+        # Shim node on PATH so every call, its exit code and stderr land in a log.
+        run: |
+          mkdir -p "$RUNNER_TEMP/nodeshim"
+          REAL_NODE="$(command -v node)"
+          cat > "$RUNNER_TEMP/nodeshim/node" <<EOF
+          #!/usr/bin/env bash
+          LOG="$RUNNER_TEMP/node-trace.log"
+          ERR="\$(mktemp)"
+          "$REAL_NODE" "\$@" 2>"\$ERR"
+          RC=\$?
+          cat "\$ERR" >&2
+          { echo "== node \$* (cwd \$PWD) exit \$RC"; cat "\$ERR"; } >> "\$LOG"
+          rm -f "\$ERR"
+          exit \$RC
+          EOF
+          chmod +x "$RUNNER_TEMP/nodeshim/node"
+          echo "$RUNNER_TEMP/nodeshim" >> "$GITHUB_PATH"
+
       - name: Build APK
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Node trace
+        if: failure()
+        run: grep -B1 -A15 "exit [1-9]" "$RUNNER_TEMP/node-trace.log" || echo "no failing node calls recorded"
 
       - name: Collect
         id: apk
