@@ -13,13 +13,25 @@ npx expo start
 
 Scan the QR code with **Expo Go** on Android. Every native module used here (SQLite, secure store, streaming fetch) ships inside Expo Go, so no custom build is needed to try it.
 
-For an installable APK without an app store:
+## Release APK
+
+GitHub Actions builds a signed APK, no Expo account needed.
+
+- **Tag a release:** `git tag v1.0.0 && git push --tags`. The workflow builds, attaches `sand-1.0.0.apk` to a GitHub Release, and generates notes.
+- **Manual build:** Actions → *Android release* → *Run workflow*. The APK lands in the run's artifacts.
+
+Builds are signed with a throwaway key unless the repository has a keystore in its secrets. A throwaway signature means Android refuses to install a new build over an old one until the old one is uninstalled. To keep one signature across builds, generate a keystore once and store it:
 
 ```bash
-npx expo run:android          # local build, needs Android Studio
-# or
-npx eas-cli build -p android --profile preview
+keytool -genkeypair -v -keystore sand.keystore -alias sand -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 sand.keystore   # macOS: base64 -i sand.keystore
 ```
+
+Repository secrets: `ANDROID_KEYSTORE_BASE64` (the base64 output), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` (`sand`), `ANDROID_KEY_PASSWORD`. Keep the keystore file somewhere safe; losing it means a fresh signature.
+
+Version comes from the tag (or the workflow input), and the Android `versionCode` is the run number, so every build is installable over the previous one.
+
+Local alternative, with Android Studio installed: `npx expo run:android --variant release`.
 
 Web also works for desktop use: `npx expo start --web`.
 
@@ -29,6 +41,10 @@ Web also works for desktop use: `npx expo start --web`.
 2. Settings → **Refresh list** to cache the model catalog and the zero-data-retention list.
 3. Pick a writer, summarizer and helper model.
 4. Back on the home screen, tap **+**.
+
+## Appearance
+
+Dark by default. Settings → Appearance switches to light or follows the system.
 
 ## Development
 

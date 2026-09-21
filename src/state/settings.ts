@@ -10,6 +10,7 @@ export interface Defaults {
   fontSize: number;
   presetId: string | null;
   styleId: string | null;
+  theme: 'system' | 'dark' | 'light';
 }
 
 const DEFAULTS: Defaults = {
@@ -18,6 +19,7 @@ const DEFAULTS: Defaults = {
   fontSize: 17,
   presetId: null,
   styleId: null,
+  theme: 'dark',
 };
 
 interface SettingsState {

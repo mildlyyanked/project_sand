@@ -1,4 +1,5 @@
 import { Platform, useColorScheme } from 'react-native';
+import { useSettings } from '@/state/settings';
 
 export const dark = {
   bg: '#0E0F12',
@@ -38,7 +39,16 @@ export const mono = Platform.select({ ios: 'Menlo', android: 'monospace', defaul
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
 export const radius = { sm: 8, md: 12, lg: 18, pill: 999 } as const;
 
+export type ThemePref = 'system' | 'dark' | 'light';
+
+/** Resolved color scheme: the user's preference, or the OS scheme when set to system. */
+export function useScheme(): 'dark' | 'light' {
+  const os = useColorScheme();
+  const pref = useSettings((s) => s.defaults.theme);
+  if (pref === 'system') return os === 'light' ? 'light' : 'dark';
+  return pref;
+}
+
 export function useTheme(): Theme {
-  const scheme = useColorScheme();
-  return scheme === 'light' ? light : dark;
+  return useScheme() === 'light' ? light : dark;
 }

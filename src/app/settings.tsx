@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useSettings } from '@/state/settings';
 import { client } from '@/state/client';
-import { Banner, Button, Card, Field, ListItem, Row, Section, Screen, Stepper, SwitchRow, T } from '@/ui/components';
+import { Banner, Button, Card, Field, ListItem, Row, Section, Screen, Segmented, Stepper, SwitchRow, T } from '@/ui/components';
 import { relTime, shortModel } from '@/ui/format';
 import { space } from '@/ui/theme';
 
@@ -74,7 +74,8 @@ export default function Settings() {
           <Button small kind="ghost" title="Open OpenRouter privacy settings" onPress={() => Linking.openURL('https://openrouter.ai/settings/privacy')} />
         </Card>
       </Section>
-      <Section title="Reading">
+      <Section title="Appearance">
+        <Segmented value={s.defaults.theme} onChange={(v) => s.setDefaults(db, { theme: v })} options={[{ key: 'dark', label: 'Dark' }, { key: 'light', label: 'Light' }, { key: 'system', label: 'System' }]} />
         <Row between>
           <T>Manuscript font size</T>
           <Stepper value={s.defaults.fontSize} min={13} max={24} onChange={(v) => s.setDefaults(db, { fontSize: v })} />

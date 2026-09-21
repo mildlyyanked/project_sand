@@ -1,13 +1,14 @@
 import React, { Suspense, useEffect } from 'react';
-import { ActivityIndicator, View, useColorScheme } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SQLiteProvider, useSQLiteContext } from 'expo-sqlite';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as SystemUI from 'expo-system-ui';
 import { DB_NAME, migrate } from '@/db/schema';
 import { seedIfEmpty } from '@/db/seed';
 import { useSettings } from '@/state/settings';
-import { dark, light, useTheme } from '@/ui/theme';
+import { dark, light, useScheme, useTheme } from '@/ui/theme';
 
 function Boot({ children }: { children: React.ReactNode }) {
   const db = useSQLiteContext();
@@ -30,8 +31,11 @@ function Spinner() {
 }
 
 export default function RootLayout() {
-  const scheme = useColorScheme();
+  const scheme = useScheme();
   const t = scheme === 'light' ? light : dark;
+  useEffect(() => {
+    void SystemUI.setBackgroundColorAsync(t.bg).catch(() => {});
+  }, [t.bg]);
   const navTheme = scheme === 'light' ? { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: t.bg, card: t.bg, text: t.text, border: t.border, primary: t.accent } } : { ...DarkTheme, colors: { ...DarkTheme.colors, background: t.bg, card: t.bg, text: t.text, border: t.border, primary: t.accent } };
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: t.bg }}>
