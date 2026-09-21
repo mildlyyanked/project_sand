@@ -18,7 +18,7 @@ Scan the QR code with **Expo Go** on Android. Every native module used here (SQL
 GitHub Actions builds a signed APK, no Expo account needed.
 
 - **Tag a release:** `git tag v1.0.0 && git push --tags`. The workflow builds, attaches `sand-1.0.0.apk` to a GitHub Release, and generates notes.
-- **Manual build:** Actions → *Android release* → *Run workflow*. The APK lands in the run's artifacts.
+- **Manual build:** Actions → *Android release* → *Run workflow*, set a version. With *release* checked (the default) it tags `v<version>` and publishes a GitHub Release; unchecked, the APK only lands in the run's artifacts.
 
 Builds are signed with a throwaway key unless the repository has a keystore in its secrets. A throwaway signature means Android refuses to install a new build over an old one until the old one is uninstalled. To keep one signature across builds, generate a keystore once and store it:
 
