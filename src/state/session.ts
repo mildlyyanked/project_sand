@@ -3,13 +3,13 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Beat, Character, ContextLayer, Id, LoreEntry, Preset, RefusalStep, Session, Species, Style, Universe } from '@/core/types';
 import { indexBeats, pathTo, type BeatIndex, descendants, leafOf, stepSibling } from '@/core/beatTree';
 import { assembleContext, splitPath, summaryPrompt, type AssembleInput } from '@/core/context/assemble';
-import { generateWithChain } from '@/core/openrouter/generate';
+import { generateWithChain, momentumTail } from '@/core/openrouter/generate';
 import { applyRepetition } from '@/core/repetition';
 import { now } from '@/core/ids';
 import { client } from './client';
 import { useSettings } from './settings';
 import { deleteBeats, getSession, insertBeat, listBeats, makeBeat, patchSession, updateBeatText } from '@/db/repo/sessions';
-import { getCharacters, getPreset, getStyle, getUniverse, listLore, listSpecies } from '@/db/repo/library';
+import { getCharacters, getPreset, getStyle, getUniverse, listLore, listModelStats, listSpecies, recordAttempt } from '@/db/repo/library';
 
 export interface Streaming {
   text: string;
@@ -273,30 +273,49 @@ export const useSession = create<SessionState>((set, get) => {
         }
         const ctx = assembleContext({ session: sess, path, ...bundle, model, direction: o.direction, dropped: get().dropped });
         set({ lastLog: ctx.log });
+        const lastProse = [...path].reverse().find((b) => b.role === 'prose');
+        const lastBeat = path[path.length - 1];
+        const stats = await listModelStats(db);
+        const autoModel = (exclude: string[]) => {
+          const ranked = stats
+            .filter((st) => st.attempts >= 2 && !exclude.includes(st.model))
+            .sort((a, b) => a.refusals / a.attempts - b.refusals / b.attempts || b.attempts - a.attempts);
+          const best = ranked[0];
+          return best && best.refusals / best.attempts < 0.34 ? best.model : null;
+        };
         const attempts = await generateWithChain({
           client, apiKey, model, messages: ctx.messages, params: applyRepetition(sess.params, bundle.style?.repetition), zdr: sess.zdr, refusalChain: bundle.preset?.refusalChain ?? [], signal: abort.signal,
+          providerIgnore: bundle.preset?.providerIgnore, providerOrder: bundle.preset?.providerOrder,
+          helperModel: sess.models.helper,
+          momentumText: lastProse ? momentumTail(lastProse.text) : '',
+          instructionText: [lastBeat?.role === 'instruction' ? lastBeat.text : '', o.direction ?? ''].filter(Boolean).join('\n') || undefined,
+          autoModel,
           onAttempt: (attempt, step, m) => set((s) => (s.streaming ? { streaming: { ...s.streaming, attempt, step, model: m, text: '', reasoning: '' } } : {})),
           onDelta: (_a, text, reasoning) => set((s) => (s.streaming ? { streaming: { ...s.streaming, text, reasoning } } : {})),
         });
+        for (const a of attempts) if (!a.skipped && !a.error) void recordAttempt(db, a.model, a.refused);
         if (abort.signal.aborted) {
           const partial = attempts[attempts.length - 1];
-          if (partial && partial.text.trim().length > 40) {
-            await get().insertGenerated({ parentId, text: partial.text.trim(), model: partial.model, direction: o.direction, reasoning: partial.reasoning });
+          const partialText = partial && partial.stripPrefix && partial.text.startsWith(partial.stripPrefix) ? partial.text.slice(partial.stripPrefix.length) : partial?.text ?? '';
+          if (partial && partialText.trim().length > 40) {
+            await get().insertGenerated({ parentId, text: partialText.trim(), model: partial.model, direction: o.direction, reasoning: partial.reasoning });
             set({ notice: 'Stopped. Kept the partial passage.' });
           }
           return;
         }
-        const final = attempts[attempts.length - 1];
+        const final = [...attempts].reverse().find((a) => !a.skipped) ?? attempts[attempts.length - 1];
         if (!final) return;
         if (final.error && !final.text.trim()) {
           set({ error: final.error });
           return;
         }
+        const finalText = final.stripPrefix && final.text.startsWith(final.stripPrefix) ? final.text.slice(final.stripPrefix.length) : final.text;
         const totalCost = attempts.reduce((n, a) => n + (a.usage?.costUsd ?? 0), 0);
         const usage = final.usage ? { ...final.usage, costUsd: attempts.some((a) => a.usage?.costUsd != null) ? totalCost : null } : null;
-        await get().insertGenerated({ parentId, text: final.text.trim(), model: final.model, direction: o.direction, reasoning: final.reasoning, usage });
-        if (final.refused) set({ notice: `Every step of the refusal chain came back as a refusal (${attempts.length} attempts). Kept the last one so you can judge.` });
-        else if (attempts.length > 1) set({ notice: `Pushed through after ${attempts.length} attempts.` });
+        await get().insertGenerated({ parentId, text: finalText.trim(), model: final.model, direction: o.direction, reasoning: final.reasoning, usage });
+        const ran = attempts.filter((a) => !a.skipped);
+        if (final.refused) set({ notice: `Every step of the refusal chain came back as a refusal (${ran.length} attempts). Kept the last one so you can judge.` });
+        else if (ran.length > 1) set({ notice: `Pushed through on attempt ${ran.length}${final.step ? ` via ${final.step.kind}` : ''}${final.model !== model ? ` on ${final.model.split('/').pop()}` : ''}.` });
       } catch (e) {
         if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
       } finally {

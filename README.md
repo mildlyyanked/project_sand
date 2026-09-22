@@ -29,7 +29,7 @@ base64 -w0 sand.keystore   # macOS: base64 -i sand.keystore
 
 Repository secrets: `ANDROID_KEYSTORE_BASE64` (the base64 output), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` (`sand`), `ANDROID_KEY_PASSWORD`. Keep the keystore file somewhere safe; losing it means a fresh signature.
 
-Version comes from the tag (or the workflow input), and the Android `versionCode` is the run number, so every build is installable over the previous one.
+Version comes from the tag (or the workflow input), and the Android `versionCode` is the run number, so every build is installable over the previous one **once the signature is stable**. Installing a stable-key build over a throwaway-key build needs one last uninstall; after that, updates keep settings and stories.
 
 Local alternative, with Android Studio installed: `npx expo run:android --variant release`.
 
@@ -44,7 +44,24 @@ Web also works for desktop use: `npx expo start --web`.
 
 ## Workshop
 
-**+ → Workshop it** opens a conversation with an editor model. Say anything, answer its questions, ask for premises when ready, then keep pushing on them. Tap *Use premise N* under any numbered list, or *Use this as the premise* under any reply. A condensed note of what was decided becomes the story's first beat.
+**+ → Workshop it** opens a conversation with an editor model. Say anything, answer its questions, ask for premises when ready, then keep pushing on them. When it feels settled, **Draft the brief**: the helper compiles the conversation into a title, a premise with its ideas stated outright, the people with rough setups, a world and a voice. Every field is editable. Creating the story adds those people, the world and the style to your library and attaches them to the session; the brief becomes the story's first note.
+
+On the home screen, hold a story for Open, Session settings, Duplicate and Delete.
+
+## Persistence (getting past refusals)
+
+A preset's **Persistence** chain runs when a reply looks like a refusal. Each step is applied in order and the passage is retried; later retries carry earlier changes. The seeded **Persistent** preset uses, in order:
+
+1. **Momentum**: prefill the reply with the last sentence of the manuscript, so the model continues mid-flow instead of judging a request.
+2. **Soften**: the helper model rewrites your latest instruction as a quiet author's note in the story's own register. Same content, no imperative.
+3. **Two-step**: write only the approach with a small budget, then continue from inside the scene.
+4. **Heat**: raise temperature and top-p.
+5. **Reframe**: prepend stronger framing to the system prompt.
+6. **Model, auto**: retry on the model with the best record in the refusal ledger.
+
+The ledger counts attempts and refusals per model and shows up as a badge in the model picker, with a **Proven** filter. Presets can also deliver the system prompt as the first user turn and avoid or prefer specific OpenRouter providers.
+
+Nothing in this chain claims a false identity or authorization; it changes how the request is shaped and where it goes.
 
 ## Style cards
 

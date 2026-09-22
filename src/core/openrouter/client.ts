@@ -26,6 +26,8 @@ export interface StreamRequest {
   zdr: boolean;
   signal?: AbortSignal;
   fallbackModels?: string[];
+  providerIgnore?: string[];
+  providerOrder?: string[];
 }
 
 export class OpenRouterError extends Error {
@@ -36,7 +38,7 @@ export class OpenRouterError extends Error {
 
 export function createClient(fetchImpl: FetchLike) {
   async function* stream(req: StreamRequest): AsyncGenerator<StreamEvent> {
-    const body = buildRequestBody({ model: req.model, messages: req.messages, params: req.params, zdr: req.zdr, stream: true, fallbackModels: req.fallbackModels });
+    const body = buildRequestBody({ model: req.model, messages: req.messages, params: req.params, zdr: req.zdr, stream: true, fallbackModels: req.fallbackModels, providerIgnore: req.providerIgnore, providerOrder: req.providerOrder });
     const res = await fetchImpl(`${OPENROUTER_BASE}/chat/completions`, { method: 'POST', headers: headers(req.apiKey), body: JSON.stringify(body), signal: req.signal });
     if (!res.ok) {
       const text = await res.text().catch(() => '');

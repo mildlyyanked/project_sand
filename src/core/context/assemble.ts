@@ -161,6 +161,13 @@ export function assembleContext(input: AssembleInput): AssembledContext {
     messages.push({ role: 'assistant', content: p.prefill });
   }
 
+  // Some providers drop or dilute the system role. Optionally deliver it as the opening exchange instead.
+  if (preset?.systemAsUser && messages[0]?.role === 'system') {
+    const sys = messages.shift()!;
+    messages.unshift({ role: 'user', content: sys.content }, { role: 'assistant', content: 'Understood. I will continue the manuscript in that voice.' });
+    log.push('system prompt delivered as the first user turn');
+  }
+
   const totalTokens = layers.filter((l) => !l.dropped).reduce((n, l) => n + l.tokens, 0);
   log.push(`total ~${totalTokens} tokens in ${messages.length} messages`);
   return { layers, messages, totalTokens, log };

@@ -22,6 +22,12 @@ const MIGRATIONS: string[] = [
   ALTER TABLE styles ADD COLUMN influences TEXT NOT NULL DEFAULT '';
   ALTER TABLE styles ADD COLUMN repetition TEXT NOT NULL DEFAULT 'light';
   `,
+  `
+  ALTER TABLE presets ADD COLUMN system_as_user INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE presets ADD COLUMN provider_ignore_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE presets ADD COLUMN provider_order_json TEXT NOT NULL DEFAULT '[]';
+  CREATE TABLE model_stats (model TEXT PRIMARY KEY, attempts INTEGER NOT NULL DEFAULT 0, refusals INTEGER NOT NULL DEFAULT 0, last_at INTEGER NOT NULL DEFAULT 0);
+  `,
 ];
 
 export async function migrate(db: SQLiteDatabase): Promise<void> {

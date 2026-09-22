@@ -15,7 +15,7 @@ export function session(p: Partial<Session> = {}): Session {
 }
 
 export function preset(p: Partial<Preset> = {}): Preset {
-  return { id: 'p1', name: 'P', system: 'SYS', prefill: '', postHistory: '', modelOverrides: {}, refusalChain: [], createdAt: 0, updatedAt: 0, ...p };
+  return { id: 'p1', name: 'P', system: 'SYS', prefill: '', postHistory: '', modelOverrides: {}, refusalChain: [], systemAsUser: false, providerIgnore: [], providerOrder: [], createdAt: 0, updatedAt: 0, ...p };
 }
 
 export function style(p: Partial<Style> = {}): Style {

@@ -12,6 +12,8 @@ export interface RequestOptions {
   stream: boolean;
   /** Fallback models OpenRouter may route to if the primary fails. */
   fallbackModels?: string[];
+  providerIgnore?: string[];
+  providerOrder?: string[];
 }
 
 export function buildRequestBody(o: RequestOptions): Record<string, unknown> {
@@ -21,6 +23,8 @@ export function buildRequestBody(o: RequestOptions): Record<string, unknown> {
     allow_fallbacks: true,
   };
   if (o.zdr) provider.zdr = true;
+  if (o.providerIgnore?.length) provider.ignore = o.providerIgnore;
+  if (o.providerOrder?.length) provider.order = o.providerOrder;
   const body: Record<string, unknown> = {
     model: o.model,
     messages: o.messages,

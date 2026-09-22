@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import type { CanonEvent, Character, Id, LoreEntry, Preset, Species, Style, Universe } from '@/core/types';
+import type { CanonEvent, Character, Id, LoreEntry, ModelStat, Preset, Species, Style, Universe } from '@/core/types';
 import { newId, now } from '@/core/ids';
 import { b, ib, j, pj } from './map';
 
@@ -120,8 +120,8 @@ export const newStyle = (): Style => ({ id: newId(), name: 'New style', pointOfV
 
 // Presets
 
-interface PRow { id: string; name: string; system: string; prefill: string; post_history: string; overrides_json: string; chain_json: string; created_at: number; updated_at: number }
-const pFrom = (r: PRow): Preset => ({ id: r.id, name: r.name, system: r.system, prefill: r.prefill, postHistory: r.post_history, modelOverrides: pj(r.overrides_json, {}), refusalChain: pj(r.chain_json, []), createdAt: r.created_at, updatedAt: r.updated_at });
+interface PRow { id: string; name: string; system: string; prefill: string; post_history: string; overrides_json: string; chain_json: string; system_as_user: number; provider_ignore_json: string; provider_order_json: string; created_at: number; updated_at: number }
+const pFrom = (r: PRow): Preset => ({ id: r.id, name: r.name, system: r.system, prefill: r.prefill, postHistory: r.post_history, modelOverrides: pj(r.overrides_json, {}), refusalChain: pj(r.chain_json, []), systemAsUser: b(r.system_as_user), providerIgnore: pj(r.provider_ignore_json, []), providerOrder: pj(r.provider_order_json, []), createdAt: r.created_at, updatedAt: r.updated_at });
 export async function listPresets(db: SQLiteDatabase): Promise<Preset[]> {
   return (await db.getAllAsync<PRow>('SELECT * FROM presets ORDER BY name')).map(pFrom);
 }
@@ -131,13 +131,26 @@ export async function getPreset(db: SQLiteDatabase, id: Id | null): Promise<Pres
   return r ? pFrom(r) : null;
 }
 export async function savePreset(db: SQLiteDatabase, p: Preset): Promise<void> {
-  await db.runAsync('INSERT OR REPLACE INTO presets (id, name, system, prefill, post_history, overrides_json, chain_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)', p.id, p.name, p.system, p.prefill, p.postHistory, j(p.modelOverrides), j(p.refusalChain), p.createdAt, now());
+  await db.runAsync('INSERT OR REPLACE INTO presets (id, name, system, prefill, post_history, overrides_json, chain_json, system_as_user, provider_ignore_json, provider_order_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', p.id, p.name, p.system, p.prefill, p.postHistory, j(p.modelOverrides), j(p.refusalChain), ib(p.systemAsUser), j(p.providerIgnore), j(p.providerOrder), p.createdAt, now());
 }
 export async function deletePreset(db: SQLiteDatabase, id: Id): Promise<void> {
   await db.runAsync('UPDATE sessions SET preset_id = NULL WHERE preset_id = ?', id);
   await db.runAsync('DELETE FROM presets WHERE id = ?', id);
 }
-export const newPreset = (): Preset => ({ id: newId(), name: 'New preset', system: '', prefill: '', postHistory: '', modelOverrides: {}, refusalChain: [], createdAt: now(), updatedAt: now() });
+export const newPreset = (): Preset => ({ id: newId(), name: 'New preset', system: '', prefill: '', postHistory: '', modelOverrides: {}, refusalChain: [], systemAsUser: false, providerIgnore: [], providerOrder: [], createdAt: now(), updatedAt: now() });
+
+// Model stats: the refusal ledger
+
+export async function listModelStats(db: SQLiteDatabase): Promise<ModelStat[]> {
+  const rows = await db.getAllAsync<{ model: string; attempts: number; refusals: number; last_at: number }>('SELECT * FROM model_stats ORDER BY attempts DESC');
+  return rows.map((r) => ({ model: r.model, attempts: r.attempts, refusals: r.refusals, lastAt: r.last_at }));
+}
+export async function recordAttempt(db: SQLiteDatabase, model: string, refused: boolean): Promise<void> {
+  await db.runAsync('INSERT INTO model_stats (model, attempts, refusals, last_at) VALUES (?, 1, ?, ?) ON CONFLICT(model) DO UPDATE SET attempts = attempts + 1, refusals = refusals + excluded.refusals, last_at = excluded.last_at', model, refused ? 1 : 0, now());
+}
+export async function resetModelStats(db: SQLiteDatabase): Promise<void> {
+  await db.runAsync('DELETE FROM model_stats');
+}
 
 // KV
 

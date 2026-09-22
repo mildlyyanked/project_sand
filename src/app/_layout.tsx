@@ -9,6 +9,7 @@ import { DB_NAME, migrate } from '@/db/schema';
 import { seedIfEmpty } from '@/db/seed';
 import { useSettings } from '@/state/settings';
 import { dark, light, useScheme, useTheme } from '@/ui/theme';
+import { KeyboardRoot } from '@/ui/keyboard';
 
 function Boot({ children }: { children: React.ReactNode }) {
   const db = useSQLiteContext();
@@ -39,6 +40,7 @@ export default function RootLayout() {
   const navTheme = scheme === 'light' ? { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: t.bg, card: t.bg, text: t.text, border: t.border, primary: t.accent } } : { ...DarkTheme, colors: { ...DarkTheme.colors, background: t.bg, card: t.bg, text: t.text, border: t.border, primary: t.accent } };
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: t.bg }}>
+      <KeyboardRoot>
       <ThemeProvider value={navTheme}>
         <StatusBar style={scheme === 'light' ? 'dark' : 'light'} />
         <Suspense fallback={<Spinner />}>
@@ -80,6 +82,7 @@ export default function RootLayout() {
           </SQLiteProvider>
         </Suspense>
       </ThemeProvider>
+      </KeyboardRoot>
     </GestureHandlerRootView>
   );
 }

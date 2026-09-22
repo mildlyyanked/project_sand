@@ -101,9 +101,30 @@ export interface Style {
 }
 
 export type RefusalStep =
+  /** Prepend stronger framing to the system prompt. */
   | { kind: 'reframe'; text: string }
+  /** Start the reply with this text. */
   | { kind: 'prefill'; text: string }
-  | { kind: 'model'; model: string };
+  /** Retry on another model. 'auto' picks the best-behaved model from the ledger. */
+  | { kind: 'model'; model: string }
+  /** Prefill with the tail of the manuscript so the model is mid-sentence, not deciding. */
+  | { kind: 'momentum' }
+  /** Have the helper rewrite the latest instruction as an in-world author's note. */
+  | { kind: 'soften' }
+  /** Write the lead-in first with a short budget, then continue from inside the scene. */
+  | { kind: 'twostep' }
+  /** Nudge temperature and top-p up; some refusals are a sampling rut. */
+  | { kind: 'heat' };
+
+export const STEP_INFO: Record<RefusalStep['kind'], { label: string; hint: string }> = {
+  momentum: { label: 'Momentum', hint: 'Prefills the reply with the last sentence of the manuscript so the model continues mid-flow instead of judging a request.' },
+  soften: { label: 'Soften', hint: 'The helper rewrites your latest instruction as a quiet author\'s note in the story\'s own register. Same content, no imperative.' },
+  twostep: { label: 'Two-step', hint: 'Writes only the approach first with a small budget, then continues from inside the scene where refusing would break the passage.' },
+  heat: { label: 'Heat', hint: 'Raises temperature and top-p for the retry. Cheap, and sometimes all it takes.' },
+  reframe: { label: 'Reframe', hint: 'Prepends your text to the system prompt for the retry.' },
+  prefill: { label: 'Prefill', hint: 'Forces the reply to begin with your text.' },
+  model: { label: 'Model', hint: 'Retries on another model. Auto picks the model with the best record in the refusal ledger.' },
+};
 
 export interface Preset {
   id: Id;
@@ -114,6 +135,12 @@ export interface Preset {
   /** Per-model overrides keyed by model id (or prefix ending in '*'). */
   modelOverrides: Record<string, Partial<Pick<Preset, 'system' | 'prefill' | 'postHistory'>>>;
   refusalChain: RefusalStep[];
+  /** Send the system prompt as the first user turn; helps on providers that ignore system. */
+  systemAsUser: boolean;
+  /** OpenRouter provider slugs to never route to (e.g. ones that add their own moderation). */
+  providerIgnore: string[];
+  /** Preferred provider order. */
+  providerOrder: string[];
   createdAt: number;
   updatedAt: number;
 }
@@ -201,6 +228,13 @@ export interface Usage {
   promptTokens: number;
   completionTokens: number;
   costUsd: number | null;
+}
+
+export interface ModelStat {
+  model: string;
+  attempts: number;
+  refusals: number;
+  lastAt: number;
 }
 
 export interface ModelInfo {

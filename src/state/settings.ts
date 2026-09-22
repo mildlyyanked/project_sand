@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import type { ModelInfo, ModelSlots } from '@/core/types';
-import { kvGet, kvSet } from '@/db/repo/library';
+import type { ModelInfo, ModelSlots, ModelStat } from '@/core/types';
+import { kvGet, kvSet, listModelStats } from '@/db/repo/library';
 import { loadApiKey, saveApiKey } from './secrets';
 
 export interface Defaults {
@@ -35,6 +35,8 @@ interface SettingsState {
   setModels(db: SQLiteDatabase, models: ModelInfo[], zdrIds: string[]): Promise<void>;
   modelsLoading: boolean;
   modelsError: string | null;
+  stats: ModelStat[];
+  refreshStats(db: SQLiteDatabase): Promise<void>;
   /** Fetch the catalog when it is missing or older than maxAgeMs. Safe to call often. */
   ensureModels(db: SQLiteDatabase, opts?: { force?: boolean; maxAgeMs?: number }): Promise<void>;
 }
@@ -48,6 +50,10 @@ export const useSettings = create<SettingsState>((set, get) => ({
   zdrIds: [],
   modelsLoading: false,
   modelsError: null,
+  stats: [],
+  async refreshStats(db) {
+    set({ stats: await listModelStats(db) });
+  },
   async ensureModels(db, opts = {}) {
     const { apiKey, models, modelsFetchedAt, modelsLoading } = get();
     if (!apiKey || modelsLoading) return;
@@ -77,7 +83,8 @@ export const useSettings = create<SettingsState>((set, get) => ({
       if (m) models = JSON.parse(m) as ModelInfo[];
       if (z) zdrIds = JSON.parse(z) as string[];
     } catch {}
-    set({ ready: true, apiKey, defaults, models, zdrIds, modelsFetchedAt: at ? Number(at) : null });
+    const stats = await listModelStats(db);
+    set({ ready: true, apiKey, defaults, models, zdrIds, stats, modelsFetchedAt: at ? Number(at) : null });
   },
   async setApiKey(db, key) {
     await saveApiKey(key.trim());

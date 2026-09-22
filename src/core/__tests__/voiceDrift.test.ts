@@ -24,3 +24,10 @@ describe('parsePremises', () => {
     expect(out[1]).toMatch(/^A city/);
   });
 });
+
+describe('parsePremises strictness', () => {
+  it('ignores a plain reply and a single numbered line', () => {
+    expect(parsePremises('The pull you are describing feels central. What feeling do you most want lingering with the reader?')).toEqual([]);
+    expect(parsePremises('1. Only one idea here, which is not a list of premises at all.')).toEqual([]);
+  });
+});

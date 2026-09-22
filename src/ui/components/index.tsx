@@ -3,15 +3,16 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Te
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { radius, serif, space, useTheme, mono } from '../theme';
+import { KeyboardScroll } from '../keyboard';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 export function Screen({ children, style, edges, scroll, padded = true }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; edges?: ('top' | 'bottom' | 'left' | 'right')[]; scroll?: boolean; padded?: boolean }) {
   const t = useTheme();
   const inner = scroll ? (
-    <ScrollView contentContainerStyle={[padded && { padding: space.lg, paddingBottom: space.xxl * 2 }, style]} keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic">
+    <KeyboardScroll contentContainerStyle={[padded && { padding: space.lg, paddingBottom: space.xxl * 2 }, style]} keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic">
       {children}
-    </ScrollView>
+    </KeyboardScroll>
   ) : (
     <View style={[{ flex: 1 }, padded && { padding: space.lg }, style]}>{children}</View>
   );
@@ -81,10 +82,10 @@ export function Field({ label, hint, style, multiline, ...rest }: { label?: stri
   );
 }
 
-export function Card({ children, style, onPress }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void }) {
+export function Card({ children, style, onPress, onLongPress }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void; onLongPress?: () => void }) {
   const t = useTheme();
   const s = [{ backgroundColor: t.surface, borderRadius: radius.lg, padding: space.lg, borderWidth: 1, borderColor: t.border }, style];
-  if (onPress) return <Pressable onPress={onPress} style={({ pressed }) => [s, { opacity: pressed ? 0.8 : 1 }]}>{children}</Pressable>;
+  if (onPress || onLongPress) return <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={({ pressed }) => [s, { opacity: pressed ? 0.8 : 1 }]}>{children}</Pressable>;
   return <View style={s}>{children}</View>;
 }
 

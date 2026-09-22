@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, TextInput, View } from 'react-native';
+import { FlatList, Platform, Pressable, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardShift } from '@/ui/keyboard';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import * as Clipboard from 'expo-clipboard';
@@ -21,6 +23,7 @@ export default function Manuscript() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useSQLiteContext();
   const t = useTheme();
+  const insets = useSafeAreaInsets();
   const s = useSession();
   const fontSize = useSettings((x) => x.defaults.fontSize);
   const [text, setText] = useState('');
@@ -125,7 +128,7 @@ export default function Manuscript() {
   const streaming = s.streaming;
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: t.bg }} keyboardVerticalOffset={90}>
+    <KeyboardShift style={{ flex: 1, backgroundColor: t.bg }} offset={insets.top + (Platform.OS === 'ios' ? 44 : 56)}>
       <Stack.Screen
         options={{
           title: session.title,
@@ -285,6 +288,6 @@ export default function Manuscript() {
         {drift.notes.map((n) => <T key={n}>• {n}</T>)}
         <Button kind="outline" title="Regenerate with 'stay on voice'" onPress={() => { setDriftOpen(false); if (lastProse) { setDirText('stay strictly in the established voice; avoid stock phrases'); setDir({ regenerateId: lastProse.id }); } }} />
       </Sheet>
-    </KeyboardAvoidingView>
+    </KeyboardShift>
   );
 }

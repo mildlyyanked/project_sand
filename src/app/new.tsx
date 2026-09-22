@@ -1,15 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, TextInput, View } from 'react-native';
+import { FlatList, Platform, Pressable, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardShift } from '@/ui/keyboard';
 import { router } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import type { Character, ChatMessage, Style, Universe } from '@/core/types';
-import { openingPrompt, parsePremises, workshopNotePrompt, workshopSystem } from '@/core/helpers';
+import { briefNote, briefPrompt, openingPrompt, parseBrief, parsePremises, workshopSystem, type Brief } from '@/core/helpers';
 import { newId } from '@/core/ids';
-import { listCharacters, listStyles, listUniverses } from '@/db/repo/library';
+import { listCharacters, listStyles, listUniverses, newCharacter, newStyle, newUniverse, saveCharacter, saveStyle, saveUniverse } from '@/db/repo/library';
 import { blankSession, insertBeat, makeBeat, upsertSession } from '@/db/repo/sessions';
 import { useSettings } from '@/state/settings';
 import { client } from '@/state/client';
-import { Banner, Button, Chip, IconButton, Ionicons, Row, Sheet, T } from '@/ui/components';
+import { Banner, Button, Card, Chip, Field, IconButton, Ionicons, Row, Section, Segmented, Sheet, T } from '@/ui/components';
 import { radius, serif, space, useTheme } from '@/ui/theme';
 import { shortModel } from '@/ui/format';
 
@@ -20,6 +22,7 @@ interface Turn { id: string; role: 'user' | 'assistant'; text: string; streaming
 export default function Workshop() {
   const db = useSQLiteContext();
   const t = useTheme();
+  const insets = useSafeAreaInsets();
   const { apiKey, defaults } = useSettings();
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [chars, setChars] = useState<Character[]>([]);
@@ -35,6 +38,10 @@ export default function Workshop() {
   const [chosen, setChosen] = useState<string | null>(null);
   const [opening, setOpening] = useState('');
   const [openingBusy, setOpeningBusy] = useState(false);
+  const [brief, setBrief] = useState<Brief | null>(null);
+  const [briefOpen, setBriefOpen] = useState(false);
+  const [briefBusy, setBriefBusy] = useState(false);
+  const [starting, setStarting] = useState(false);
   const listRef = useRef<FlatList<Turn>>(null);
   const abort = useRef<AbortController | null>(null);
 
@@ -80,40 +87,79 @@ export default function Workshop() {
   }
 
   async function writeOpening() {
-    if (!chosen) return;
+    const premise = brief?.premise || chosen;
+    if (!premise) return;
     setOpeningBusy(true); setErr(null); setOpening('');
     try {
       let text = '';
-      for await (const ev of client.stream({ apiKey, model: defaults.models.writer, messages: openingPrompt(chosen, style), params: { temperature: 0.9, topP: 0.95, maxTokens: 900, reasoning: false }, zdr: defaults.zdr })) {
+      for await (const ev of client.stream({ apiKey, model: defaults.models.writer, messages: openingPrompt(premise, style), params: { temperature: 0.9, topP: 0.95, maxTokens: 900, reasoning: false }, zdr: defaults.zdr })) {
         if (ev.type === 'text') { text += ev.text ?? ''; setOpening(text); }
         if (ev.type === 'error') throw new Error(ev.error);
       }
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setOpeningBusy(false); }
   }
 
+  async function draftBrief() {
+    if (!apiKey || briefBusy) return;
+    setBriefBusy(true); setErr(null);
+    try {
+      let text = '';
+      for await (const ev of client.stream({ apiKey, model: defaults.models.helper, messages: briefPrompt(transcript(), chosen), params: { temperature: 0.4, topP: 0.9, maxTokens: 1500, reasoning: false }, zdr: defaults.zdr })) {
+        if (ev.type === 'text') text += ev.text ?? '';
+        if (ev.type === 'error') throw new Error(ev.error);
+      }
+      const b = parseBrief(text);
+      if (!b) throw new Error('The helper did not return a usable brief. Try again, or pick a different helper model.');
+      if (!b.premise && chosen) b.premise = chosen;
+      setBrief(b);
+      setBriefOpen(true);
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBriefBusy(false); }
+  }
+
   async function start(withOpening: boolean) {
-    if (!chosen) return;
-    const title = chosen.split(/[.!?]/)[0]!.split(/\s+/).slice(0, 6).join(' ') || 'Untitled';
-    const s = blankSession({ title, models: defaults.models, zdr: defaults.zdr, presetId: defaults.presetId, styleId, universeId, characterIds: charIds });
-    await upsertSession(db, s);
-    let noteText = `Premise: ${chosen.trim()}`;
-    if (turns.length > 2 && apiKey) {
-      try {
-        let n = '';
-        for await (const ev of client.stream({ apiKey, model: defaults.models.helper, messages: workshopNotePrompt(transcript(), chosen), params: { temperature: 0.3, topP: 0.9, maxTokens: 400, reasoning: false }, zdr: defaults.zdr })) if (ev.type === 'text') n += ev.text ?? '';
-        if (n.trim()) noteText = n.trim();
-      } catch {}
+    if (starting) return;
+    const premise = brief?.premise || chosen;
+    if (!premise) return;
+    setStarting(true);
+    try {
+      let uId = universeId;
+      let sId = styleId;
+      const cIds = [...charIds];
+      if (brief) {
+        if (brief.world && !uId) {
+          const u = { ...newUniverse(brief.world.name), description: brief.world.description };
+          await saveUniverse(db, u);
+          uId = u.id;
+        }
+        if (brief.style && !sId) {
+          const st = { ...newStyle(), name: brief.style.name, pointOfView: brief.style.pointOfView, tense: brief.style.tense, register: brief.style.register, proseDensity: brief.style.proseDensity, influences: brief.style.influences };
+          await saveStyle(db, st);
+          sId = st.id;
+        }
+        for (const c of brief.characters) {
+          if (pickedChars.some((x) => x.name.toLowerCase() === c.name.toLowerCase())) continue;
+          const ch = { ...newCharacter(), name: c.name, universeId: uId, lifeStage: c.lifeStage, summary: [c.role, c.summary].filter(Boolean).join('. '), voice: c.voice, preferences: c.wants ? `Wants: ${c.wants}` : '' };
+          await saveCharacter(db, ch);
+          cIds.push(ch.id);
+        }
+      }
+      const title = brief?.title || premise.split(/[.!?]/)[0]!.split(/\s+/).slice(0, 6).join(' ') || 'Untitled';
+      const s = blankSession({ title, models: defaults.models, zdr: defaults.zdr, presetId: defaults.presetId, styleId: sId, universeId: uId, characterIds: cIds });
+      await upsertSession(db, s);
+      const note = makeBeat({ sessionId: s.id, parentId: null, role: 'note', text: brief ? briefNote(brief) : `Premise: ${premise.trim()}` });
+      await insertBeat(db, note);
+      let current = note.id;
+      if (withOpening && opening.trim()) {
+        const b = makeBeat({ sessionId: s.id, parentId: note.id, role: 'prose', text: opening.trim(), model: defaults.models.writer });
+        await insertBeat(db, b);
+        current = b.id;
+      }
+      await upsertSession(db, { ...s, currentBeatId: current });
+      router.replace(`/session/${s.id}`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setStarting(false);
     }
-    const note = makeBeat({ sessionId: s.id, parentId: null, role: 'note', text: noteText });
-    await insertBeat(db, note);
-    let current = note.id;
-    if (withOpening && opening.trim()) {
-      const b = makeBeat({ sessionId: s.id, parentId: note.id, role: 'prose', text: opening.trim(), model: defaults.models.writer });
-      await insertBeat(db, b);
-      current = b.id;
-    }
-    await upsertSession(db, { ...s, currentBeatId: current });
-    router.replace(`/session/${s.id}`);
   }
 
   const setupLabel = [universe?.name, pickedChars.length ? `${pickedChars.length} character${pickedChars.length > 1 ? 's' : ''}` : null, style?.name].filter(Boolean).join(' · ') || 'No world, characters or style yet';
@@ -145,7 +191,7 @@ export default function Workshop() {
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: t.bg }} keyboardVerticalOffset={90}>
+    <KeyboardShift style={{ flex: 1, backgroundColor: t.bg }} offset={insets.top + (Platform.OS === 'ios' ? 44 : 56)}>
       <Pressable onPress={() => setSetupOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: space.lg, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: t.border }}>
         <Ionicons name="options-outline" size={16} color={t.dim} />
         <T v="dim" numberOfLines={1} style={{ flex: 1 }}>{setupLabel}</T>
@@ -163,7 +209,7 @@ export default function Workshop() {
           turns.length === 0 ? (
             <View style={{ padding: space.lg, gap: 12 }}>
               <T v="h">Let’s find the story.</T>
-              <T v="dim">Say anything: an image, a mood, a person, a scene you keep replaying, or what you don’t want. The editor asks from there. Ask for premises whenever you’re ready, and keep pushing on them after.</T>
+              <T v="dim">Say anything: an image, a mood, a person, a scene you keep replaying, or what you don’t want. The editor asks from there, and keeps asking: people, place, voice, how far it goes. When it feels settled, draft the brief. You get a premise with its ideas spelled out, the people with rough setups, and a world and voice to match, all editable before the story starts.</T>
               <Row style={{ flexWrap: 'wrap' }}>
                 {OPENERS.map((o) => <Chip key={o} small label={o} onPress={() => send(o)} />)}
               </Row>
@@ -171,17 +217,18 @@ export default function Workshop() {
           ) : null
         }
       />
-      {chosen ? (
+      {chosen || brief ? (
         <View style={{ borderTopWidth: 1, borderTopColor: t.border, padding: space.md, gap: 8, backgroundColor: t.surface }}>
           <Row between>
-            <T v="label">Premise chosen</T>
-            <IconButton name="close" size={16} onPress={() => { setChosen(null); setOpening(''); }} />
+            <T v="label">{brief ? brief.title : 'Premise chosen'}</T>
+            <IconButton name="close" size={16} onPress={() => { setChosen(null); setBrief(null); setOpening(''); }} />
           </Row>
-          <T v="dim" numberOfLines={opening ? 2 : 4}>{chosen}</T>
+          <T v="dim" numberOfLines={opening ? 2 : 4}>{brief?.premise || chosen}</T>
           {opening ? <T style={{ fontFamily: serif, fontSize: 15, lineHeight: 23 }} numberOfLines={6}>{opening}</T> : null}
-          <Row>
-            <Button small kind="outline" icon="pencil-outline" title={opening ? 'Rewrite opening' : 'Write the opening'} onPress={writeOpening} loading={openingBusy} disabled={!apiKey} />
-            {opening && !openingBusy ? <Button small icon="play" title="Start with it" onPress={() => start(true)} /> : <Button small kind="ghost" title="Start blank" onPress={() => start(false)} />}
+          <Row style={{ flexWrap: 'wrap' }}>
+            <Button small icon="reader-outline" title={brief ? 'Review the brief' : 'Draft the brief'} onPress={() => (brief ? setBriefOpen(true) : draftBrief())} loading={briefBusy} disabled={!apiKey || starting} />
+            <Button small kind="outline" icon="pencil-outline" title={opening ? 'Rewrite opening' : 'Write the opening'} onPress={writeOpening} loading={openingBusy} disabled={!apiKey || starting} />
+            {opening && !openingBusy ? <Button small kind="outline" icon="play" title="Start with it" onPress={() => start(true)} loading={starting} /> : <Button small kind="ghost" title="Start blank" onPress={() => start(false)} loading={starting} disabled={starting} />}
           </Row>
         </View>
       ) : null}
@@ -192,6 +239,7 @@ export default function Workshop() {
         </Row>
         {turns.length > 0 && !busy ? (
           <Row style={{ marginTop: 6, flexWrap: 'wrap' }}>
+            <Chip small label="Draft the brief" selected={!!brief} onPress={() => (brief ? setBriefOpen(true) : draftBrief())} />
             <Chip small label="Give me premises" onPress={() => send('Give me premises now, based on everything so far.')} />
             <Chip small label="Push it further" onPress={() => send('Push the last idea further. Make it stranger and more specific.')} />
             <Chip small label="Darker" onPress={() => send('Take that darker.')} />
@@ -199,6 +247,60 @@ export default function Workshop() {
           </Row>
         ) : null}
       </View>
+
+      <Sheet open={briefOpen} onClose={() => setBriefOpen(false)} title="The brief" full>
+        {brief ? (
+          <>
+            <T v="faint">Everything here is editable. Creating the story also adds the people, world and style to your library.</T>
+            <Field label="Title" value={brief.title} onChangeText={(v) => setBrief({ ...brief, title: v })} />
+            <Field label="Premise" value={brief.premise} onChangeText={(v) => setBrief({ ...brief, premise: v })} multiline style={{ minHeight: 110 }} />
+            <Field label="Ideas, one per line" value={brief.ideas.join('\n')} onChangeText={(v) => setBrief({ ...brief, ideas: v.split('\n').map((x) => x.trim()).filter(Boolean) })} multiline />
+            <Section title={`People · ${brief.characters.length}`} right={<Button small kind="ghost" icon="add" title="Add" onPress={() => setBrief({ ...brief, characters: [...brief.characters, { name: '', role: '', lifeStage: '', summary: '', voice: '', wants: '' }] })} />}>
+              {brief.characters.map((c, i) => {
+                const upd = (patch: Partial<typeof c>) => setBrief({ ...brief, characters: brief.characters.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+                return (
+                  <Card key={i} style={{ gap: 8 }}>
+                    <Row>
+                      <Field value={c.name} onChangeText={(v) => upd({ name: v })} placeholder="Name" style={{ flex: 1 }} />
+                      <Field value={c.role} onChangeText={(v) => upd({ role: v })} placeholder="Role" style={{ flex: 1 }} />
+                      <IconButton name="close" size={18} onPress={() => setBrief({ ...brief, characters: brief.characters.filter((_, j) => j !== i) })} />
+                    </Row>
+                    <Field value={c.summary} onChangeText={(v) => upd({ summary: v })} placeholder="Who they are" multiline />
+                    <Field value={c.wants} onChangeText={(v) => upd({ wants: v })} placeholder="What they want" />
+                    <Field value={c.voice} onChangeText={(v) => upd({ voice: v })} placeholder="How they talk" />
+                    <Field value={c.lifeStage} onChangeText={(v) => upd({ lifeStage: v })} placeholder="Age or life stage" />
+                  </Card>
+                );
+              })}
+            </Section>
+            <Section title="World" right={<Chip small label={brief.world ? 'Remove' : 'Add a world'} onPress={() => setBrief({ ...brief, world: brief.world ? null : { name: '', description: '' } })} />}>
+              {brief.world ? (
+                <>
+                  <Field value={brief.world.name} onChangeText={(v) => setBrief({ ...brief, world: { ...brief.world!, name: v } })} placeholder="Name" />
+                  <Field value={brief.world.description} onChangeText={(v) => setBrief({ ...brief, world: { ...brief.world!, description: v } })} placeholder="What is particular about this place and time" multiline />
+                </>
+              ) : <T v="faint">{universe ? `Using ${universe.name}.` : 'No world card. The story is set wherever the prose says.'}</T>}
+            </Section>
+            <Section title="Voice" right={<Chip small label={brief.style ? 'Remove' : 'Add a style'} onPress={() => setBrief({ ...brief, style: brief.style ? null : { name: 'Story voice', pointOfView: '', tense: '', register: 'blunt', proseDensity: '', influences: '' } })} />}>
+              {brief.style ? (
+                <>
+                  <Field value={brief.style.name} onChangeText={(v) => setBrief({ ...brief, style: { ...brief.style!, name: v } })} placeholder="Style name" />
+                  <Row>
+                    <Field value={brief.style.pointOfView} onChangeText={(v) => setBrief({ ...brief, style: { ...brief.style!, pointOfView: v } })} placeholder="Point of view" style={{ flex: 1 }} />
+                    <Field value={brief.style.tense} onChangeText={(v) => setBrief({ ...brief, style: { ...brief.style!, tense: v } })} placeholder="Tense" style={{ flex: 1 }} />
+                  </Row>
+                  <Segmented value={brief.style.register} onChange={(v) => setBrief({ ...brief, style: { ...brief.style!, register: v } })} options={[{ key: 'clinical', label: 'Clinical' }, { key: 'euphemistic', label: 'Euphemistic' }, { key: 'blunt', label: 'Blunt' }]} />
+                  <Field value={brief.style.proseDensity} onChangeText={(v) => setBrief({ ...brief, style: { ...brief.style!, proseDensity: v } })} placeholder="Prose density" />
+                  <Field value={brief.style.influences} onChangeText={(v) => setBrief({ ...brief, style: { ...brief.style!, influences: v } })} placeholder="Influences" />
+                </>
+              ) : <T v="faint">{style ? `Using ${style.name}.` : 'No style card.'}</T>}
+            </Section>
+            <Field label="Notes" value={brief.notes} onChangeText={(v) => setBrief({ ...brief, notes: v })} multiline />
+            <Button title="Create the story" icon="play" onPress={() => { setBriefOpen(false); void start(false); }} loading={starting} disabled={!brief.premise.trim()} />
+            <Button kind="ghost" title="Draft again" onPress={() => { setBriefOpen(false); void draftBrief(); }} disabled={briefBusy || starting} />
+          </>
+        ) : null}
+      </Sheet>
 
       <Sheet open={setupOpen} onClose={() => setSetupOpen(false)} title="Story setup">
         <T v="label">World</T>
@@ -219,6 +321,6 @@ export default function Workshop() {
         </Row>
         <T v="faint">The editor sees these while you talk. Changing them mid-conversation is fine.</T>
       </Sheet>
-    </KeyboardAvoidingView>
+    </KeyboardShift>
   );
 }
