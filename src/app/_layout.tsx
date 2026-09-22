@@ -63,8 +63,8 @@ export default function RootLayout() {
               >
                 <Stack.Screen name="index" options={{ title: 'Sand' }} />
                 <Stack.Screen name="settings" options={{ title: 'Settings' }} />
-                <Stack.Screen name="models" options={{ title: 'Choose model', presentation: 'modal' }} />
-                <Stack.Screen name="new" options={{ title: 'New story' }} />
+                <Stack.Screen name="models" options={{ title: '', presentation: 'modal', headerShown: false }} />
+                <Stack.Screen name="new" options={{ title: 'Workshop' }} />
                 <Stack.Screen name="session/[id]/index" options={{ title: '' }} />
                 <Stack.Screen name="session/[id]/context" options={{ title: 'Context', presentation: 'modal' }} />
                 <Stack.Screen name="session/[id]/settings" options={{ title: 'Session' }} />

@@ -89,7 +89,7 @@ export default function Home() {
       </Pressable>
       <Sheet open={sheet} onClose={() => setSheet(false)} title="New story">
         <MenuItem icon="document-outline" label="Blank" hint="Start from nothing" onPress={createBlank} />
-        <MenuItem icon="sparkles-outline" label="Guided start" hint="Pick a world and mood, get premises, choose one" onPress={() => { setSheet(false); router.push('/new'); }} />
+        <MenuItem icon="chatbubbles-outline" label="Workshop it" hint="Talk it through with an editor until a premise lands" onPress={() => { setSheet(false); router.push('/new'); }} />
         {templates.length ? (
           <View style={{ marginTop: space.md, gap: 4 }}>
             <T v="label">From template</T>

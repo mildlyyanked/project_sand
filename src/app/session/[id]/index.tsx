@@ -48,7 +48,11 @@ export default function Manuscript() {
   const session = s.session;
   const path = s.path;
   const lastProse = useMemo(() => [...path].reverse().find((b) => b.role === 'prose'), [path]);
-  const drift = useMemo(() => voiceDrift(lastProse?.text ?? '', s.bundle.style), [lastProse, s.bundle.style]);
+  const drift = useMemo(() => {
+    const prose = path.filter((b) => b.role === 'prose');
+    const earlier = prose.slice(-6, -1).map((b) => b.text).join('\n');
+    return voiceDrift(lastProse?.text ?? '', s.bundle.style, earlier);
+  }, [lastProse, path, s.bundle.style]);
   const hasRedo = !!session && (s.index.children.get(session.currentBeatId)?.length ?? 0) > 0;
 
   useEffect(() => {

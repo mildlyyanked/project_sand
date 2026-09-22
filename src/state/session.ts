@@ -4,6 +4,7 @@ import type { Beat, Character, ContextLayer, Id, LoreEntry, Preset, RefusalStep,
 import { indexBeats, pathTo, type BeatIndex, descendants, leafOf, stepSibling } from '@/core/beatTree';
 import { assembleContext, splitPath, summaryPrompt, type AssembleInput } from '@/core/context/assemble';
 import { generateWithChain } from '@/core/openrouter/generate';
+import { applyRepetition } from '@/core/repetition';
 import { now } from '@/core/ids';
 import { client } from './client';
 import { useSettings } from './settings';
@@ -273,7 +274,7 @@ export const useSession = create<SessionState>((set, get) => {
         const ctx = assembleContext({ session: sess, path, ...bundle, model, direction: o.direction, dropped: get().dropped });
         set({ lastLog: ctx.log });
         const attempts = await generateWithChain({
-          client, apiKey, model, messages: ctx.messages, params: sess.params, zdr: sess.zdr, refusalChain: bundle.preset?.refusalChain ?? [], signal: abort.signal,
+          client, apiKey, model, messages: ctx.messages, params: applyRepetition(sess.params, bundle.style?.repetition), zdr: sess.zdr, refusalChain: bundle.preset?.refusalChain ?? [], signal: abort.signal,
           onAttempt: (attempt, step, m) => set((s) => (s.streaming ? { streaming: { ...s.streaming, attempt, step, model: m, text: '', reasoning: '' } } : {})),
           onDelta: (_a, text, reasoning) => set((s) => (s.streaming ? { streaming: { ...s.streaming, text, reasoning } } : {})),
         });

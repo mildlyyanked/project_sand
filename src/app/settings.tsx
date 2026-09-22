@@ -26,7 +26,10 @@ export default function Settings() {
       }
       const info = await client.keyInfo(key.trim());
       if (!info) setMsg({ text: 'Key saved, but OpenRouter did not accept it.', tone: 'danger' });
-      else setMsg({ text: `Key works${info.label ? ` (${info.label})` : ''}. Used $${info.usage.toFixed(2)}${info.limit != null ? ` of $${info.limit}` : ''}.`, tone: 'ok' });
+      else {
+        setMsg({ text: `Key works${info.label ? ` (${info.label})` : ''}. Used $${info.usage.toFixed(2)}${info.limit != null ? ` of $${info.limit}` : ''}.`, tone: 'ok' });
+        void s.ensureModels(db);
+      }
     } catch (e) {
       setMsg({ text: e instanceof Error ? e.message : String(e), tone: 'danger' });
     } finally {
@@ -36,15 +39,10 @@ export default function Settings() {
   async function refreshModels() {
     if (!s.apiKey) return setMsg({ text: 'Save a key first.', tone: 'danger' });
     setBusy('models');
-    try {
-      const [models, zdr] = await Promise.all([client.listModels(s.apiKey), client.listZdrModelIds(s.apiKey)]);
-      await s.setModels(db, models, [...zdr]);
-      setMsg({ text: `${models.length} models cached, ${zdr.size} with zero data retention.`, tone: 'ok' });
-    } catch (e) {
-      setMsg({ text: e instanceof Error ? e.message : String(e), tone: 'danger' });
-    } finally {
-      setBusy(null);
-    }
+    await s.ensureModels(db, { force: true });
+    const { models, zdrIds, modelsError } = useSettings.getState();
+    setMsg(modelsError ? { text: modelsError, tone: 'danger' } : { text: `${models.length} models cached, ${zdrIds.length} with zero data retention.`, tone: 'ok' });
+    setBusy(null);
   }
 
   return (
@@ -58,7 +56,7 @@ export default function Settings() {
         </Row>
       </Section>
       <Section title="Models" right={<Button small kind="outline" title="Refresh list" onPress={refreshModels} loading={busy === 'models'} />}>
-        <T v="faint">{s.models.length ? `${s.models.length} models · refreshed ${s.modelsFetchedAt ? relTime(s.modelsFetchedAt) : ''}` : 'No model list yet. Refresh to enable the picker.'}</T>
+        <T v="faint">{s.models.length ? `${s.models.length} models · refreshed ${s.modelsFetchedAt ? relTime(s.modelsFetchedAt) : ''}. The list refreshes itself every few hours.` : 'The model list loads once a key is saved.'}</T>
         <Card style={{ padding: 0, paddingHorizontal: space.md }}>
           {(['writer', 'summarizer', 'helper'] as const).map((slot) => (
             <ListItem key={slot} title={slot[0]!.toUpperCase() + slot.slice(1)} subtitle={s.defaults.models[slot] || 'not set'} right={<T v="faint">{shortModel(s.defaults.models[slot])}</T>} onPress={() => router.push(`/models?target=default:${slot}`)} />

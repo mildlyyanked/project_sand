@@ -42,6 +42,14 @@ Web also works for desktop use: `npx expo start --web`.
 3. Pick a writer, summarizer and helper model.
 4. Back on the home screen, tap **+**.
 
+## Workshop
+
+**+ → Workshop it** opens a conversation with an editor model. Say anything, answer its questions, ask for premises when ready, then keep pushing on them. Tap *Use premise N* under any numbered list, or *Use this as the premise* under any reply. A condensed note of what was decided becomes the story's first beat.
+
+## Style cards
+
+Besides voice, register and banned phrases, a style card carries **Influences** (writers to draw on, sent to the writer verbatim) and a **Repetition control** level. The level is applied purely through sampler penalties on the request, never as prompt text. The voice check on the manuscript also flags phrases reused from recent passages.
+
 ## Appearance
 
 Dark by default. Settings → Appearance switches to light or follows the system.

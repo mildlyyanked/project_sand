@@ -33,6 +33,10 @@ interface SettingsState {
   setApiKey(db: SQLiteDatabase, key: string): Promise<void>;
   setDefaults(db: SQLiteDatabase, patch: Partial<Defaults>): Promise<void>;
   setModels(db: SQLiteDatabase, models: ModelInfo[], zdrIds: string[]): Promise<void>;
+  modelsLoading: boolean;
+  modelsError: string | null;
+  /** Fetch the catalog when it is missing or older than maxAgeMs. Safe to call often. */
+  ensureModels(db: SQLiteDatabase, opts?: { force?: boolean; maxAgeMs?: number }): Promise<void>;
 }
 
 export const useSettings = create<SettingsState>((set, get) => ({
@@ -42,6 +46,25 @@ export const useSettings = create<SettingsState>((set, get) => ({
   models: [],
   modelsFetchedAt: null,
   zdrIds: [],
+  modelsLoading: false,
+  modelsError: null,
+  async ensureModels(db, opts = {}) {
+    const { apiKey, models, modelsFetchedAt, modelsLoading } = get();
+    if (!apiKey || modelsLoading) return;
+    const maxAge = opts.maxAgeMs ?? 6 * 60 * 60 * 1000;
+    const fresh = models.length > 0 && modelsFetchedAt != null && Date.now() - modelsFetchedAt < maxAge;
+    if (fresh && !opts.force) return;
+    set({ modelsLoading: true, modelsError: null });
+    try {
+      const { client } = await import('./client');
+      const [list, zdr] = await Promise.all([client.listModels(apiKey), client.listZdrModelIds(apiKey)]);
+      await get().setModels(db, list, [...zdr]);
+    } catch (e) {
+      set({ modelsError: e instanceof Error ? e.message : String(e) });
+    } finally {
+      set({ modelsLoading: false });
+    }
+  },
   async load(db) {
     const [apiKey, d, m, z, at] = await Promise.all([loadApiKey(), kvGet(db, 'defaults'), kvGet(db, 'models'), kvGet(db, 'zdrIds'), kvGet(db, 'modelsFetchedAt')]);
     let defaults = DEFAULTS;

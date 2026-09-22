@@ -18,6 +18,10 @@ const MIGRATIONS: string[] = [
   CREATE INDEX beats_parent ON beats(parent_id);
   CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   `,
+  `
+  ALTER TABLE styles ADD COLUMN influences TEXT NOT NULL DEFAULT '';
+  ALTER TABLE styles ADD COLUMN repetition TEXT NOT NULL DEFAULT 'light';
+  `,
 ];
 
 export async function migrate(db: SQLiteDatabase): Promise<void> {

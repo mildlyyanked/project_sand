@@ -6,6 +6,8 @@ import type { Preset, RefusalStep } from '@/core/types';
 import { deletePreset, getPreset, savePreset } from '@/db/repo/library';
 import { useEntity } from '@/ui/useEntity';
 import { Button, Card, Chip, Field, IconButton, Row, Screen, Section, T } from '@/ui/components';
+import { ModelPicker } from '@/ui/components/ModelPicker';
+import { shortModel } from '@/ui/format';
 
 export default function PresetEditor() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -13,6 +15,7 @@ export default function PresetEditor() {
   const [p, update] = useEntity<Preset>(() => getPreset(db, id!), (v) => savePreset(db, v), [id]);
   const [ovText, setOvText] = useState<string | null>(null);
   const [ovErr, setOvErr] = useState(false);
+  const [pickFor, setPickFor] = useState<number | null>(null);
   if (!p) return null;
 
   const setStep = (i: number, step: RefusalStep) => update({ refusalChain: p.refusalChain.map((s, j) => (j === i ? step : s)) });
@@ -37,10 +40,15 @@ export default function PresetEditor() {
               </Row>
               <IconButton name="trash-outline" size={18} onPress={() => update({ refusalChain: p.refusalChain.filter((_, j) => j !== i) })} />
             </Row>
-            <Field value={stepText(s)} onChangeText={(v) => setStep(i, s.kind === 'model' ? { kind: 'model', model: v } : { kind: s.kind, text: v })} multiline={s.kind !== 'model'} placeholder={s.kind === 'model' ? 'vendor/model' : s.kind === 'prefill' ? 'Text the reply must begin with' : 'Stronger framing to prepend'} autoCapitalize="none" />
+            {s.kind === 'model' ? (
+              <Button kind="outline" icon="hardware-chip-outline" title={s.model ? shortModel(s.model) : 'Choose fallback model'} onPress={() => setPickFor(i)} />
+            ) : (
+              <Field value={stepText(s)} onChangeText={(v) => setStep(i, { kind: s.kind, text: v })} multiline placeholder={s.kind === 'prefill' ? 'Text the reply must begin with' : 'Stronger framing to prepend'} autoCapitalize="none" />
+            )}
           </Card>
         ))}
       </Section>
+      <ModelPicker open={pickFor != null} onClose={() => setPickFor(null)} onSelect={(id) => { if (pickFor != null) setStep(pickFor, { kind: 'model', model: id }); }} current={pickFor != null && p.refusalChain[pickFor]?.kind === 'model' ? (p.refusalChain[pickFor] as { model: string }).model : null} title="Fallback model" />
       <Section title="Per-model overrides">
         <T v="faint">JSON keyed by model id or prefix ending in *, with any of system, prefill, postHistory.</T>
         <Field multiline value={ovText ?? JSON.stringify(p.modelOverrides, null, 2)} onChangeText={(v) => { setOvText(v); try { update({ modelOverrides: JSON.parse(v) }); setOvErr(false); } catch { setOvErr(true); } }} style={{ fontFamily: 'monospace', minHeight: 100 }} autoCapitalize="none" autoCorrect={false} />

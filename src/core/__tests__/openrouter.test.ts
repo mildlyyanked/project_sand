@@ -104,3 +104,17 @@ describe('generateWithChain', () => {
     expect(attempts[1]!.refused).toBe(false);
   });
 });
+
+describe('repetition penalties', () => {
+  it('sends penalties only when set and non-neutral', () => {
+    const none = buildRequestBody({ model: 'm', messages: [], params: DEFAULT_PARAMS, zdr: false, stream: true }) as Record<string, unknown>;
+    expect(none.frequency_penalty).toBeUndefined();
+    expect(none.repetition_penalty).toBeUndefined();
+    const some = buildRequestBody({ model: 'm', messages: [], params: { ...DEFAULT_PARAMS, frequencyPenalty: 0.45, presencePenalty: 0.3, repetitionPenalty: 1.1 }, zdr: false, stream: true }) as Record<string, unknown>;
+    expect(some.frequency_penalty).toBe(0.45);
+    expect(some.presence_penalty).toBe(0.3);
+    expect(some.repetition_penalty).toBe(1.1);
+    const neutral = buildRequestBody({ model: 'm', messages: [], params: { ...DEFAULT_PARAMS, repetitionPenalty: 1 }, zdr: false, stream: true }) as Record<string, unknown>;
+    expect(neutral.repetition_penalty).toBeUndefined();
+  });
+});

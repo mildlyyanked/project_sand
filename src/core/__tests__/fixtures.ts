@@ -19,7 +19,7 @@ export function preset(p: Partial<Preset> = {}): Preset {
 }
 
 export function style(p: Partial<Style> = {}): Style {
-  return { id: 'st1', name: 'Terse', pointOfView: 'third close', tense: 'past', proseDensity: 'lean', dialogueRatio: 'high', register: 'blunt', vocabulary: '', bannedPhrases: ['tapestry'], samples: [], createdAt: 0, updatedAt: 0, ...p };
+  return { id: 'st1', name: 'Terse', pointOfView: 'third close', tense: 'past', proseDensity: 'lean', dialogueRatio: 'high', register: 'blunt', vocabulary: '', influences: '', repetition: 'light', bannedPhrases: ['tapestry'], samples: [], createdAt: 0, updatedAt: 0, ...p };
 }
 
 export function character(p: Partial<Character> = {}): Character {

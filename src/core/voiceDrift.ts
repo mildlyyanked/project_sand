@@ -1,4 +1,5 @@
 import type { Style } from './types';
+import { repeatedPhrases } from './repetition';
 
 export interface DriftReport {
   /** 0 = on voice, 1 = fully drifted. */
@@ -26,11 +27,16 @@ function stats(text: string) {
  * card's sample passages (if any) and flags banned phrases and common
  * model-default filler. Never blocks anything; it only informs.
  */
-export function voiceDrift(recent: string, style: Style | null): DriftReport {
+export function voiceDrift(recent: string, style: Style | null, earlier = ''): DriftReport {
   const notes: string[] = [];
   if (!recent.trim()) return { score: 0, notes };
   let score = 0;
   const lower = recent.toLowerCase();
+  const repeats = repeatedPhrases(recent, earlier);
+  if (repeats.length) {
+    notes.push(`Repeated: ${repeats.map((r) => `“${r}”`).join(', ')}`);
+    score += Math.min(0.3, repeats.length * 0.08);
+  }
   const banned = (style?.bannedPhrases ?? []).filter((p) => p && lower.includes(p.toLowerCase()));
   if (banned.length) {
     notes.push(`Banned: ${banned.join(', ')}`);

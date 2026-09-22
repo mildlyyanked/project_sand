@@ -20,7 +20,7 @@ export function scenePrompt(o: { universe: Universe | null; characters: Characte
 
 export function styleFromSamplePrompt(sample: string): ChatMessage[] {
   return [
-    { role: 'system', content: 'Analyze the passage and describe its style as a JSON object with keys: pointOfView, tense, proseDensity, dialogueRatio, register (one of clinical, euphemistic, blunt), vocabulary, bannedPhrases (array of phrases this voice would never use). Output only JSON.' },
+    { role: 'system', content: 'Analyze the passage and describe its style as a JSON object with keys: pointOfView, tense, proseDensity, dialogueRatio, register (one of clinical, euphemistic, blunt), vocabulary, influences (published writers this voice most resembles, with what it takes from each), bannedPhrases (array of phrases this voice would never use). Output only JSON.' },
     { role: 'user', content: sample },
   ];
 }
@@ -52,4 +52,35 @@ export function parsePremises(text: string): string[] {
     .split(/\n(?=\s*\d+[.)]\s)/)
     .map((s) => s.replace(/^\s*\d+[.)]\s*/, '').trim())
     .filter((s) => s.length > 20);
+}
+
+/** Conversational workshop: the helper interviews the writer toward a premise. */
+export function workshopSystem(o: { universe: Universe | null; characters: Character[]; style: Style | null }): ChatMessage {
+  const ctx = [
+    o.universe ? `World: ${o.universe.name}\n${o.universe.description}` : '',
+    o.characters.length ? `Characters on hand:\n${o.characters.map((c) => `- ${c.name}: ${c.summary || c.voice}`).join('\n')}` : '',
+    o.style ? `Style the story will use:\n${renderStyle(o.style)}` : '',
+  ].filter(Boolean).join('\n\n');
+  return {
+    role: 'system',
+    content: [
+      'You are a story editor workshopping a premise with a writer, in conversation. Your job is to draw out what they actually want to write, not to pitch at them.',
+      'Rules:',
+      '- Ask one question at a time, occasionally two. Short, specific, curious. Build on what they said.',
+      '- Reflect back what you are hearing in a sentence when it helps, then ask the next thing.',
+      '- Cover, over the conversation: the feeling they want the reader to have, the situation or image that started it, who it is about, what presses on that person, what they want to avoid, and how explicit or dark it should go.',
+      '- Do not offer premises until the writer asks, or until you have enough that a premise would surprise them in a good way. Then give three to five, numbered 1. 2. 3., each two or three sentences: situation, pressure, hook. No titles.',
+      '- After offering premises, keep talking: refine, merge, push. The writer may pick one at any point.',
+      '- Never summarize the whole conversation unless asked. Never use headings or bullet lists in replies. Plain conversational prose.',
+      ctx ? `\nContext for this story:\n${ctx}` : '',
+    ].filter(Boolean).join('\n'),
+  };
+}
+
+/** A compact record of what the workshop settled on, for the story's first note. */
+export function workshopNotePrompt(transcript: ChatMessage[], premise: string): ChatMessage[] {
+  return [
+    { role: 'system', content: 'Condense a story workshop conversation into a note for the writer: the chosen premise, then the decisions and preferences that came up (tone, limits, what to avoid, what excites them), as 4 to 8 short lines. Output only the note.' },
+    { role: 'user', content: `Chosen premise:\n${premise}\n\nConversation:\n${transcript.filter((m) => m.role !== 'system').map((m) => `${m.role === 'user' ? 'Writer' : 'Editor'}: ${m.content}`).join('\n\n')}` },
+  ];
 }

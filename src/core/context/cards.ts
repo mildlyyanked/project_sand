@@ -15,6 +15,7 @@ export function renderStyle(s: Style): string {
     field('Dialogue ratio', s.dialogueRatio),
     field('Register', s.register),
     field('Vocabulary', s.vocabulary),
+    field('Influences', s.influences),
     s.bannedPhrases.length ? `Never use: ${s.bannedPhrases.join('; ')}` : '',
   ].filter(Boolean);
   if (s.samples.length) {

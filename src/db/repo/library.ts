@@ -99,8 +99,8 @@ export const newCharacter = (): Character => ({ id: newId(), universeId: null, s
 
 // Styles
 
-interface StRow { id: string; name: string; pov: string; tense: string; density: string; dialogue: string; register: string; vocabulary: string; banned_json: string; samples_json: string; created_at: number; updated_at: number }
-const stFrom = (r: StRow): Style => ({ id: r.id, name: r.name, pointOfView: r.pov, tense: r.tense, proseDensity: r.density, dialogueRatio: r.dialogue, register: r.register as Style['register'], vocabulary: r.vocabulary, bannedPhrases: pj(r.banned_json, []), samples: pj(r.samples_json, []), createdAt: r.created_at, updatedAt: r.updated_at });
+interface StRow { id: string; name: string; pov: string; tense: string; density: string; dialogue: string; register: string; vocabulary: string; influences: string; repetition: string; banned_json: string; samples_json: string; created_at: number; updated_at: number }
+const stFrom = (r: StRow): Style => ({ id: r.id, name: r.name, pointOfView: r.pov, tense: r.tense, proseDensity: r.density, dialogueRatio: r.dialogue, register: r.register as Style['register'], vocabulary: r.vocabulary, influences: r.influences ?? '', repetition: (r.repetition as Style['repetition']) || 'light', bannedPhrases: pj(r.banned_json, []), samples: pj(r.samples_json, []), createdAt: r.created_at, updatedAt: r.updated_at });
 export async function listStyles(db: SQLiteDatabase): Promise<Style[]> {
   return (await db.getAllAsync<StRow>('SELECT * FROM styles ORDER BY name')).map(stFrom);
 }
@@ -110,13 +110,13 @@ export async function getStyle(db: SQLiteDatabase, id: Id | null): Promise<Style
   return r ? stFrom(r) : null;
 }
 export async function saveStyle(db: SQLiteDatabase, s: Style): Promise<void> {
-  await db.runAsync('INSERT OR REPLACE INTO styles (id, name, pov, tense, density, dialogue, register, vocabulary, banned_json, samples_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', s.id, s.name, s.pointOfView, s.tense, s.proseDensity, s.dialogueRatio, s.register, s.vocabulary, j(s.bannedPhrases), j(s.samples), s.createdAt, now());
+  await db.runAsync('INSERT OR REPLACE INTO styles (id, name, pov, tense, density, dialogue, register, vocabulary, influences, repetition, banned_json, samples_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', s.id, s.name, s.pointOfView, s.tense, s.proseDensity, s.dialogueRatio, s.register, s.vocabulary, s.influences, s.repetition, j(s.bannedPhrases), j(s.samples), s.createdAt, now());
 }
 export async function deleteStyle(db: SQLiteDatabase, id: Id): Promise<void> {
   await db.runAsync('UPDATE sessions SET style_id = NULL WHERE style_id = ?', id);
   await db.runAsync('DELETE FROM styles WHERE id = ?', id);
 }
-export const newStyle = (): Style => ({ id: newId(), name: 'New style', pointOfView: '', tense: '', proseDensity: '', dialogueRatio: '', register: 'blunt', vocabulary: '', bannedPhrases: [], samples: [], createdAt: now(), updatedAt: now() });
+export const newStyle = (): Style => ({ id: newId(), name: 'New style', pointOfView: '', tense: '', proseDensity: '', dialogueRatio: '', register: 'blunt', vocabulary: '', influences: '', repetition: 'light', bannedPhrases: [], samples: [], createdAt: now(), updatedAt: now() });
 
 // Presets
 

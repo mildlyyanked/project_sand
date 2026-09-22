@@ -33,6 +33,9 @@ export function buildRequestBody(o: RequestOptions): Record<string, unknown> {
     usage: { include: true },
   };
   if (o.params.reasoning) body.reasoning = { effort: 'medium' };
+  if (o.params.frequencyPenalty) body.frequency_penalty = o.params.frequencyPenalty;
+  if (o.params.presencePenalty) body.presence_penalty = o.params.presencePenalty;
+  if (o.params.repetitionPenalty && o.params.repetitionPenalty !== 1) body.repetition_penalty = o.params.repetitionPenalty;
   if (o.fallbackModels?.length) body.models = [o.model, ...o.fallbackModels];
   return body;
 }

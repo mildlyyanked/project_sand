@@ -5,7 +5,9 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useSession } from '@/state/session';
 import { useSettings } from '@/state/settings';
 import { client } from '@/state/client';
+import { applyRepetition } from '@/core/repetition';
 import { Banner, Button, Card, Chip, Field, Row, Screen, T } from '@/ui/components';
+import { ModelPicker } from '@/ui/components/ModelPicker';
 import { serif, useTheme } from '@/ui/theme';
 import { shortModel, usd } from '@/ui/format';
 
@@ -19,18 +21,17 @@ export default function Race() {
   useEffect(() => {
     if (id && s.session?.id !== id) void s.open(db, id);
   }, [db, id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const { apiKey, models, defaults } = useSettings();
+  const { apiKey, defaults } = useSettings();
   const session = s.session;
   const used = useMemo(() => Array.from(new Set(s.beats.map((b) => b.model).filter((m): m is string => !!m))), [s.beats]);
   const candidates = useMemo(() => Array.from(new Set([session?.models.writer, defaults.models.writer, ...used].filter((m): m is string => !!m))), [session, defaults, used]);
   const [picked, setPicked] = useState<string[]>(session ? [session.models.writer] : []);
-  const [q, setQ] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [busy, setBusy] = useState(false);
   const [direction, setDirection] = useState('');
   if (!session) return null;
 
-  const hits = q.trim() ? models.filter((m) => m.id.toLowerCase().includes(q.toLowerCase())).slice(0, 5) : [];
   const toggle = (m: string) => setPicked((p) => (p.includes(m) ? p.filter((x) => x !== m) : p.length < 3 ? [...p, m] : p));
 
   async function run() {
@@ -44,7 +45,7 @@ export default function Race() {
         const upd = (p: Partial<Draft>) => setDrafts((d) => d.map((x, j) => (j === i ? { ...x, ...p } : x)));
         try {
           let text = '';
-          for await (const ev of client.stream({ apiKey, model, messages: ctx.messages, params: session!.params, zdr: session!.zdr })) {
+          for await (const ev of client.stream({ apiKey, model, messages: ctx.messages, params: applyRepetition(session!.params, s.bundle.style?.repetition), zdr: session!.zdr })) {
             if (ev.type === 'text') { text += ev.text ?? ''; upd({ text }); }
             if (ev.type === 'usage') upd({ cost: ev.usage?.costUsd ?? null });
             if (ev.type === 'error') throw new Error(ev.error);
@@ -70,11 +71,8 @@ export default function Race() {
         {picked.filter((m) => !candidates.includes(m)).map((m) => <Chip key={m} label={shortModel(m)} selected onPress={() => toggle(m)} />)}
       </Row>
       <View style={{ marginTop: 12, gap: 8 }}>
-        <Field value={q} onChangeText={setQ} placeholder="Add a model by id" autoCapitalize="none" autoCorrect={false} />
-        <Row style={{ flexWrap: 'wrap' }}>
-          {hits.map((m) => <Chip key={m.id} small label={m.id} onPress={() => { toggle(m.id); setQ(''); }} />)}
-          {q.trim() && !hits.length ? <Chip small label={`use "${q.trim()}"`} onPress={() => { toggle(q.trim()); setQ(''); }} /> : null}
-        </Row>
+        <Button small kind="outline" icon="add" title="Add another model" onPress={() => setPickerOpen(true)} disabled={picked.length >= 3} />
+        <ModelPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onSelect={(id) => toggle(id)} pinned={used} title="Add to the race" />
         <Field value={direction} onChangeText={setDirection} placeholder="Optional direction for this passage" />
         <Button title="Run" icon="flash-outline" onPress={run} loading={busy} disabled={picked.length === 0 || !apiKey} />
       </View>

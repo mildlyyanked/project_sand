@@ -79,6 +79,7 @@ export interface Character {
 }
 
 export type Register = 'clinical' | 'euphemistic' | 'blunt';
+export type RepetitionLevel = 'off' | 'light' | 'medium' | 'strong';
 
 export interface Style {
   id: Id;
@@ -89,6 +90,10 @@ export interface Style {
   dialogueRatio: string;
   register: Register;
   vocabulary: string;
+  /** Writers whose voice this style draws on, free text. */
+  influences: string;
+  /** Sampler-level anti-repetition. Applied as penalties, never as prompt text. */
+  repetition: RepetitionLevel;
   bannedPhrases: string[];
   samples: string[];
   createdAt: number;
@@ -137,6 +142,10 @@ export interface GenerationParams {
   topP: number;
   maxTokens: number;
   reasoning: boolean;
+  /** Optional sampler penalties. When unset, the style card's repetition level decides. */
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  repetitionPenalty?: number;
 }
 
 export interface Session {

@@ -32,7 +32,7 @@ export default function StyleEditor() {
         if (ev.type === 'error') throw new Error(ev.error);
       }
       const j = JSON.parse(text.replace(/^```(?:json)?/m, '').replace(/```$/m, '').trim()) as Partial<Style>;
-      update({ pointOfView: j.pointOfView ?? s!.pointOfView, tense: j.tense ?? s!.tense, proseDensity: j.proseDensity ?? s!.proseDensity, dialogueRatio: j.dialogueRatio ?? s!.dialogueRatio, register: (['clinical', 'euphemistic', 'blunt'] as const).includes(j.register as never) ? j.register! : s!.register, vocabulary: j.vocabulary ?? s!.vocabulary, bannedPhrases: Array.isArray(j.bannedPhrases) ? j.bannedPhrases.map(String) : s!.bannedPhrases });
+      update({ pointOfView: j.pointOfView ?? s!.pointOfView, tense: j.tense ?? s!.tense, proseDensity: j.proseDensity ?? s!.proseDensity, dialogueRatio: j.dialogueRatio ?? s!.dialogueRatio, register: (['clinical', 'euphemistic', 'blunt'] as const).includes(j.register as never) ? j.register! : s!.register, vocabulary: j.vocabulary ?? s!.vocabulary, influences: j.influences ?? s!.influences, bannedPhrases: Array.isArray(j.bannedPhrases) ? j.bannedPhrases.map(String) : s!.bannedPhrases });
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -55,6 +55,12 @@ export default function StyleEditor() {
           <T v="faint">How bodies and acts are named. Applies everywhere, not only to sex.</T>
         </View>
         <Field label="Vocabulary" value={s.vocabulary} onChangeText={(v) => update({ vocabulary: v })} multiline placeholder="Words to favor, words to avoid, period flavor…" />
+        <Field label="Influences" hint="Writers whose voice this draws on. Sent to the writer as-is." value={s.influences} onChangeText={(v) => update({ influences: v })} placeholder="e.g. Annie Proulx for weather, early McCarthy for violence" multiline />
+        <View style={{ gap: 6 }}>
+          <T v="label">Repetition control</T>
+          <Segmented value={s.repetition} onChange={(v) => update({ repetition: v })} options={[{ key: 'off', label: 'Off' }, { key: 'light', label: 'Light' }, { key: 'medium', label: 'Medium' }, { key: 'strong', label: 'Strong' }]} />
+          <T v="faint">Applied through the sampler as frequency, presence and repetition penalties. Nothing about it enters the prompt. Strong can make some models terse.</T>
+        </View>
         <Field label="Never use" hint="Comma separated. Also feeds the voice check." value={s.bannedPhrases.join(', ')} onChangeText={(v) => update({ bannedPhrases: v.split(',').map((x) => x.trim()).filter(Boolean) })} />
       </Section>
       <Section title="Sample passages" right={<Button small kind="outline" title="Analyze" onPress={analyze} loading={busy} />}>
