@@ -74,22 +74,34 @@ jobs:
         run: |
           set -e
           if [ -n "$KEYSTORE_BASE64" ]; then
+            # Private key from repository secrets.
             echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
-            echo "stable=true" >> "$GITHUB_OUTPUT"
+            {
+              echo
+              echo "SAND_STORE_FILE=release.keystore"
+              echo "SAND_STORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "SAND_KEY_ALIAS=$KEY_ALIAS"
+              echo "SAND_KEY_PASSWORD=$KEY_PASSWORD"
+            } >> android/gradle.properties
+            echo "source=secrets" >> "$GITHUB_OUTPUT"
+          elif [ -f android-signing/signing.properties ]; then
+            # Committed key (see android-signing/README.md). Stable signature, public key.
+            { echo; cat android-signing/signing.properties; } >> android/gradle.properties
+            echo "source=repo" >> "$GITHUB_OUTPUT"
           else
-            KEYSTORE_PASSWORD="sand-ci-$(openssl rand -hex 8)"; KEY_ALIAS="sand"; KEY_PASSWORD="$KEYSTORE_PASSWORD"
-            keytool -genkeypair -v -keystore android/app/release.keystore -alias "$KEY_ALIAS" \
-              -keyalg RSA -keysize 2048 -validity 10000 -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" \
+            KEYSTORE_PASSWORD="sand-ci-$(openssl rand -hex 8)"
+            keytool -genkeypair -v -keystore android/app/release.keystore -alias sand \
+              -keyalg RSA -keysize 2048 -validity 10000 -storepass "$KEYSTORE_PASSWORD" -keypass "$KEYSTORE_PASSWORD" \
               -dname "CN=Sand, OU=CI, O=Sand" >/dev/null 2>&1
-            echo "stable=false" >> "$GITHUB_OUTPUT"
+            {
+              echo
+              echo "SAND_STORE_FILE=release.keystore"
+              echo "SAND_STORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "SAND_KEY_ALIAS=sand"
+              echo "SAND_KEY_PASSWORD=$KEYSTORE_PASSWORD"
+            } >> android/gradle.properties
+            echo "source=throwaway" >> "$GITHUB_OUTPUT"
           fi
-          {
-            echo
-            echo "SAND_STORE_FILE=release.keystore"
-            echo "SAND_STORE_PASSWORD=$KEYSTORE_PASSWORD"
-            echo "SAND_KEY_ALIAS=$KEY_ALIAS"
-            echo "SAND_KEY_PASSWORD=$KEY_PASSWORD"
-          } >> android/gradle.properties
           node scripts/android-signing.js
 
       - name: Trace node invocations
@@ -128,11 +140,11 @@ jobs:
           echo "file=$OUT" >> "$GITHUB_OUTPUT"
           {
             echo "### Sand ${{ steps.v.outputs.version }} (build ${{ steps.v.outputs.code }})"
-            if [ "${{ steps.ks.outputs.stable }}" = "true" ]; then
-              echo "Signed with the repository keystore. Installs over previous builds."
-            else
-              echo "> Signed with a throwaway key: no \`ANDROID_KEYSTORE_BASE64\` secret is set. Uninstall the previous build before installing this one. See README for a stable key."
-            fi
+            case "${{ steps.ks.outputs.source }}" in
+              secrets) echo "Signed with the private keystore from repository secrets. Installs over previous builds." ;;
+              repo) echo "Signed with the committed keystore (android-signing/). Installs over previous builds signed the same way." ;;
+              *) echo "> Signed with a throwaway key. Uninstall the previous build before installing this one." ;;
+            esac
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4

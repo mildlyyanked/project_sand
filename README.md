@@ -20,16 +20,9 @@ GitHub Actions builds a signed APK, no Expo account needed.
 - **Tag a release:** `git tag v1.0.0 && git push --tags`. The workflow builds, attaches `sand-1.0.0.apk` to a GitHub Release, and generates notes.
 - **Manual build:** Actions → *Android release* → *Run workflow*, set a version. With *release* checked (the default) it tags `v<version>` and publishes a GitHub Release; unchecked, the APK only lands in the run's artifacts.
 
-Builds are signed with a throwaway key unless the repository has a keystore in its secrets. A throwaway signature means Android refuses to install a new build over an old one until the old one is uninstalled. To keep one signature across builds, generate a keystore once and store it:
+Builds are signed with the keystore in `android-signing/`, committed on purpose so that every build installs over the previous one (see `android-signing/README.md` for what that implies). Repository secrets named `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` take precedence when present.
 
-```bash
-keytool -genkeypair -v -keystore sand.keystore -alias sand -keyalg RSA -keysize 2048 -validity 10000
-base64 -w0 sand.keystore   # macOS: base64 -i sand.keystore
-```
-
-Repository secrets: `ANDROID_KEYSTORE_BASE64` (the base64 output), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` (`sand`), `ANDROID_KEY_PASSWORD`. Keep the keystore file somewhere safe; losing it means a fresh signature.
-
-Version comes from the tag (or the workflow input), and the Android `versionCode` is the run number, so every build is installable over the previous one **once the signature is stable**. Installing a stable-key build over a throwaway-key build needs one last uninstall; after that, updates keep settings and stories.
+Version comes from the tag (or the workflow input), and the Android `versionCode` is the run number, so every build is installable over the previous one so every build installs over the previous one. Builds 0.1.0 and 0.2.0 were signed with throwaway keys: uninstall those once before installing 0.3.0 or later.
 
 Local alternative, with Android Studio installed: `npx expo run:android --variant release`.
 
