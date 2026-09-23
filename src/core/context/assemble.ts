@@ -32,6 +32,8 @@ export interface AssembleInput {
   direction?: string;
   /** Pinned or dropped layer keys chosen in the inspector. */
   dropped?: Set<string>;
+  /** A plan for this passage from the helper, sent as guidance. */
+  plan?: string;
 }
 
 export function resolvePreset(preset: Preset | null, model: string): Pick<Preset, 'system' | 'prefill' | 'postHistory'> {
@@ -44,7 +46,17 @@ export function resolvePreset(preset: Preset | null, model: string): Pick<Preset
   return out;
 }
 
-const DEFAULT_SYSTEM = 'You are a fiction writer continuing a manuscript. Write the next passage only. Match the established voice, keep continuity, and do not summarize or add commentary.';
+export const CRAFT_SYSTEM = [
+  'You are a novelist continuing a manuscript. Write the next passage only: 400 to 900 words, one movement of the scene, ending on a turn or a held breath, never on a summary.',
+  'Match the established voice and keep continuity with everything above.',
+  'A passage must be legible on first read: at every moment it is clear where we are, who is present, what is happening and why. Prefer cause and effect over atmosphere, the concrete over the abstract. Introduce a new person with a name and one identifying detail before they act.',
+  'Sentence fragments, portentous one-line paragraphs, stacked metaphors and vague menace are not a style unless the style card asks for them.',
+  'No commentary, no headings, no notes, no summary.',
+].join(' ');
+
+export const OPENING_DIRECTIVE = 'This is the opening of the story. Start at the true beginning, before anything has gone wrong: establish the time, the place, the viewpoint character and the situation in concrete terms, let the reader meet the people who will matter, and end on the first hint of the disruption. Do not start in the middle of events.';
+
+const DEFAULT_SYSTEM = CRAFT_SYSTEM;
 
 /**
  * Split the path into: beats already covered by the summary, older beats not yet
@@ -93,6 +105,7 @@ export function assembleContext(input: AssembleInput): AssembledContext {
     const text = ['# Characters', ...characters.map((c) => renderCharacter(c, species.find((s) => s.id === c.speciesId)))].join('\n\n');
     push({ key: 'characters', label: `Characters · ${characters.length}`, role: 'system', text });
   }
+  if (session.brief.trim()) push({ key: 'brief', label: 'Brief', role: 'system', text: `# The story\n${session.brief.trim()}` });
   if (universe) {
     const always = alwaysOnLore(lore);
     const text = [`# World: ${universe.name}`, universe.description.trim(), ...always.map((e) => `## ${e.title}\n${e.text}`)].filter(Boolean).join('\n\n');
@@ -135,10 +148,13 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   }
 
   const tail: string[] = [];
+  const opening = !recent.some((b) => b.role === 'prose') && !session.summary.trim();
+  if (opening) tail.push(OPENING_DIRECTIVE);
+  if (input.plan?.trim()) tail.push(`Plan for this passage (follow it; do not restate it):\n${input.plan.trim()}`);
   if (p.postHistory.trim()) tail.push(p.postHistory.trim());
   if (session.explicit) tail.push(renderHeat(session.heat));
   if (input.direction?.trim()) tail.push(`Direction for this passage: ${input.direction.trim()}`);
-  if (tail.length) push({ key: 'post', label: 'Post-history', role: 'user', text: tail.join('\n') });
+  if (tail.length) push({ key: 'post', label: opening ? 'Opening directive' : 'Post-history', role: 'user', text: tail.join('\n\n') });
   if (p.prefill.trim()) push({ key: 'prefill', label: 'Prefill', role: 'assistant', text: p.prefill });
 
   // Fold into messages: consecutive system layers merge; conversation stays ordered.

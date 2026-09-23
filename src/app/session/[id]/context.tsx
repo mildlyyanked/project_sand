@@ -102,6 +102,7 @@ export default function ContextInspector() {
             {lastProse.costUsd != null ? <Badge label={`$${lastProse.costUsd.toFixed(4)}`} /> : null}
             {lastProse.direction ? <Badge label={`direction: ${lastProse.direction}`} tone="info" /> : null}
           </Row>
+          {lastProse.plan ? <Card><T v="label">Plan it followed</T><T v="dim" selectable style={{ marginTop: 6 }}>{lastProse.plan}</T></Card> : null}
           {lastProse.reasoning ? <Card><T v="label">Model reasoning</T><T v="mono" selectable style={{ marginTop: 6 }}>{lastProse.reasoning}</T></Card> : <T v="faint">No reasoning stream on this beat. Turn on reasoning in session settings for models that support it.</T>}
         </Section>
       ) : null}

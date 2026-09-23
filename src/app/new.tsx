@@ -153,9 +153,10 @@ export default function Workshop() {
         }
       }
       const title = brief?.title || premise.split(/[.!?]/)[0]!.split(/\s+/).slice(0, 6).join(' ') || 'Untitled';
-      const s = blankSession({ title, models: defaults.models, zdr: defaults.zdr, presetId: defaults.presetId, styleId: sId, universeId: uId, characterIds: cIds });
+      const briefText = brief ? briefNote(brief) : `Premise: ${premise.trim()}`;
+      const s = blankSession({ title, models: defaults.models, zdr: defaults.zdr, presetId: defaults.presetId, styleId: sId, universeId: uId, characterIds: cIds, brief: briefText });
       await upsertSession(db, s);
-      const note = makeBeat({ sessionId: s.id, parentId: null, role: 'note', text: brief ? briefNote(brief) : `Premise: ${premise.trim()}` });
+      const note = makeBeat({ sessionId: s.id, parentId: null, role: 'note', text: briefText });
       await insertBeat(db, note);
       let current = note.id;
       if (withOpening && opening.trim()) {
@@ -256,7 +257,7 @@ export default function Workshop() {
       <Sheet open={briefOpen} onClose={() => setBriefOpen(false)} title="The brief" full>
         {brief ? (
           <>
-            <T v="faint">Everything here is editable. Creating the story also adds the people, world and style to your library.</T>
+            <T v="faint">Everything here is editable. Creating the story adds the people, world and style to your library, and the brief travels with every passage the writer writes.</T>
             <Field label="Title" value={brief.title} onChangeText={(v) => setBrief({ ...brief, title: v })} />
             <Field label="Premise" value={brief.premise} onChangeText={(v) => setBrief({ ...brief, premise: v })} multiline style={{ minHeight: 110 }} />
             <Field label="Ideas, one per line" value={brief.ideas.join('\n')} onChangeText={(v) => setBrief({ ...brief, ideas: v.split('\n').map((x) => x.trim()).filter(Boolean) })} multiline />

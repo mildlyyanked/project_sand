@@ -28,6 +28,11 @@ const MIGRATIONS: string[] = [
   ALTER TABLE presets ADD COLUMN provider_order_json TEXT NOT NULL DEFAULT '[]';
   CREATE TABLE model_stats (model TEXT PRIMARY KEY, attempts INTEGER NOT NULL DEFAULT 0, refusals INTEGER NOT NULL DEFAULT 0, last_at INTEGER NOT NULL DEFAULT 0);
   `,
+  `
+  ALTER TABLE sessions ADD COLUMN brief TEXT NOT NULL DEFAULT '';
+  ALTER TABLE sessions ADD COLUMN plan_first INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE beats ADD COLUMN plan TEXT;
+  `,
 ];
 
 export async function migrate(db: SQLiteDatabase): Promise<void> {

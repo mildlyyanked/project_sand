@@ -15,6 +15,8 @@ export interface Beat {
   /** Free-text regenerate direction that produced this beat, if any. */
   direction: string | null;
   reasoning: string | null;
+  /** The plan the passage was written from, when planning was on. */
+  plan: string | null;
   promptTokens: number | null;
   completionTokens: number | null;
   costUsd: number | null;
@@ -197,6 +199,10 @@ export interface Session {
   variantOf: Id | null;
   variantNote: string;
   isTemplate: boolean;
+  /** The premise, ideas, people and limits, sent to the writer every time. */
+  brief: string;
+  /** Ask the helper for a short plan before each passage. */
+  planFirst: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -257,9 +263,9 @@ export const DEFAULT_STRATEGY: ContextStrategy = {
 };
 
 export const DEFAULT_PARAMS: GenerationParams = {
-  temperature: 0.9,
+  temperature: 0.85,
   topP: 0.95,
-  maxTokens: 1200,
+  maxTokens: 1400,
   reasoning: false,
 };
 

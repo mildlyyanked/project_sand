@@ -80,11 +80,11 @@ describe('generateWithChain steps', () => {
   });
 
   it('heat raises temperature and top-p; auto model consults the ledger and skips when empty', async () => {
-    const { client, calls } = scripted((b) => (b.temperature > 0.9 ? PROSE : REFUSAL));
+    const { client, calls } = scripted((b) => (b.temperature > DEFAULT_PARAMS.temperature + 0.1 ? PROSE : REFUSAL));
     const attempts = await generateWithChain({ ...base, client, messages, refusalChain: [{ kind: 'model', model: 'auto' }, { kind: 'heat' }], autoModel: () => null });
     expect(attempts[1]!.skipped).toContain('ledger');
     expect(calls.length).toBe(2);
-    expect(calls[1]!.temperature).toBeCloseTo(1.05);
+    expect(calls[1]!.temperature).toBeCloseTo(DEFAULT_PARAMS.temperature + 0.15);
     expect(calls[1]!.top_p).toBe(1);
     expect(attempts[2]!.refused).toBe(false);
   });

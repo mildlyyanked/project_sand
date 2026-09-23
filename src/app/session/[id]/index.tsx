@@ -158,7 +158,7 @@ export default function Manuscript() {
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
           !streaming ? (
-            <Empty icon="create-outline" title="Blank page" hint="Write the opening yourself, add an instruction, or tap Continue and let the writer open. The scene generator lives under the menu." />
+            <Empty icon="create-outline" title="Blank page" hint={session.brief ? "Tap Continue to write the opening from the brief, or write it yourself." : "Write the opening yourself, add an instruction, or tap Continue and let the writer open. Set a brief in session settings so the writer knows what the story is."} />
           ) : null
         }
         ListFooterComponent={
@@ -166,9 +166,9 @@ export default function Manuscript() {
             <View style={{ paddingHorizontal: space.lg, paddingVertical: 8, gap: 8 }}>
               <Row between>
                 <Row>
-                  <Ionicons name={streaming.phase === 'writing' ? 'pencil-outline' : streaming.phase === 'reweaving' ? 'git-merge-outline' : 'albums-outline'} size={14} color={t.accent} />
+                  <Ionicons name={streaming.phase === 'writing' ? 'pencil-outline' : streaming.phase === 'reweaving' ? 'git-merge-outline' : streaming.phase === 'planning' ? 'map-outline' : streaming.phase === 'critiquing' ? 'glasses-outline' : 'albums-outline'} size={14} color={t.accent} />
                   <T v="small">
-                    {streaming.phase === 'summarizing' ? 'Folding older beats into the summary' : streaming.phase === 'reweaving' ? 'Reweaving later passages' : `${shortModel(streaming.model)}${streaming.attempt ? ` · attempt ${streaming.attempt + 1}${streaming.step ? ` · ${streaming.step.kind}` : ''}` : ''}`}
+                    {streaming.phase === 'summarizing' ? 'Folding older beats into the summary' : streaming.phase === 'reweaving' ? 'Reweaving later passages' : streaming.phase === 'planning' ? 'Planning the passage' : streaming.phase === 'critiquing' ? 'Editor is reading' : `${shortModel(streaming.model)}${streaming.attempt ? ` · attempt ${streaming.attempt + 1}${streaming.step ? ` · ${streaming.step.kind}` : ''}` : ''}`}
                   </T>
                 </Row>
                 <Button small kind="outline" title="Stop" onPress={s.stop} />
@@ -254,6 +254,8 @@ export default function Manuscript() {
             <MenuItem icon="create-outline" label="Edit" onPress={() => { setEdit({ beat: beatMenu, text: beatMenu.text }); setBeatMenu(null); }} />
             {beatMenu.role === 'prose' ? <MenuItem icon="refresh-outline" label="Regenerate" hint="A new version as a sibling; the old one stays" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.generate({ regenerateId: b.id }); }} /> : null}
             {beatMenu.role === 'prose' ? <MenuItem icon="compass-outline" label="Regenerate with direction" onPress={() => openDirection(beatMenu.id)} /> : null}
+            {beatMenu.role === 'prose' && beatMenu.model ? <MenuItem icon="glasses-outline" label="Critique and redo" hint="The helper marks up this passage; the writer rewrites it against the notes" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.critiqueAndRedo(b.id); }} /> : null}
+            {beatMenu.plan ? <MenuItem icon="map-outline" label="Show the plan it followed" onPress={() => { const b = beatMenu; setBeatMenu(null); s.setNotice(`Plan: ${b.plan}`); }} /> : null}
             {beatMenu.id !== session.currentBeatId ? <MenuItem icon="cut-outline" label="Continue from here" hint="Later beats stay on their branch" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.setCurrent(b.id); }} /> : null}
             <MenuItem icon="copy-outline" label="Copy text" onPress={async () => { await Clipboard.setStringAsync(beatMenu.text); setBeatMenu(null); }} />
             <MenuItem icon="trash-outline" label="Delete from here" hint="This beat and everything after it, on every branch" danger onPress={() => { const b = beatMenu; setBeatMenu(null); void s.deleteFrom(b.id); }} />

@@ -79,6 +79,8 @@ export default function SessionSettings() {
       <Section title="Story">
         <Field value={title ?? session.title} onChangeText={setTitle} onBlur={() => { if (title != null && title.trim() && title !== session.title) void s.patch({ title: title.trim() }); setTitle(null); }} placeholder="Title" />
         {session.variantOf ? <Field label="What is different in this variant" value={session.variantNote} onChangeText={(v) => s.patch({ variantNote: v })} multiline /> : null}
+        <Field label="Brief" hint="Premise, ideas, people, limits. Sent to the writer with every passage. Edit freely." value={session.brief} onChangeText={(v) => s.patch({ brief: v })} multiline style={{ minHeight: 140 }} placeholder="What this story is, stated outright." />
+        <SwitchRow label="Plan before writing" hint="The helper drafts a short plan for each passage first; the writer follows it. One small extra call per passage, and the plan shows in the inspector." value={session.planFirst} onChange={(v) => s.patch({ planFirst: v })} />
       </Section>
 
       <Section title="Models">

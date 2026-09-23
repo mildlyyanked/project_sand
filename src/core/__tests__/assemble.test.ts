@@ -22,7 +22,7 @@ describe('assembleContext', () => {
   it('adds a user turn when the path is empty', () => {
     const ctx = assembleContext({ session: session(), path: [], preset: null, style: null, characters: [], species: [], universe: null, lore: [], model: 'x' });
     expect(ctx.messages.map((m) => m.role)).toEqual(['system', 'user']);
-    expect(ctx.messages[1]!.content).toBe('Begin the manuscript.');
+    expect(ctx.messages[1]!.content).toContain('This is the opening');
   });
   it('triggers lore from recent beats and respects the lore budget', () => {
     const entries = [lore({ id: 'warden', keys: ['warden'], priority: 2 }), lore({ id: 'hold', keys: ['hold'], priority: 1 }), lore({ id: 'quiet', keys: ['zzz'] }), lore({ id: 'always', alwaysOn: true })];
@@ -69,5 +69,21 @@ describe('assembleContext', () => {
     const p = preset({ modelOverrides: { 'anthropic/*': { prefill: 'A' }, 'anthropic/claude-x': { system: 'X' } } });
     expect(resolvePreset(p, 'anthropic/claude-x')).toEqual({ system: 'X', prefill: 'A', postHistory: '' });
     expect(resolvePreset(p, 'openai/gpt')).toEqual({ system: 'SYS', prefill: '', postHistory: '' });
+  });
+});
+
+describe('brief, opening and plan', () => {
+  it('sends the brief as a system layer and an opening directive when there is no prose yet', () => {
+    const ctx = assembleContext({ session: session({ brief: 'Premise: a yacht.' }), path: [], preset: null, style: null, characters: [], species: [], universe: null, lore: [], model: 'x' });
+    expect(ctx.layers.map((l) => l.key)).toEqual(['system', 'brief', 'post']);
+    expect(ctx.messages[0]!.content).toContain('# The story\nPremise: a yacht.');
+    expect(ctx.messages[ctx.messages.length - 1]!.content).toContain('This is the opening');
+  });
+  it('drops the opening directive once prose exists and carries the plan', () => {
+    const ctx = assembleContext({ session: session(), path, preset: null, style: null, characters: [], species: [], universe: null, lore: [], model: 'x', plan: 'Elias meets Serena on deck.' });
+    const last = ctx.messages[ctx.messages.length - 1]!;
+    expect(last.content).not.toContain('This is the opening');
+    expect(last.content).toContain('Plan for this passage');
+    expect(last.content).toContain('Elias meets Serena on deck.');
   });
 });

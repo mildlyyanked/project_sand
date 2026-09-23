@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Beat, Character, ContextLayer, Id, LoreEntry, Preset, RefusalStep, Session, Species, Style, Universe } from '@/core/types';
 import { indexBeats, pathTo, type BeatIndex, descendants, leafOf, stepSibling } from '@/core/beatTree';
 import { assembleContext, splitPath, summaryPrompt, type AssembleInput } from '@/core/context/assemble';
+import { critiquePrompt, planPrompt } from '@/core/helpers';
 import { generateWithChain, momentumTail } from '@/core/openrouter/generate';
 import { applyRepetition } from '@/core/repetition';
 import { now } from '@/core/ids';
@@ -18,7 +19,7 @@ export interface Streaming {
   attempt: number;
   step: RefusalStep | null;
   model: string;
-  phase: 'summarizing' | 'writing' | 'reweaving';
+  phase: 'summarizing' | 'writing' | 'reweaving' | 'planning' | 'critiquing';
   startedAt: number;
   /** Beat being replaced (regenerate) or the parent for a new beat. */
   parentId: Id | null;
@@ -64,7 +65,8 @@ interface SessionState {
   toggleDropped(key: string): void;
   clearError(): void;
   setNotice(n: string | null): void;
-  insertGenerated(o: { parentId: Id | null; text: string; model: string; direction?: string; reasoning?: string; usage?: { promptTokens: number; completionTokens: number; costUsd: number | null } | null }): Promise<Beat>;
+  insertGenerated(o: { parentId: Id | null; text: string; model: string; direction?: string; reasoning?: string; plan?: string | null; usage?: { promptTokens: number; completionTokens: number; costUsd: number | null } | null }): Promise<Beat>;
+  critiqueAndRedo(beatId: Id): Promise<void>;
 }
 
 const emptyIndex = indexBeats([]);
@@ -187,15 +189,46 @@ export const useSession = create<SessionState>((set, get) => {
       get().abort?.abort();
     },
 
-    async insertGenerated({ parentId, text, model, direction, reasoning, usage }) {
+    async insertGenerated({ parentId, text, model, direction, reasoning, plan, usage }) {
       const { db, session } = get();
       if (!db || !session) throw new Error('No session');
-      const b = makeBeat({ sessionId: session.id, parentId, role: 'prose', text, model, direction: direction ?? null, reasoning: reasoning || null, promptTokens: usage?.promptTokens ?? null, completionTokens: usage?.completionTokens ?? null, costUsd: usage?.costUsd ?? null });
+      const b = makeBeat({ sessionId: session.id, parentId, role: 'prose', text, model, direction: direction ?? null, reasoning: reasoning || null, plan: plan || null, promptTokens: usage?.promptTokens ?? null, completionTokens: usage?.completionTokens ?? null, costUsd: usage?.costUsd ?? null });
       await insertBeat(db, b);
       const beats = [...get().beats, b];
       const next = (await patchSession(db, session.id, { currentBeatId: b.id }))!;
       set({ session: next, ...recompute(beats, next) });
       return b;
+    },
+
+    async critiqueAndRedo(beatId) {
+      const { db, session, index, bundle } = get();
+      const { apiKey } = useSettings.getState();
+      if (!db || !session || !apiKey || get().streaming) return;
+      const beat = index.byId.get(beatId);
+      if (!beat) return;
+      const before = pathTo(index, beat.parentId);
+      const previous = [...before].reverse().find((b) => b.role === 'prose')?.text ?? '';
+      const abort = new AbortController();
+      set({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'critiquing', startedAt: now(), parentId: beat.parentId } });
+      let notes = '';
+      try {
+        await runInForeground('Critiquing the passage', async () => {
+          for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: critiquePrompt({ brief: session.brief, style: bundle.style, previous, passage: beat.text }), params: { temperature: 0.3, topP: 0.9, maxTokens: 500, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
+            if (ev.type === 'text') {
+              notes += ev.text ?? '';
+              set((s) => (s.streaming ? { streaming: { ...s.streaming, text: notes } } : {}));
+            }
+            if (ev.type === 'error') throw new Error(ev.error);
+          }
+        });
+      } catch (e) {
+        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
+        set({ streaming: null, abort: null });
+        return;
+      }
+      set({ streaming: null, abort: null });
+      if (!notes.trim()) return;
+      await get().generate({ regenerateId: beatId, direction: `Editor's notes on the previous attempt. Fix every one of them:\n${notes.trim()}` });
     },
 
     async summarizeNow() {
@@ -275,10 +308,25 @@ export const useSession = create<SessionState>((set, get) => {
           }
           set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'writing', model } } : {}));
         }
-        const ctx = assembleContext({ session: sess, path, ...bundle, model, direction: o.direction, dropped: get().dropped });
-        set({ lastLog: ctx.log });
         const lastProse = [...path].reverse().find((b) => b.role === 'prose');
         const lastBeat = path[path.length - 1];
+        // Plan first: a short, cheap call to the helper that gives the writer a spine to follow.
+        let plan = '';
+        if (sess.planFirst) {
+          set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'planning', model: sess.models.helper } } : {}));
+          try {
+            const instruction = [lastBeat?.role === 'instruction' ? lastBeat.text : '', o.direction ?? ''].filter(Boolean).join('; ');
+            for await (const ev of client.stream({ apiKey, model: sess.models.helper, messages: planPrompt({ brief: sess.brief, summary: sess.summary, recent: lastProse?.text ?? '', instruction, opening: !lastProse && !sess.summary, style: bundle.style }), params: { temperature: 0.5, topP: 0.9, maxTokens: 260, reasoning: false }, zdr: sess.zdr, signal: abort.signal })) {
+              if (ev.type === 'text') plan += ev.text ?? '';
+            }
+          } catch {
+            if (abort.signal.aborted) return;
+            plan = '';
+          }
+          set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'writing', model } } : {}));
+        }
+        const ctx = assembleContext({ session: sess, path, ...bundle, model, direction: o.direction, dropped: get().dropped, plan: plan.trim() || undefined });
+        set({ lastLog: ctx.log });
         const stats = await listModelStats(db);
         const autoModel = (exclude: string[]) => {
           const ranked = stats
@@ -316,7 +364,7 @@ export const useSession = create<SessionState>((set, get) => {
         const finalText = final.stripPrefix && final.text.startsWith(final.stripPrefix) ? final.text.slice(final.stripPrefix.length) : final.text;
         const totalCost = attempts.reduce((n, a) => n + (a.usage?.costUsd ?? 0), 0);
         const usage = final.usage ? { ...final.usage, costUsd: attempts.some((a) => a.usage?.costUsd != null) ? totalCost : null } : null;
-        await get().insertGenerated({ parentId, text: finalText.trim(), model: final.model, direction: o.direction, reasoning: final.reasoning, usage });
+        await get().insertGenerated({ parentId, text: finalText.trim(), model: final.model, direction: o.direction, reasoning: final.reasoning, plan: plan.trim() || null, usage });
         const ran = attempts.filter((a) => !a.skipped);
         if (final.refused) set({ notice: `Every step of the refusal chain came back as a refusal (${ran.length} attempts). Kept the last one so you can judge.` });
         else if (ran.length > 1) set({ notice: `Pushed through on attempt ${ran.length}${final.step ? ` via ${final.step.kind}` : ''}${final.model !== model ? ` on ${final.model.split('/').pop()}` : ''}.` });

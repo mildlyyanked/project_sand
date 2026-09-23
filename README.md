@@ -41,6 +41,14 @@ Web also works for desktop use: `npx expo start --web`.
 
 On the home screen, hold a story for Open, Session settings, Duplicate and Delete.
 
+## How a passage gets written
+
+Every request carries, in order: the preset's system prompt with craft guidance, the style card, the character cards, the **brief** (premise, ideas, people, limits; editable in session settings), the world and lore, the rolling summary, the recent passages, and then the ask. When the story has no prose yet the ask is an **opening directive**: start before anything goes wrong, introduce the people who matter, end on the first hint of trouble.
+
+With **Plan before writing** on (the default), the helper first writes a plan of at most 120 words for the passage; the writer is told to follow it. The plan is stored on the beat and shown in the inspector and the beat menu.
+
+**Critique and redo** in a passage's menu has the helper mark up the passage against the brief and the previous passage, then regenerates it with those notes as direction. The original stays one swipe away.
+
 ## Persistence (getting past refusals)
 
 A preset's **Persistence** chain runs when a reply looks like a refusal. Each step is applied in order and the passage is retried; later retries carry earlier changes. The seeded **Persistent** preset uses, in order:

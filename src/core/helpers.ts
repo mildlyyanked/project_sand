@@ -139,3 +139,26 @@ export function workshopNotePrompt(transcript: ChatMessage[], premise: string): 
     { role: 'user', content: `Chosen premise:\n${premise}\n\nConversation:\n${transcript.filter((m) => m.role !== 'system').map((m) => `${m.role === 'user' ? 'Writer' : 'Editor'}: ${m.content}`).join('\n\n')}` },
   ];
 }
+
+/** Ask the helper for a short plan before the writer drafts the passage. */
+export function planPrompt(o: { brief: string; summary: string; recent: string; instruction?: string; opening: boolean; style: Style | null }): ChatMessage[] {
+  return [
+    { role: 'system', content: 'You plan the next passage of a story for the writer who will draft it. Output at most 120 words of plain sentences, no headings or lists: where we are and who is present; what happens in this passage, in order; what has changed by its end; one concrete detail to anchor it; and what it must not do yet. Stay inside the brief. Do not write prose.' },
+    { role: 'user', content: [
+      o.brief ? `Brief:\n${o.brief}` : '',
+      o.style ? `Voice: ${[o.style.pointOfView, o.style.tense, o.style.register].filter(Boolean).join(', ')}` : '',
+      o.summary ? `Story so far:\n${o.summary}` : '',
+      o.recent ? `Most recent passage:\n${o.recent}` : '',
+      o.instruction ? `The writer asks for: ${o.instruction}` : '',
+      o.opening ? 'This is the opening passage: begin before anything goes wrong, introduce the people who matter, end on the first hint of trouble.' : 'Plan the next passage.',
+    ].filter(Boolean).join('\n\n') },
+  ];
+}
+
+/** A demanding editor's notes on one passage, used to regenerate it. */
+export function critiquePrompt(o: { brief: string; style: Style | null; previous: string; passage: string }): ChatMessage[] {
+  return [
+    { role: 'system', content: 'You are a demanding fiction editor. Critique the passage in at most eight short lines, each one specific and quoting the text where possible: what a first-time reader could not follow; continuity or logic errors against the brief and the previous passage; places the prose is doing generic things (fragments, portentous one-liners, stacked metaphors, vague menace, characters acting without setup); and, last, the single most important fix. No praise, no summary.' },
+    { role: 'user', content: [o.brief ? `Brief:\n${o.brief}` : '', o.style ? `Voice: ${renderStyle(o.style)}` : '', o.previous ? `Previous passage:\n${o.previous}` : '', `Passage to critique:\n${o.passage}`].filter(Boolean).join('\n\n') },
+  ];
+}
