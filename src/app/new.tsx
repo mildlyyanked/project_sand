@@ -11,6 +11,7 @@ import { listCharacters, listStyles, listUniverses, newCharacter, newStyle, newU
 import { blankSession, insertBeat, makeBeat, upsertSession } from '@/db/repo/sessions';
 import { useSettings } from '@/state/settings';
 import { client } from '@/state/client';
+import { askNotificationPermission, runInForeground } from '@/state/foreground';
 import { Banner, Button, Card, Chip, Field, IconButton, Ionicons, Row, Section, Segmented, Sheet, T } from '@/ui/components';
 import { radius, serif, space, useTheme } from '@/ui/theme';
 import { shortModel } from '@/ui/format';
@@ -68,28 +69,33 @@ export default function Workshop() {
     const next = [...turns, userTurn];
     setTurns([...next, reply]);
     setBusy(true);
-    abort.current = new AbortController();
+    const ctrl = new AbortController();
+    abort.current = ctrl;
+    if (turns.length === 0) void askNotificationPermission();
+    await runInForeground('Workshopping with the editor', async () => {
     try {
       const messages: ChatMessage[] = [system, ...next.map((x) => ({ role: x.role, content: x.text }))];
       let acc = '';
-      for await (const ev of client.stream({ apiKey, model: defaults.models.helper, messages, params: { temperature: 0.9, topP: 0.95, maxTokens: 700, reasoning: false }, zdr: defaults.zdr, signal: abort.current.signal })) {
+      for await (const ev of client.stream({ apiKey, model: defaults.models.helper, messages, params: { temperature: 0.9, topP: 0.95, maxTokens: 700, reasoning: false }, zdr: defaults.zdr, signal: ctrl.signal })) {
         if (ev.type === 'text') { acc += ev.text ?? ''; setTurns((ts) => ts.map((x) => (x.id === reply.id ? { ...x, text: acc } : x))); }
         if (ev.type === 'error') throw new Error(ev.error);
       }
       setTurns((ts) => ts.map((x) => (x.id === reply.id ? { ...x, text: acc, streaming: false } : x)));
     } catch (e) {
-      if (!abort.current?.signal.aborted) setErr(e instanceof Error ? e.message : String(e));
+      if (!ctrl.signal.aborted) setErr(e instanceof Error ? e.message : String(e));
       setTurns((ts) => ts.filter((x) => x.id !== reply.id || x.text));
     } finally {
       setBusy(false);
       abort.current = null;
     }
+    });
   }
 
   async function writeOpening() {
     const premise = brief?.premise || chosen;
     if (!premise) return;
     setOpeningBusy(true); setErr(null); setOpening('');
+    await runInForeground('Writing the opening', async () => {
     try {
       let text = '';
       for await (const ev of client.stream({ apiKey, model: defaults.models.writer, messages: openingPrompt(premise, style), params: { temperature: 0.9, topP: 0.95, maxTokens: 900, reasoning: false }, zdr: defaults.zdr })) {
@@ -97,11 +103,13 @@ export default function Workshop() {
         if (ev.type === 'error') throw new Error(ev.error);
       }
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setOpeningBusy(false); }
+    });
   }
 
   async function draftBrief() {
     if (!apiKey || briefBusy) return;
     setBriefBusy(true); setErr(null);
+    await runInForeground('Drafting the brief', async () => {
     try {
       let text = '';
       for await (const ev of client.stream({ apiKey, model: defaults.models.helper, messages: briefPrompt(transcript(), chosen), params: { temperature: 0.4, topP: 0.9, maxTokens: 1500, reasoning: false }, zdr: defaults.zdr })) {
@@ -114,6 +122,7 @@ export default function Workshop() {
       setBrief(b);
       setBriefOpen(true);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBriefBusy(false); }
+    });
   }
 
   async function start(withOpening: boolean) {
@@ -180,10 +189,6 @@ export default function Workshop() {
                 </Pressable>
               ))}
             </View>
-          ) : !mine && !item.streaming && item.text.length > 80 ? (
-            <Pressable onPress={() => { setChosen(item.text.trim()); setOpening(''); }} hitSlop={6}>
-              <T v="small" style={{ color: t.accent }}>{chosen === item.text.trim() ? 'Chosen as the premise' : 'Use this as the premise'}</T>
-            </Pressable>
           ) : null}
         </View>
       </View>

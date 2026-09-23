@@ -5,6 +5,7 @@ import { now } from '@/core/ids';
 import { client } from './client';
 import { useSession } from './session';
 import { useSettings } from './settings';
+import { runInForeground } from './foreground';
 
 /**
  * Replace a beat on the current path with an edited version and rewrite the
@@ -24,6 +25,7 @@ export async function reweave(beatId: Id, editedText: string): Promise<void> {
 
   const abort = new AbortController();
   useSession.setState({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'reweaving', startedAt: now(), parentId: original.parentId } });
+  await runInForeground('Reweaving later passages', async () => {
   try {
     let rewritten: string[] = [];
     if (prose.length && apiKey) {
@@ -60,4 +62,5 @@ export async function reweave(beatId: Id, editedText: string): Promise<void> {
   } finally {
     useSession.setState({ streaming: null, abort: null });
   }
+  });
 }

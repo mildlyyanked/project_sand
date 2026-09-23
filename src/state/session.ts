@@ -7,6 +7,7 @@ import { generateWithChain, momentumTail } from '@/core/openrouter/generate';
 import { applyRepetition } from '@/core/repetition';
 import { now } from '@/core/ids';
 import { client } from './client';
+import { runInForeground } from './foreground';
 import { useSettings } from './settings';
 import { deleteBeats, getSession, insertBeat, listBeats, makeBeat, patchSession, updateBeatText } from '@/db/repo/sessions';
 import { getCharacters, getPreset, getStyle, getUniverse, listLore, listModelStats, listSpecies, recordAttempt } from '@/db/repo/library';
@@ -210,6 +211,7 @@ export const useSession = create<SessionState>((set, get) => {
       }
       const abort = new AbortController();
       set({ streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.summarizer, phase: 'summarizing', startedAt: now(), parentId: null }, abort, error: null });
+      await runInForeground('Summarizing the story so far', async () => {
       try {
         let text = '';
         for await (const ev of client.stream({ apiKey, model: session.models.summarizer, messages: summaryPrompt(session.summary, toFold), params: { temperature: 0.3, topP: 0.9, maxTokens: 1200, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
@@ -227,6 +229,7 @@ export const useSession = create<SessionState>((set, get) => {
       } finally {
         set({ streaming: null, abort: null });
       }
+      });
     },
 
     async generate(o = {}) {
@@ -254,6 +257,7 @@ export const useSession = create<SessionState>((set, get) => {
       const abort = new AbortController();
       set({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model, phase: 'writing', startedAt: now(), parentId } });
 
+      await runInForeground('Writing the next passage', async () => {
       try {
         // Fold overflow into the summary first, so the model never loses the middle.
         let sess = session;
@@ -321,6 +325,7 @@ export const useSession = create<SessionState>((set, get) => {
       } finally {
         set({ streaming: null, abort: null });
       }
+      });
     },
   };
 });

@@ -5,6 +5,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useSession } from '@/state/session';
 import { useSettings } from '@/state/settings';
 import { client } from '@/state/client';
+import { runInForeground } from '@/state/foreground';
 import { applyRepetition } from '@/core/repetition';
 import { Banner, Button, Card, Chip, Field, Row, Screen, T } from '@/ui/components';
 import { ModelPicker } from '@/ui/components/ModelPicker';
@@ -40,7 +41,7 @@ export default function Race() {
     setBusy(true);
     const init = picked.map((model) => ({ model, text: '', done: false, cost: null }));
     setDrafts(init);
-    await Promise.all(
+    await runInForeground('Racing drafts', () => Promise.all(
       picked.map(async (model, i) => {
         const upd = (p: Partial<Draft>) => setDrafts((d) => d.map((x, j) => (j === i ? { ...x, ...p } : x)));
         try {
@@ -55,7 +56,7 @@ export default function Race() {
           upd({ done: true, error: e instanceof Error ? e.message : String(e) });
         }
       }),
-    );
+    ));
     setBusy(false);
   }
   async function use(d: Draft) {

@@ -6,6 +6,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useSession } from '@/state/session';
 import { useSettings } from '@/state/settings';
 import { client } from '@/state/client';
+import { runInForeground } from '@/state/foreground';
 import { Banner, Button, Card, Field, Row, Screen, T } from '@/ui/components';
 import { shortModel } from '@/ui/format';
 
@@ -28,6 +29,7 @@ export default function Scene() {
     setBusy(true);
     setErr(null);
     setOut('');
+    await runInForeground('Planning the next scene', async () => {
     try {
       const recent = manuscriptText(s.path.slice(-3));
       const msgs = scenePrompt({ universe: s.bundle.universe, characters: s.bundle.characters, style: s.bundle.style, summary: session!.summary, recent, wish });
@@ -44,6 +46,7 @@ export default function Scene() {
     } finally {
       setBusy(false);
     }
+    });
   }
   async function insertAs(role: 'note' | 'instruction') {
     await s.addBeat(role, out.trim());

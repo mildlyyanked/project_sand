@@ -11,7 +11,7 @@ export type FetchLike = (url: string, init: { method?: string; headers?: Record<
 }>;
 
 export interface StreamEvent {
-  type: 'text' | 'reasoning' | 'usage' | 'done' | 'error';
+  type: 'text' | 'reasoning' | 'usage' | 'done' | 'error' | 'resume';
   text?: string;
   usage?: Usage;
   error?: string;

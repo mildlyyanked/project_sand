@@ -13,6 +13,7 @@ import { voiceDrift } from '@/core/voiceDrift';
 import { useSession } from '@/state/session';
 import { useSettings } from '@/state/settings';
 import { reweave } from '@/state/reweave';
+import { askNotificationPermission } from '@/state/foreground';
 import { Banner, Button, Chip, Empty, Field, IconButton, Ionicons, MenuItem, Pill, Row, Sheet, T } from '@/ui/components';
 import { radius, serif, space, useTheme } from '@/ui/theme';
 import { shortModel } from '@/ui/format';
@@ -79,6 +80,7 @@ export default function Manuscript() {
   async function go() {
     const d = dir;
     setDir(null);
+    void askNotificationPermission();
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await s.generate({ direction: dirText.trim() || undefined, regenerateId: d?.regenerateId });
   }
@@ -226,7 +228,7 @@ export default function Manuscript() {
               </Pill>
             ) : null}
           </Row>
-          <Pressable onPress={() => s.generate()} onLongPress={() => openDirection()} disabled={!!streaming} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: t.accent, paddingVertical: 9, paddingLeft: 16, paddingRight: 10, borderRadius: radius.pill, opacity: streaming ? 0.4 : pressed ? 0.8 : 1 })}>
+          <Pressable onPress={() => { void askNotificationPermission(); void s.generate(); }} onLongPress={() => openDirection()} disabled={!!streaming} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: t.accent, paddingVertical: 9, paddingLeft: 16, paddingRight: 10, borderRadius: radius.pill, opacity: streaming ? 0.4 : pressed ? 0.8 : 1 })}>
             <T style={{ color: t.accentText, fontWeight: '700' }}>Continue</T>
             <Pressable hitSlop={8} onPress={() => openDirection()} disabled={!!streaming}>
               <Ionicons name="chevron-up" size={16} color={t.accentText} />

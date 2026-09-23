@@ -60,6 +60,10 @@ Nothing in this chain claims a false identity or authorization; it changes how t
 
 Besides voice, register and banned phrases, a style card carries **Influences** (writers to draw on, sent to the writer verbatim) and a **Repetition control** level. The level is applied purely through sampler penalties on the request, never as prompt text. The voice check on the manuscript also flags phrases reused from recent passages.
 
+## Background generation
+
+On Android the app runs a foreground service while anything is generating, with a small "Sand" notification, so switching apps does not freeze the process and drop the stream. If a connection still drops mid-reply, the client resumes from the text already received. Allow notifications when asked; the service still works without them, only silently.
+
 ## Appearance
 
 Dark by default. Settings → Appearance switches to light or follows the system.
