@@ -4,6 +4,7 @@
   "main": "expo-router/entry",
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
+    "@notifee/react-native": "^9.1.8",
     "expo": "~57.0.24",
     "expo-clipboard": "~57.0.2",
     "expo-constants": "~57.0.19",
