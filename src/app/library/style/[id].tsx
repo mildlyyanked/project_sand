@@ -59,7 +59,7 @@ export default function StyleEditor() {
         <View style={{ gap: 6 }}>
           <T v="label">Repetition control</T>
           <Segmented value={s.repetition} onChange={(v) => update({ repetition: v })} options={[{ key: 'off', label: 'Off' }, { key: 'light', label: 'Light' }, { key: 'medium', label: 'Medium' }, { key: 'strong', label: 'Strong' }]} />
-          <T v="faint">Applied through the sampler as frequency, presence and repetition penalties. Nothing about it enters the prompt. Strong can make some models terse.</T>
+          <T v="faint">Applied through the sampler, mostly as a presence penalty; nothing about it enters the prompt. Frequency penalties are kept tiny on purpose: over a long passage they strip out articles and punctuation. If a passage ever collapses into a run-on sentence, set this to Off.</T>
         </View>
         <Field label="Never use" hint="Comma separated. Also feeds the voice check." value={s.bannedPhrases.join(', ')} onChangeText={(v) => update({ bannedPhrases: v.split(',').map((x) => x.trim()).filter(Boolean) })} />
       </Section>

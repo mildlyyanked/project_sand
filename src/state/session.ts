@@ -5,7 +5,7 @@ import { indexBeats, pathTo, type BeatIndex, descendants, leafOf, stepSibling } 
 import { assembleContext, splitPath, summaryPrompt, type AssembleInput } from '@/core/context/assemble';
 import { critiquePrompt, planPrompt } from '@/core/helpers';
 import { generateWithChain, momentumTail } from '@/core/openrouter/generate';
-import { applyRepetition } from '@/core/repetition';
+import { applyRepetition, trimDegenerate } from '@/core/repetition';
 import { now } from '@/core/ids';
 import { client } from './client';
 import { runInForeground } from './foreground';
@@ -361,12 +361,15 @@ export const useSession = create<SessionState>((set, get) => {
           set({ error: final.error });
           return;
         }
-        const finalText = final.stripPrefix && final.text.startsWith(final.stripPrefix) ? final.text.slice(final.stripPrefix.length) : final.text;
+        const rawText = final.stripPrefix && final.text.startsWith(final.stripPrefix) ? final.text.slice(final.stripPrefix.length) : final.text;
+        const guarded = trimDegenerate(rawText);
+        const finalText = guarded.text;
         const totalCost = attempts.reduce((n, a) => n + (a.usage?.costUsd ?? 0), 0);
         const usage = final.usage ? { ...final.usage, costUsd: attempts.some((a) => a.usage?.costUsd != null) ? totalCost : null } : null;
         await get().insertGenerated({ parentId, text: finalText.trim(), model: final.model, direction: o.direction, reasoning: final.reasoning, plan: plan.trim() || null, usage });
         const ran = attempts.filter((a) => !a.skipped);
-        if (final.refused) set({ notice: `Every step of the refusal chain came back as a refusal (${ran.length} attempts). Kept the last one so you can judge.` });
+        if (guarded.trimmed) set({ notice: 'Cut a tail where the prose broke down into a run-on. If this keeps happening, set the style card\'s repetition control to Off; sampler penalties can starve a long passage of articles and punctuation.' });
+        else if (final.refused) set({ notice: `Every step of the refusal chain came back as a refusal (${ran.length} attempts). Kept the last one so you can judge.` });
         else if (ran.length > 1) set({ notice: `Pushed through on attempt ${ran.length}${final.step ? ` via ${final.step.kind}` : ''}${final.model !== model ? ` on ${final.model.split('/').pop()}` : ''}.` });
       } catch (e) {
         if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });

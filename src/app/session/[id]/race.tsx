@@ -6,7 +6,7 @@ import { useSession } from '@/state/session';
 import { useSettings } from '@/state/settings';
 import { client } from '@/state/client';
 import { runInForeground } from '@/state/foreground';
-import { applyRepetition } from '@/core/repetition';
+import { applyRepetition, trimDegenerate } from '@/core/repetition';
 import { Banner, Button, Card, Chip, Field, Row, Screen, T } from '@/ui/components';
 import { ModelPicker } from '@/ui/components/ModelPicker';
 import { serif, useTheme } from '@/ui/theme';
@@ -51,7 +51,7 @@ export default function Race() {
             if (ev.type === 'usage') upd({ cost: ev.usage?.costUsd ?? null });
             if (ev.type === 'error') throw new Error(ev.error);
           }
-          upd({ done: true });
+          upd({ done: true, text: trimDegenerate(text).text });
         } catch (e) {
           upd({ done: true, error: e instanceof Error ? e.message : String(e) });
         }

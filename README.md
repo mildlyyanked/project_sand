@@ -66,7 +66,7 @@ Nothing in this chain claims a false identity or authorization; it changes how t
 
 ## Style cards
 
-Besides voice, register and banned phrases, a style card carries **Influences** (writers to draw on, sent to the writer verbatim) and a **Repetition control** level. The level is applied purely through sampler penalties on the request, never as prompt text. The voice check on the manuscript also flags phrases reused from recent passages.
+Besides voice, register and banned phrases, a style card carries **Influences** (writers to draw on, sent to the writer verbatim) and a **Repetition control** level. The level is applied purely through sampler penalties on the request, never as prompt text, and it leans on presence penalty: frequency and repetition penalties grow with token count and, over a long passage, strip out articles and then punctuation until the prose collapses into one run-on sentence. A guard trims such a tail off a generated passage and says so. The voice check on the manuscript also flags phrases reused from recent passages.
 
 ## Background generation
 
