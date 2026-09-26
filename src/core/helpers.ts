@@ -1,5 +1,6 @@
 import type { Character, ChatMessage, Style, Universe } from './types';
 import { renderCharacter, renderStyle } from './context/cards';
+import { DEFAULT_TEMPLATES, type PromptTemplates } from './prompts';
 
 /** Prompts for the helper model: scene generator, style analysis, reweave, wizard. */
 
@@ -141,9 +142,9 @@ export function workshopNotePrompt(transcript: ChatMessage[], premise: string): 
 }
 
 /** Ask the helper for a short plan before the writer drafts the passage. */
-export function planPrompt(o: { brief: string; summary: string; recent: string; instruction?: string; opening: boolean; style: Style | null }): ChatMessage[] {
+export function planPrompt(o: { brief: string; summary: string; recent: string; instruction?: string; opening: boolean; style: Style | null }, templates: PromptTemplates = DEFAULT_TEMPLATES): ChatMessage[] {
   return [
-    { role: 'system', content: 'You plan the next passage of a story for the writer who will draft it. Output at most 120 words of plain sentences, no headings or lists: where we are and who is present; what happens in this passage, in order; what has changed by its end; one concrete detail to anchor it; and what it must not do yet. Stay inside the brief. Do not write prose.' },
+    { role: 'system', content: templates.plan },
     { role: 'user', content: [
       o.brief ? `Brief:\n${o.brief}` : '',
       o.style ? `Voice: ${[o.style.pointOfView, o.style.tense, o.style.register].filter(Boolean).join(', ')}` : '',
@@ -156,9 +157,66 @@ export function planPrompt(o: { brief: string; summary: string; recent: string; 
 }
 
 /** A demanding editor's notes on one passage, used to regenerate it. */
-export function critiquePrompt(o: { brief: string; style: Style | null; previous: string; passage: string }): ChatMessage[] {
+export function critiquePrompt(o: { brief: string; style: Style | null; previous: string; passage: string }, templates: PromptTemplates = DEFAULT_TEMPLATES): ChatMessage[] {
   return [
-    { role: 'system', content: 'You are a demanding fiction editor. Critique the passage in at most eight short lines, each one specific and quoting the text where possible: what a first-time reader could not follow; continuity or logic errors against the brief and the previous passage; places the prose is doing generic things (fragments, portentous one-liners, stacked metaphors, vague menace, characters acting without setup); and, last, the single most important fix. No praise, no summary.' },
+    { role: 'system', content: templates.critique },
     { role: 'user', content: [o.brief ? `Brief:\n${o.brief}` : '', o.style ? `Voice: ${renderStyle(o.style)}` : '', o.previous ? `Previous passage:\n${o.previous}` : '', `Passage to critique:\n${o.passage}`].filter(Boolean).join('\n\n') },
   ];
+}
+
+export type LabTarget = 'system' | 'postHistory' | 'style' | 'brief';
+
+export const LAB_TARGET_INFO: Record<LabTarget, { label: string; what: string }> = {
+  system: { label: 'System prompt', what: 'the system prompt that drives the writer' },
+  postHistory: { label: 'Post-history', what: 'the short instruction sent after the manuscript on every request' },
+  style: { label: 'Style card', what: 'the style card (point of view, tense, prose density, dialogue ratio, register, vocabulary, influences, banned phrases)' },
+  brief: { label: 'Brief', what: 'the story brief (premise, ideas, people, limits)' },
+};
+
+/** Ask a strong model to revise one piece of the prompt stack toward a stated goal. */
+export function labPrompt(o: { target: LabTarget; current: string; goal: string; sample: string; lastPassage: string; fullPrompt: string }): ChatMessage[] {
+  const info = LAB_TARGET_INFO[o.target];
+  const shape = o.target === 'style'
+    ? 'Output only JSON: {"revised": {"pointOfView","tense","proseDensity","dialogueRatio","register" (clinical|euphemistic|blunt),"vocabulary","influences","bannedPhrases": string[]}, "rationale": string (3 to 6 lines), "changes": string[] (one line each)}.'
+    : 'Output only JSON: {"revised": string, "rationale": string (3 to 6 lines), "changes": string[] (one line each)}.';
+  return [
+    { role: 'system', content: [
+      `You are an expert prompt engineer and fiction editor. You are revising ${info.what} used by an app that drives an LLM fiction writer.`,
+      'You see the whole request the writer receives, so you can judge how your piece interacts with the rest. Change only the piece you are asked to change.',
+      'Work toward the stated goal and, when a reference sample is given, toward its qualities. Keep what already works. Be concrete and prescriptive; show rather than list rules where a short example does more; remove contradictions and redundancy; keep it as short as it can be while complete. Never add disclaimers or safety language.',
+      shape,
+    ].join(' ') },
+    { role: 'user', content: [
+      `Goal: ${o.goal.trim() || 'Improve it.'}`,
+      o.sample.trim() ? `Reference sample the author likes:\n${o.sample.trim()}` : '',
+      `Current ${info.label.toLowerCase()}:\n${o.current.trim() || '(empty)'}`,
+      o.lastPassage.trim() ? `Most recent passage the writer produced:\n${o.lastPassage.trim()}` : '',
+      o.fullPrompt.trim() ? `The full request as sent, for context:\n${o.fullPrompt.trim()}` : '',
+    ].filter(Boolean).join('\n\n') },
+  ];
+}
+
+export interface LabResult {
+  revised: string | Record<string, unknown>;
+  rationale: string;
+  changes: string[];
+}
+
+export function parseLabResult(text: string): LabResult | null {
+  const raw = text.replace(/^[\s\S]*?```(?:json)?/m, '').replace(/```[\s\S]*$/m, '').trim() || text.trim();
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start < 0 || end < 0) return null;
+  try {
+    const j = JSON.parse(raw.slice(start, end + 1)) as Partial<LabResult>;
+    if (j.revised == null) return null;
+    return { revised: typeof j.revised === 'string' ? j.revised : (j.revised as Record<string, unknown>), rationale: typeof j.rationale === 'string' ? j.rationale : '', changes: Array.isArray(j.changes) ? j.changes.map(String) : [] };
+  } catch {
+    return null;
+  }
+}
+
+/** A readable transcript of the exact request, for pasting into another chat to compare. */
+export function transcriptOf(messages: ChatMessage[]): string {
+  return messages.map((m) => `[${m.role}]\n${m.content}`).join('\n\n');
 }

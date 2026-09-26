@@ -16,13 +16,52 @@ async function upgradeTo3(db: SQLiteDatabase): Promise<void> {
   for (const r of rows) await db.runAsync('UPDATE sessions SET brief = ? WHERE id = ?', r.text, r.id);
 }
 
+const INTERACTIVE_SYSTEM = [
+  'You are a master literary narrator running a deeply immersive, interactive story. The writer drives all action and dialogue for their character; you never control, speak for, or assume the thoughts, feelings or actions of that character.',
+  'Prose, highest priority: write exquisite, controlled literary prose. Elegant diction, precise and evocative vocabulary, varied rhythmic sentence structure, rich sensory detail, subtle metaphor, atmospheric texture, emotional or intellectual resonance. Lyrical yet controlled, vivid without purple excess, sophisticated without pretension. Avoid clichés, flat description, modern slang unless tonally perfect, and simplistic phrasing.',
+  'Interactivity and pacing: second person, present tense. Describe only the world, the other people, sensory reality and the direct consequences of what the writer just did or said, then stop and wait. Keep each response to roughly 180 to 350 words. Advance only the immediate moment. Do not rush plot, leap ahead, dump backstory, resolve conflicts quickly or make large narrative jumps. End each response by creating space for the writer: tension, an environmental opening, another character\'s gaze or unfinished sentence, a sensory invitation, or quiet aftermath. Prefer open freeform agency over lists of choices.',
+  'Storycraft: strict consistency of world, tone, character and prior events. Introduce complications, moral texture, quiet mysteries and unexpected details that challenge without overwhelming the moment. Other characters are real people with their own motives and voices.',
+  'Use the brief, the style card and the character cards above as the established world. No commentary, no headings, no notes.',
+].join('\n\n');
+
+async function upgradeTo4(db: SQLiteDatabase): Promise<void> {
+  const presets = await listPresets(db);
+  if (!presets.some((p) => p.name === 'Interactive narrator')) {
+    await savePreset(db, {
+      ...newPreset(),
+      name: 'Interactive narrator',
+      system: INTERACTIVE_SYSTEM,
+      postHistory: 'Respond to what the writer just did or said, in the immediate moment only, 180 to 350 words, then stop.',
+      refusalChain: [{ kind: 'momentum' }, { kind: 'soften' }, { kind: 'heat' }, { kind: 'model', model: 'auto' }],
+    });
+  }
+  const styles = await listStyles(db);
+  if (!styles.some((st) => st.name === 'Literary, controlled')) {
+    await saveStyle(db, {
+      ...newStyle(),
+      name: 'Literary, controlled',
+      pointOfView: 'Second person, close on the writer\'s character; never narrate their inner state.',
+      tense: 'Present',
+      proseDensity: 'Rich but governed: sensory detail and subtle metaphor in service of the moment, never ornament for its own sake. One image per beat, not three.',
+      dialogueRatio: 'Other characters speak in their own voices; dialogue carries motive.',
+      register: 'euphemistic',
+      vocabulary: 'Precise and evocative; elevated where it earns it; no modern slang unless tonally perfect.',
+      influences: '',
+      repetition: 'off',
+      bannedPhrases: ['a testament to', 'tapestry', 'delve', 'shivers down', "couldn't help but", 'in that moment', 'the air was thick'],
+      samples: [],
+    });
+  }
+}
+
 export async function seedIfEmpty(db: SQLiteDatabase): Promise<void> {
   const version = Number((await kvGet(db, 'seeded')) ?? 0);
-  if (version >= 3) return;
+  if (version >= 4) return;
   if (version >= 1) {
     if (!(await listPresets(db)).some((p) => p.name === 'Persistent')) await savePreset(db, persistentPreset());
-    await upgradeTo3(db);
-    await kvSet(db, 'seeded', '3');
+    if (version < 3) await upgradeTo3(db);
+    await upgradeTo4(db);
+    await kvSet(db, 'seeded', '4');
     return;
   }
   if ((await listPresets(db)).length === 0) {
@@ -54,7 +93,8 @@ export async function seedIfEmpty(db: SQLiteDatabase): Promise<void> {
     await saveStyle(db, { ...newStyle(), name: 'Close third, past', pointOfView: 'Third person, close on the viewpoint character; no head-hopping within a scene.', tense: 'Past', proseDensity: 'Lean. Concrete nouns, strong verbs, few adjectives.', dialogueRatio: 'Balanced; dialogue carries subtext.', register: 'blunt', vocabulary: 'Plain words. Name things directly.', bannedPhrases: ['a testament to', 'tapestry', 'delve', 'shivers down', 'couldn\'t help but'], samples: [] });
     await saveStyle(db, { ...newStyle(), name: 'First person, present', pointOfView: 'First person, present tense, single narrator.', tense: 'Present', proseDensity: 'Medium; interiority welcome but keep momentum.', dialogueRatio: 'High.', register: 'euphemistic', vocabulary: 'Casual, contemporary.', bannedPhrases: ['in that moment', 'little did I know'], samples: [] });
   }
-  await kvSet(db, 'seeded', '3');
+  await upgradeTo4(db);
+  await kvSet(db, 'seeded', '4');
 }
 
 function persistentPreset() {

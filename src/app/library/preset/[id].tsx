@@ -8,6 +8,7 @@ import { deletePreset, getPreset, savePreset } from '@/db/repo/library';
 import { useEntity } from '@/ui/useEntity';
 import { Button, Card, Chip, Field, IconButton, Row, Screen, Section, SwitchRow, T } from '@/ui/components';
 import { ModelPicker } from '@/ui/components/ModelPicker';
+import { HistorySheet } from '@/ui/components/History';
 import { shortModel } from '@/ui/format';
 
 export default function PresetEditor() {
@@ -17,6 +18,7 @@ export default function PresetEditor() {
   const [ovText, setOvText] = useState<string | null>(null);
   const [ovErr, setOvErr] = useState(false);
   const [pickFor, setPickFor] = useState<number | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   if (!p) return null;
 
   const setStep = (i: number, step: RefusalStep) => update({ refusalChain: p.refusalChain.map((s, j) => (j === i ? step : s)) });
@@ -36,7 +38,7 @@ export default function PresetEditor() {
 
   return (
     <Screen scroll>
-      <Section title="Prompt">
+      <Section title="Prompt" right={<Button small kind="ghost" icon="time-outline" title="History" onPress={() => setHistoryOpen(true)} />}>
         <Field label="Name" value={p.name} onChangeText={(v) => update({ name: v })} />
         <Field label="System" value={p.system} onChangeText={(v) => update({ system: v })} multiline style={{ minHeight: 160 }} />
         <Field label="Post-history" hint="Sent last, as a user turn, after the manuscript. Short reminders work best here." value={p.postHistory} onChangeText={(v) => update({ postHistory: v })} multiline />
@@ -74,6 +76,7 @@ export default function PresetEditor() {
         <Field label="Avoid providers" hint="OpenRouter provider slugs, comma separated. Use it to skip providers that add moderation on top of the model." value={p.providerIgnore.join(', ')} onChangeText={(v) => update({ providerIgnore: v.split(',').map((x) => x.trim()).filter(Boolean) })} autoCapitalize="none" autoCorrect={false} placeholder="e.g. azure, openai" />
         <Field label="Prefer providers" hint="Tried first, in this order." value={p.providerOrder.join(', ')} onChangeText={(v) => update({ providerOrder: v.split(',').map((x) => x.trim()).filter(Boolean) })} autoCapitalize="none" autoCorrect={false} placeholder="e.g. together, deepinfra" />
       </Section>
+      <HistorySheet open={historyOpen} onClose={() => setHistoryOpen(false)} kind="preset" targetId={p.id} onRestore={(payload) => { try { const j = JSON.parse(payload) as { system?: string; postHistory?: string }; update({ system: j.system ?? p.system, postHistory: j.postHistory ?? p.postHistory }); } catch {} }} />
       <ModelPicker open={pickFor != null} onClose={() => setPickFor(null)} onSelect={(id) => { if (pickFor != null) setStep(pickFor, { kind: 'model', model: id }); }} current={pickFor != null && p.refusalChain[pickFor]?.kind === 'model' ? (p.refusalChain[pickFor] as { model: string }).model : null} title="Fallback model" />
       <Section title="Per-model overrides">
         <T v="faint">JSON keyed by model id or prefix ending in *, with any of system, prefill, postHistory.</T>

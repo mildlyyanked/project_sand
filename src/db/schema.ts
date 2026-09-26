@@ -33,6 +33,10 @@ const MIGRATIONS: string[] = [
   ALTER TABLE sessions ADD COLUMN plan_first INTEGER NOT NULL DEFAULT 1;
   ALTER TABLE beats ADD COLUMN plan TEXT;
   `,
+  `
+  CREATE TABLE revisions (id TEXT PRIMARY KEY, kind TEXT NOT NULL, target_id TEXT NOT NULL, payload TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
+  CREATE INDEX revisions_target ON revisions(kind, target_id, created_at);
+  `,
 ];
 
 export async function migrate(db: SQLiteDatabase): Promise<void> {

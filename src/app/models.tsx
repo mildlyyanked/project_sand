@@ -20,7 +20,8 @@ export default function Models() {
 
   async function choose(id: string) {
     const [kind, sid, slot] = (target ?? '').split(':');
-    if (kind === 'default') await settings.setDefaults(db, { models: { ...settings.defaults.models, [sid as Slot]: id } });
+    if (kind === 'default' && sid === 'editorModel') await settings.setDefaults(db, { editorModel: id });
+    else if (kind === 'default') await settings.setDefaults(db, { models: { ...settings.defaults.models, [sid as Slot]: id } });
     else if (kind === 'session' && sid && slot) {
       if (sessionStore.session?.id === sid) await sessionStore.patch({ models: { ...sessionStore.session.models, [slot as Slot]: id } });
       else {

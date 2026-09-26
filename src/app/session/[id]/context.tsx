@@ -4,6 +4,8 @@ import { useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useSession } from '@/state/session';
 import { useSettings } from '@/state/settings';
+import * as Clipboard from 'expo-clipboard';
+import { transcriptOf } from '@/core/helpers';
 import { Badge, Button, Card, Field, Ionicons, Row, Screen, Section, SwitchRow, T } from '@/ui/components';
 import { space, useTheme } from '@/ui/theme';
 import { kTokens, shortModel } from '@/ui/format';
@@ -40,6 +42,10 @@ export default function ContextInspector() {
         <T v="faint">{model ? `${Math.round((ratio ?? 0) * 100)}% of ${kTokens(model.contextLength)} context` : 'Refresh the model list in Settings to see the context limit.'}</T>
       </Card>
 
+      <Row style={{ marginBottom: space.lg, flexWrap: 'wrap' }}>
+        <Button small kind="outline" icon="copy-outline" title="Copy as transcript" onPress={async () => { await Clipboard.setStringAsync(transcriptOf(ctx.messages)); s.setNotice('Copied. Paste it into any chat to compare like for like.'); }} />
+        <Button small kind="outline" icon="code-slash-outline" title="Copy as JSON" onPress={async () => { await Clipboard.setStringAsync(JSON.stringify(ctx.messages, null, 2)); s.setNotice('Copied the messages array.'); }} />
+      </Row>
       <Section title="Layers, in send order">
         <T v="faint">Switch a layer off to leave it out of the next request. Tap to read what will be sent.</T>
         {ctx.layers.map((l) => {

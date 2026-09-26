@@ -49,6 +49,14 @@ With **Plan before writing** on (the default), the helper first writes a plan of
 
 **Critique and redo** in a passage's menu has the helper mark up the passage against the brief and the previous passage, then regenerates it with those notes as direction. The original stays one swipe away.
 
+## Prompt structure and iteration
+
+Everything the writer receives is visible in the inspector, in send order, and can be copied as a transcript or as the raw messages array to compare like for like in another chat. The app's own fixed text (default system prompt, opening directive, planner, summarizer, editor, soften step) lives in **Settings → Prompt templates**, editable with reset.
+
+**Prompt lab** (story menu → Prompt lab) hands one piece of the stack to a strong editor model with a goal and an optional reference sample: the preset's system prompt or post-history, the style card, or the brief. It returns a revision with a rationale and a change list; you can edit it, test it on the next passage without touching the story, then accept. Accepting records a revision (before and after, with the rationale) that preset and style editors show under **History**, with restore.
+
+Two seeded starting points: **Persistent** (third-person manuscript, planning on) and **Interactive narrator** with the **Literary, controlled** style (second person, present, 180 to 350 words, stop and wait for the writer's move).
+
 ## Persistence (getting past refusals)
 
 A preset's **Persistence** chain runs when a reply looks like a refusal. Each step is applied in order and the passage is retried; later retries carry earlier changes. The seeded **Persistent** preset uses, in order:

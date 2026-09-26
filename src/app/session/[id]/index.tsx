@@ -243,6 +243,7 @@ export default function Manuscript() {
         <MenuItem icon="layers-outline" label="Context inspector" hint="Exactly what the next request sends" onPress={() => { setMenu(false); router.push(`/session/${session.id}/context`); }} />
         <MenuItem icon="film-outline" label="Next scene" hint="Ask the helper for a scene plan" onPress={() => { setMenu(false); router.push(`/session/${session.id}/scene`); }} />
         <MenuItem icon="git-compare-outline" label="Draft race" hint="Same passage from several models, pick one" onPress={() => { setMenu(false); router.push(`/session/${session.id}/race`); }} />
+        <MenuItem icon="flask-outline" label="Prompt lab" hint="Have a strong model revise the preset, style or brief against a goal" onPress={() => { setMenu(false); router.push(`/lab?session=${session.id}`); }} />
         <MenuItem icon="albums-outline" label="Summarize now" hint="Fold older beats into the summary" onPress={() => { setMenu(false); void s.summarizeNow(); }} />
       </Sheet>
 

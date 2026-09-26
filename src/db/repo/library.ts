@@ -161,3 +161,16 @@ export async function kvGet(db: SQLiteDatabase, key: string): Promise<string | n
 export async function kvSet(db: SQLiteDatabase, key: string, value: string): Promise<void> {
   await db.runAsync('INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)', key, value);
 }
+
+// Revisions: history for presets, styles and briefs, so prompt iteration is traceable.
+
+export type RevisionKind = 'preset' | 'style' | 'brief';
+export interface Revision { id: Id; kind: RevisionKind; targetId: Id; payload: string; note: string; createdAt: number }
+
+export async function addRevision(db: SQLiteDatabase, kind: RevisionKind, targetId: Id, payload: unknown, note: string): Promise<void> {
+  await db.runAsync('INSERT INTO revisions (id, kind, target_id, payload, note, created_at) VALUES (?,?,?,?,?,?)', newId(), kind, targetId, typeof payload === 'string' ? payload : j(payload), note, now());
+}
+export async function listRevisions(db: SQLiteDatabase, kind: RevisionKind, targetId: Id): Promise<Revision[]> {
+  const rows = await db.getAllAsync<{ id: string; kind: string; target_id: string; payload: string; note: string; created_at: number }>('SELECT * FROM revisions WHERE kind = ? AND target_id = ? ORDER BY created_at DESC', kind, targetId);
+  return rows.map((r) => ({ id: r.id, kind: r.kind as RevisionKind, targetId: r.target_id, payload: r.payload, note: r.note, createdAt: r.created_at }));
+}

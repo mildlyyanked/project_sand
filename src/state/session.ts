@@ -213,7 +213,7 @@ export const useSession = create<SessionState>((set, get) => {
       let notes = '';
       try {
         await runInForeground('Critiquing the passage', async () => {
-          for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: critiquePrompt({ brief: session.brief, style: bundle.style, previous, passage: beat.text }), params: { temperature: 0.3, topP: 0.9, maxTokens: 500, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
+          for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: critiquePrompt({ brief: session.brief, style: bundle.style, previous, passage: beat.text }, useSettings.getState().templates), params: { temperature: 0.3, topP: 0.9, maxTokens: 500, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
             if (ev.type === 'text') {
               notes += ev.text ?? '';
               set((s) => (s.streaming ? { streaming: { ...s.streaming, text: notes } } : {}));
@@ -247,7 +247,7 @@ export const useSession = create<SessionState>((set, get) => {
       await runInForeground('Summarizing the story so far', async () => {
       try {
         let text = '';
-        for await (const ev of client.stream({ apiKey, model: session.models.summarizer, messages: summaryPrompt(session.summary, toFold), params: { temperature: 0.3, topP: 0.9, maxTokens: 1200, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
+        for await (const ev of client.stream({ apiKey, model: session.models.summarizer, messages: summaryPrompt(session.summary, toFold, useSettings.getState().templates), params: { temperature: 0.3, topP: 0.9, maxTokens: 1200, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
           if (ev.type === 'text') {
             text += ev.text ?? '';
             set((s) => (s.streaming ? { streaming: { ...s.streaming, text } } : {}));
@@ -298,7 +298,7 @@ export const useSession = create<SessionState>((set, get) => {
         if (parts.overflow.length) {
           set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'summarizing', model: sess.models.summarizer } } : {}));
           let text = '';
-          for await (const ev of client.stream({ apiKey, model: sess.models.summarizer, messages: summaryPrompt(sess.summary, parts.overflow), params: { temperature: 0.3, topP: 0.9, maxTokens: 1200, reasoning: false }, zdr: sess.zdr, signal: abort.signal })) {
+          for await (const ev of client.stream({ apiKey, model: sess.models.summarizer, messages: summaryPrompt(sess.summary, parts.overflow, useSettings.getState().templates), params: { temperature: 0.3, topP: 0.9, maxTokens: 1200, reasoning: false }, zdr: sess.zdr, signal: abort.signal })) {
             if (ev.type === 'text') text += ev.text ?? '';
             if (ev.type === 'error') throw new Error(ev.error);
           }
@@ -316,7 +316,7 @@ export const useSession = create<SessionState>((set, get) => {
           set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'planning', model: sess.models.helper } } : {}));
           try {
             const instruction = [lastBeat?.role === 'instruction' ? lastBeat.text : '', o.direction ?? ''].filter(Boolean).join('; ');
-            for await (const ev of client.stream({ apiKey, model: sess.models.helper, messages: planPrompt({ brief: sess.brief, summary: sess.summary, recent: lastProse?.text ?? '', instruction, opening: !lastProse && !sess.summary, style: bundle.style }), params: { temperature: 0.5, topP: 0.9, maxTokens: 260, reasoning: false }, zdr: sess.zdr, signal: abort.signal })) {
+            for await (const ev of client.stream({ apiKey, model: sess.models.helper, messages: planPrompt({ brief: sess.brief, summary: sess.summary, recent: lastProse?.text ?? '', instruction, opening: !lastProse && !sess.summary, style: bundle.style }, useSettings.getState().templates), params: { temperature: 0.5, topP: 0.9, maxTokens: 260, reasoning: false }, zdr: sess.zdr, signal: abort.signal })) {
               if (ev.type === 'text') plan += ev.text ?? '';
             }
           } catch {
@@ -325,7 +325,7 @@ export const useSession = create<SessionState>((set, get) => {
           }
           set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'writing', model } } : {}));
         }
-        const ctx = assembleContext({ session: sess, path, ...bundle, model, direction: o.direction, dropped: get().dropped, plan: plan.trim() || undefined });
+        const ctx = assembleContext({ session: sess, path, ...bundle, model, direction: o.direction, dropped: get().dropped, plan: plan.trim() || undefined, templates: useSettings.getState().templates });
         set({ lastLog: ctx.log });
         const stats = await listModelStats(db);
         const autoModel = (exclude: string[]) => {
@@ -342,6 +342,7 @@ export const useSession = create<SessionState>((set, get) => {
           momentumText: lastProse ? momentumTail(lastProse.text) : '',
           instructionText: [lastBeat?.role === 'instruction' ? lastBeat.text : '', o.direction ?? ''].filter(Boolean).join('\n') || undefined,
           autoModel,
+          softenSystem: useSettings.getState().templates.soften,
           onAttempt: (attempt, step, m) => set((s) => (s.streaming ? { streaming: { ...s.streaming, attempt, step, model: m, text: '', reasoning: '' } } : {})),
           onDelta: (_a, text, reasoning) => set((s) => (s.streaming ? { streaming: { ...s.streaming, text, reasoning } } : {})),
         });

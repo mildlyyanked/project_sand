@@ -1,11 +1,14 @@
 import { create } from 'zustand';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { ModelInfo, ModelSlots, ModelStat } from '@/core/types';
+import { DEFAULT_TEMPLATES, mergeTemplates, type PromptTemplates } from '@/core/prompts';
 import { kvGet, kvSet, listModelStats } from '@/db/repo/library';
 import { loadApiKey, saveApiKey } from './secrets';
 
 export interface Defaults {
   models: ModelSlots;
+  /** Strong model used by the prompt lab. Empty means the writer model. */
+  editorModel: string;
   zdr: boolean;
   fontSize: number;
   presetId: string | null;
@@ -15,6 +18,7 @@ export interface Defaults {
 
 const DEFAULTS: Defaults = {
   models: { writer: 'anthropic/claude-sonnet-4', summarizer: 'google/gemini-2.5-flash', helper: 'google/gemini-2.5-flash' },
+  editorModel: '',
   zdr: false,
   fontSize: 17,
   presetId: null,
@@ -37,6 +41,8 @@ interface SettingsState {
   modelsError: string | null;
   stats: ModelStat[];
   refreshStats(db: SQLiteDatabase): Promise<void>;
+  templates: PromptTemplates;
+  setTemplates(db: SQLiteDatabase, patch: Partial<PromptTemplates>): Promise<void>;
   /** Fetch the catalog when it is missing or older than maxAgeMs. Safe to call often. */
   ensureModels(db: SQLiteDatabase, opts?: { force?: boolean; maxAgeMs?: number }): Promise<void>;
 }
@@ -51,6 +57,15 @@ export const useSettings = create<SettingsState>((set, get) => ({
   modelsLoading: false,
   modelsError: null,
   stats: [],
+  templates: DEFAULT_TEMPLATES,
+  async setTemplates(db, patch) {
+    const merged = mergeTemplates({ ...get().templates, ...patch });
+    // Store only what differs from the defaults, so future default improvements reach untouched keys.
+    const diff: Partial<PromptTemplates> = {};
+    for (const k of Object.keys(DEFAULT_TEMPLATES) as (keyof PromptTemplates)[]) if (merged[k] !== DEFAULT_TEMPLATES[k]) diff[k] = merged[k];
+    await kvSet(db, 'templates', JSON.stringify(diff));
+    set({ templates: merged });
+  },
   async refreshStats(db) {
     set({ stats: await listModelStats(db) });
   },
@@ -72,7 +87,7 @@ export const useSettings = create<SettingsState>((set, get) => ({
     }
   },
   async load(db) {
-    const [apiKey, d, m, z, at] = await Promise.all([loadApiKey(), kvGet(db, 'defaults'), kvGet(db, 'models'), kvGet(db, 'zdrIds'), kvGet(db, 'modelsFetchedAt')]);
+    const [apiKey, d, m, z, at, tp] = await Promise.all([loadApiKey(), kvGet(db, 'defaults'), kvGet(db, 'models'), kvGet(db, 'zdrIds'), kvGet(db, 'modelsFetchedAt'), kvGet(db, 'templates')]);
     let defaults = DEFAULTS;
     try {
       if (d) defaults = { ...DEFAULTS, ...(JSON.parse(d) as Partial<Defaults>), models: { ...DEFAULTS.models, ...((JSON.parse(d) as Partial<Defaults>).models ?? {}) } };
@@ -84,7 +99,11 @@ export const useSettings = create<SettingsState>((set, get) => ({
       if (z) zdrIds = JSON.parse(z) as string[];
     } catch {}
     const stats = await listModelStats(db);
-    set({ ready: true, apiKey, defaults, models, zdrIds, stats, modelsFetchedAt: at ? Number(at) : null });
+    let templates = DEFAULT_TEMPLATES;
+    try {
+      if (tp) templates = mergeTemplates(JSON.parse(tp) as Partial<PromptTemplates>);
+    } catch {}
+    set({ ready: true, apiKey, defaults, models, zdrIds, stats, templates, modelsFetchedAt: at ? Number(at) : null });
   },
   async setApiKey(db, key) {
     await saveApiKey(key.trim());

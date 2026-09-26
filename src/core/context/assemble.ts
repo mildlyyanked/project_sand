@@ -15,6 +15,7 @@ import type {
 import { estimateTokens, trimToTokens } from '../tokens';
 import { alwaysOnLore, triggeredLore } from './lorebook';
 import { renderCharacter, renderHeat, renderStyle } from './cards';
+import { DEFAULT_TEMPLATES, type PromptTemplates } from '../prompts';
 
 export interface AssembleInput {
   session: Session;
@@ -34,6 +35,7 @@ export interface AssembleInput {
   dropped?: Set<string>;
   /** A plan for this passage from the helper, sent as guidance. */
   plan?: string;
+  templates?: PromptTemplates;
 }
 
 export function resolvePreset(preset: Preset | null, model: string): Pick<Preset, 'system' | 'prefill' | 'postHistory'> {
@@ -46,17 +48,8 @@ export function resolvePreset(preset: Preset | null, model: string): Pick<Preset
   return out;
 }
 
-export const CRAFT_SYSTEM = [
-  'You are a novelist continuing a manuscript. Write the next passage only: 400 to 900 words, one movement of the scene, ending on a turn or a held breath, never on a summary.',
-  'Match the established voice and keep continuity with everything above.',
-  'A passage must be legible on first read: at every moment it is clear where we are, who is present, what is happening and why. Prefer cause and effect over atmosphere, the concrete over the abstract. Introduce a new person with a name and one identifying detail before they act.',
-  'Sentence fragments, portentous one-line paragraphs, stacked metaphors and vague menace are not a style unless the style card asks for them.',
-  'No commentary, no headings, no notes, no summary.',
-].join(' ');
-
-export const OPENING_DIRECTIVE = 'This is the opening of the story. Start at the true beginning, before anything has gone wrong: establish the time, the place, the viewpoint character and the situation in concrete terms, let the reader meet the people who will matter, and end on the first hint of the disruption. Do not start in the middle of events.';
-
-const DEFAULT_SYSTEM = CRAFT_SYSTEM;
+export const CRAFT_SYSTEM = DEFAULT_TEMPLATES.craft;
+export const OPENING_DIRECTIVE = DEFAULT_TEMPLATES.opening;
 
 /**
  * Split the path into: beats already covered by the summary, older beats not yet
@@ -92,6 +85,7 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   const log: string[] = [];
   const layers: ContextLayer[] = [];
   const p = resolvePreset(preset, model);
+  const tpl = input.templates ?? DEFAULT_TEMPLATES;
 
   const push = (l: Omit<ContextLayer, 'tokens'>) => {
     const layer: ContextLayer = { ...l, tokens: estimateTokens(l.text), dropped: l.dropped || dropped.has(l.key) };
@@ -99,7 +93,7 @@ export function assembleContext(input: AssembleInput): AssembledContext {
     return layer;
   };
 
-  push({ key: 'system', label: 'System', role: 'system', text: p.system.trim() || DEFAULT_SYSTEM });
+  push({ key: 'system', label: 'System', role: 'system', text: p.system.trim() || tpl.craft });
   if (style) push({ key: 'style', label: `Style · ${style.name}`, role: 'system', text: renderStyle(style) });
   if (characters.length) {
     const text = ['# Characters', ...characters.map((c) => renderCharacter(c, species.find((s) => s.id === c.speciesId)))].join('\n\n');
@@ -149,8 +143,8 @@ export function assembleContext(input: AssembleInput): AssembledContext {
 
   const tail: string[] = [];
   const opening = !recent.some((b) => b.role === 'prose') && !session.summary.trim();
-  if (opening) tail.push(OPENING_DIRECTIVE);
-  if (input.plan?.trim()) tail.push(`Plan for this passage (follow it; do not restate it):\n${input.plan.trim()}`);
+  if (opening) tail.push(tpl.opening);
+  if (input.plan?.trim()) tail.push(`${tpl.planLead}\n${input.plan.trim()}`);
   if (p.postHistory.trim()) tail.push(p.postHistory.trim());
   if (session.explicit) tail.push(renderHeat(session.heat));
   if (input.direction?.trim()) tail.push(`Direction for this passage: ${input.direction.trim()}`);
@@ -168,9 +162,9 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   }
   // A conversation must contain at least one user turn for most providers.
   if (!messages.some((m) => m.role === 'user')) {
-    messages.push({ role: 'user', content: recent.length ? 'Continue the manuscript.' : 'Begin the manuscript.' });
+    messages.push({ role: 'user', content: recent.length ? tpl.continueAsk : tpl.opening });
   } else if (messages[messages.length - 1]?.role === 'assistant' && !p.prefill.trim()) {
-    messages.push({ role: 'user', content: 'Continue the manuscript.' });
+    messages.push({ role: 'user', content: tpl.continueAsk });
   }
   // Prefill must be the final assistant message.
   if (p.prefill.trim() && messages[messages.length - 1]?.role !== 'assistant') {
@@ -189,10 +183,10 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   return { layers, messages, totalTokens, log };
 }
 
-export function summaryPrompt(existing: string, beats: Beat[]): ChatMessage[] {
+export function summaryPrompt(existing: string, beats: Beat[], templates: PromptTemplates = DEFAULT_TEMPLATES): ChatMessage[] {
   const text = beats.filter((b) => b.role === 'prose').map((b) => b.text).join('\n\n');
   return [
-    { role: 'system', content: 'You maintain a running summary of a story for the writer who continues it. Keep facts, names, relationships, open threads, tone, and the state of the current scene. Be specific and compact. Output only the updated summary.' },
+    { role: 'system', content: templates.summary },
     { role: 'user', content: `${existing.trim() ? `Current summary:\n${existing.trim()}\n\n` : ''}New passages to fold in:\n${text}\n\nWrite the updated summary.` },
   ];
 }

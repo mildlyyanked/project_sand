@@ -8,6 +8,7 @@ import { styleFromSamplePrompt } from '@/core/helpers';
 import { useSettings } from '@/state/settings';
 import { client } from '@/state/client';
 import { useEntity } from '@/ui/useEntity';
+import { HistorySheet } from '@/ui/components/History';
 import { Banner, Button, Field, IconButton, Row, Screen, Section, Segmented, T } from '@/ui/components';
 import { serif } from '@/ui/theme';
 
@@ -18,6 +19,7 @@ export default function StyleEditor() {
   const [s, update] = useEntity<Style>(() => getStyle(db, id!), (v) => saveStyle(db, v), [id]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   if (!s) return null;
 
   async function analyze() {
@@ -43,7 +45,7 @@ export default function StyleEditor() {
   return (
     <Screen scroll>
       {err ? <Banner text={err} onClose={() => setErr(null)} /> : null}
-      <Section title="Card">
+      <Section title="Card" right={<Button small kind="ghost" icon="time-outline" title="History" onPress={() => setHistoryOpen(true)} />}>
         <Field label="Name" value={s.name} onChangeText={(v) => update({ name: v })} />
         <Field label="Point of view" value={s.pointOfView} onChangeText={(v) => update({ pointOfView: v })} placeholder="Third close on the viewpoint character; or first; or omniscient" />
         <Field label="Tense" value={s.tense} onChangeText={(v) => update({ tense: v })} placeholder="Past / present" />
@@ -73,6 +75,7 @@ export default function StyleEditor() {
         ))}
         <Button kind="ghost" icon="add" title="Add sample" onPress={() => update({ samples: [...s.samples, ''] })} />
       </Section>
+      <HistorySheet open={historyOpen} onClose={() => setHistoryOpen(false)} kind="style" targetId={s.id} onRestore={(payload) => { try { const j = JSON.parse(payload) as Partial<Style>; const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = j; update(rest); } catch {} }} />
       <Button kind="danger" title="Delete style" onPress={() => Alert.alert('Delete style?', undefined, [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { await deleteStyle(db, s.id); router.back(); } }])} />
     </Screen>
   );

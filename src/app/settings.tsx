@@ -72,6 +72,13 @@ export default function Settings() {
           <Button small kind="ghost" title="Open OpenRouter privacy settings" onPress={() => Linking.openURL('https://openrouter.ai/settings/privacy')} />
         </Card>
       </Section>
+      <Section title="Prompts">
+        <Card style={{ padding: 0, paddingHorizontal: space.md }}>
+          <ListItem title="Prompt templates" subtitle="Every fixed piece of prompt text the app sends, editable" onPress={() => router.push('/templates')} />
+          <ListItem title="Editor model for the prompt lab" subtitle={s.defaults.editorModel || 'Same as the writer'} onPress={() => router.push('/models?target=default:editorModel')} />
+        </Card>
+        <T v="faint">Open the lab from a story’s menu to have a strong model revise its preset, style or brief against a goal, test the result, and accept it with the rationale on record.</T>
+      </Section>
       <Section title="Appearance">
         <Segmented value={s.defaults.theme} onChange={(v) => s.setDefaults(db, { theme: v })} options={[{ key: 'dark', label: 'Dark' }, { key: 'light', label: 'Light' }, { key: 'system', label: 'System' }]} />
         <Row between>
