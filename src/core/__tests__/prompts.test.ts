@@ -12,7 +12,7 @@ describe('prompt templates', () => {
   });
   it('flow through assembly', () => {
     const t = mergeTemplates({ craft: 'CUSTOM SYSTEM', opening: 'CUSTOM OPENING' });
-    const ctx = assembleContext({ session: session(), path: [], preset: null, style: null, characters: [], species: [], universe: null, lore: [], model: 'x', templates: t });
+    const ctx = assembleContext({ session: session(), path: [], style: null, characters: [], species: [], universe: null, lore: [], model: 'x', templates: t });
     expect(ctx.messages[0]!.content).toBe('CUSTOM SYSTEM');
     expect(ctx.messages[1]!.content).toBe('CUSTOM OPENING');
   });

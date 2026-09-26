@@ -83,9 +83,23 @@ export interface Character {
 export type Register = 'clinical' | 'euphemistic' | 'blunt';
 export type RepetitionLevel = 'off' | 'light' | 'medium' | 'strong';
 
+/**
+ * A voice: how the prose reads and how the writer is driven. One card per way
+ * of writing, attachable to any story. (Formerly split into a preset and a
+ * style card.)
+ */
 export interface Style {
   id: Id;
   name: string;
+  /** Writer system prompt. Empty means the app's default template. */
+  system: string;
+  prefill: string;
+  postHistory: string;
+  modelOverrides: Record<string, Partial<Pick<Style, 'system' | 'prefill' | 'postHistory'>>>;
+  refusalChain: RefusalStep[];
+  systemAsUser: boolean;
+  providerIgnore: string[];
+  providerOrder: string[];
   pointOfView: string;
   tense: string;
   proseDensity: string;
@@ -128,25 +142,6 @@ export const STEP_INFO: Record<RefusalStep['kind'], { label: string; hint: strin
   model: { label: 'Model', hint: 'Retries on another model. Auto picks the model with the best record in the refusal ledger.' },
 };
 
-export interface Preset {
-  id: Id;
-  name: string;
-  system: string;
-  prefill: string;
-  postHistory: string;
-  /** Per-model overrides keyed by model id (or prefix ending in '*'). */
-  modelOverrides: Record<string, Partial<Pick<Preset, 'system' | 'prefill' | 'postHistory'>>>;
-  refusalChain: RefusalStep[];
-  /** Send the system prompt as the first user turn; helps on providers that ignore system. */
-  systemAsUser: boolean;
-  /** OpenRouter provider slugs to never route to (e.g. ones that add their own moderation). */
-  providerIgnore: string[];
-  /** Preferred provider order. */
-  providerOrder: string[];
-  createdAt: number;
-  updatedAt: number;
-}
-
 export interface ContextStrategy {
   /** Token budget for verbatim recent beats. */
   recentBudget: number;
@@ -182,9 +177,10 @@ export interface Session {
   title: string;
   universeId: Id | null;
   styleId: Id | null;
-  presetId: Id | null;
   characterIds: Id[];
   models: ModelSlots;
+  /** Extra models that write sibling drafts alongside the writer when multi-draft is on. */
+  draftModels: string[];
   params: GenerationParams;
   strategy: ContextStrategy;
   zdr: boolean;
@@ -205,6 +201,17 @@ export interface Session {
   planFirst: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface Illustration {
+  id: Id;
+  sessionId: Id;
+  beatId: Id | null;
+  prompt: string;
+  /** File URI on device. */
+  uri: string;
+  model: string;
+  createdAt: number;
 }
 
 export interface ChatMessage {
@@ -252,6 +259,8 @@ export interface ModelInfo {
   supportsReasoning: boolean;
   /** Derived from OpenRouter metadata when available. */
   privacy: 'zdr' | 'no-collection' | 'unknown';
+  /** Can return images (OpenRouter output_modalities includes image). */
+  outputImage: boolean;
 }
 
 export const DEFAULT_STRATEGY: ContextStrategy = {

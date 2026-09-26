@@ -6,7 +6,6 @@ import type {
   ContextLayer,
   ContextStrategy,
   LoreEntry,
-  Preset,
   Session,
   Species,
   Style,
@@ -21,7 +20,6 @@ export interface AssembleInput {
   session: Session;
   /** Root-to-current path. */
   path: Beat[];
-  preset: Preset | null;
   style: Style | null;
   characters: Character[];
   species: Species[];
@@ -38,10 +36,10 @@ export interface AssembleInput {
   templates?: PromptTemplates;
 }
 
-export function resolvePreset(preset: Preset | null, model: string): Pick<Preset, 'system' | 'prefill' | 'postHistory'> {
+export function resolvePreset(preset: Pick<Style, 'system' | 'prefill' | 'postHistory' | 'modelOverrides'> | null, model: string): Pick<Style, 'system' | 'prefill' | 'postHistory'> {
   if (!preset) return { system: '', prefill: '', postHistory: '' };
   let out = { system: preset.system, prefill: preset.prefill, postHistory: preset.postHistory };
-  for (const [pattern, ov] of Object.entries(preset.modelOverrides)) {
+  for (const [pattern, ov] of Object.entries(preset.modelOverrides ?? {})) {
     const hit = pattern.endsWith('*') ? model.startsWith(pattern.slice(0, -1)) : model === pattern;
     if (hit) out = { ...out, ...ov };
   }
@@ -79,7 +77,8 @@ export function splitPath(path: Beat[], session: Session, strategy: ContextStrat
 }
 
 export function assembleContext(input: AssembleInput): AssembledContext {
-  const { session, path, preset, style, characters, species, universe, lore, model } = input;
+  const { session, path, style, characters, species, universe, lore, model } = input;
+  const preset = style;
   const strategy = session.strategy;
   const dropped = input.dropped ?? new Set<string>();
   const log: string[] = [];
@@ -94,7 +93,8 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   };
 
   push({ key: 'system', label: 'System', role: 'system', text: p.system.trim() || tpl.craft });
-  if (style) push({ key: 'style', label: `Style · ${style.name}`, role: 'system', text: renderStyle(style) });
+  const styleText = style ? renderStyle(style) : '';
+  if (style && styleText) push({ key: 'style', label: `Voice · ${style.name}`, role: 'system', text: styleText });
   if (characters.length) {
     const text = ['# Characters', ...characters.map((c) => renderCharacter(c, species.find((s) => s.id === c.speciesId)))].join('\n\n');
     push({ key: 'characters', label: `Characters · ${characters.length}`, role: 'system', text });

@@ -166,11 +166,11 @@ export function critiquePrompt(o: { brief: string; style: Style | null; previous
 
 export type LabTarget = 'system' | 'postHistory' | 'style' | 'brief';
 
-export const LAB_TARGET_INFO: Record<LabTarget, { label: string; what: string }> = {
-  system: { label: 'System prompt', what: 'the system prompt that drives the writer' },
-  postHistory: { label: 'Post-history', what: 'the short instruction sent after the manuscript on every request' },
-  style: { label: 'Style card', what: 'the style card (point of view, tense, prose density, dialogue ratio, register, vocabulary, influences, banned phrases)' },
-  brief: { label: 'Brief', what: 'the story brief (premise, ideas, people, limits)' },
+export const LAB_TARGET_INFO: Record<LabTarget, { label: string; what: string; where: string }> = {
+  system: { label: 'Writer prompt', what: 'the system prompt that drives the writer', where: 'voice' },
+  postHistory: { label: 'Post-history', what: 'the short instruction sent after the manuscript on every request', where: 'voice' },
+  style: { label: 'Voice card', what: 'the voice card (point of view, tense, prose density, dialogue ratio, register, vocabulary, influences, banned phrases)', where: 'voice' },
+  brief: { label: 'Brief', what: 'the story brief (premise, ideas, people, limits)', where: 'story' },
 };
 
 /** Ask a strong model to revise one piece of the prompt stack toward a stated goal. */
@@ -219,4 +219,38 @@ export function parseLabResult(text: string): LabResult | null {
 /** A readable transcript of the exact request, for pasting into another chat to compare. */
 export function transcriptOf(messages: ChatMessage[]): string {
   return messages.map((m) => `[${m.role}]\n${m.content}`).join('\n\n');
+}
+
+/** Turn the latest passage into a prompt for an image model. */
+export function imagePromptPrompt(o: { passage: string; characters: Character[]; universe: Universe | null; style: Style | null; brief: string }): ChatMessage[] {
+  const ctx = [
+    o.universe ? `World: ${o.universe.name}. ${o.universe.description}` : '',
+    o.characters.length ? `People who may appear:\n${o.characters.map((c) => `- ${c.name}: ${[c.lifeStage, c.summary].filter(Boolean).join('. ')}`).join('\n')}` : '',
+    o.brief ? `Story brief:\n${o.brief}` : '',
+  ].filter(Boolean).join('\n\n');
+  return [
+    { role: 'system', content: 'You write prompts for an image model from a passage of fiction. Pick the single strongest visual moment in the passage and describe it as one illustration: subject and action, setting, light, mood, composition and framing, medium and style (painterly, ink, photographic, etc.), and the era or world it belongs to. Name the people by appearance, never by name. Concrete nouns, no story explanation, no text or lettering in the image. 60 to 120 words, one paragraph, output only the prompt.' },
+    { role: 'user', content: `${ctx ? `${ctx}\n\n` : ''}Passage:\n${o.passage}` },
+  ];
+}
+
+/** Three short things the writer could ask for next, as instructions. */
+export function suggestPrompt(o: { brief: string; summary: string; recent: string; style: Style | null; interactive: boolean }): ChatMessage[] {
+  return [
+    { role: 'system', content: `You are a story editor. Propose three possible next moves for the writer, each as a short instruction to the writer model, one line each, 6 to 16 words, numbered 1. 2. 3. Make them distinct: one that deepens the current moment, one that turns or complicates it, one that changes place, time or point of view. ${o.interactive ? 'Write them as things the protagonist does or says.' : 'Write them as directions for the next passage.'} Match the story\'s tone. No commentary, no titles.` },
+    { role: 'user', content: [
+      o.brief ? `Brief:\n${o.brief}` : '',
+      o.summary ? `Story so far:\n${o.summary}` : '',
+      o.recent ? `Most recent passage:\n${o.recent}` : 'Nothing written yet: suggest three ways to open.',
+      o.style ? `Voice: ${[o.style.pointOfView, o.style.tense].filter(Boolean).join(', ')}` : '',
+    ].filter(Boolean).join('\n\n') },
+  ];
+}
+
+export function parseSuggestions(text: string): string[] {
+  return text
+    .split('\n')
+    .map((l) => l.replace(/^\s*(?:\d+[.)]|[-*•])\s*/, '').replace(/\*\*/g, '').trim())
+    .filter((l) => l.length > 3 && l.length < 160)
+    .slice(0, 3);
 }

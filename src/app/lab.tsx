@@ -2,18 +2,19 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import type { Preset, Style } from '@/core/types';
+import type { Style } from '@/core/types';
 import { assembleContext } from '@/core/context/assemble';
 import { LAB_TARGET_INFO, labPrompt, parseLabResult, transcriptOf, type LabResult, type LabTarget } from '@/core/helpers';
 import { renderStyle } from '@/core/context/cards';
 import { applyRepetition, trimDegenerate } from '@/core/repetition';
-import { addRevision, savePreset, saveStyle } from '@/db/repo/library';
+import { addRevision, newStyle, saveStyle, styleUsage } from '@/db/repo/library';
+import { newId } from '@/core/ids';
 import { patchSession } from '@/db/repo/sessions';
 import { useSession } from '@/state/session';
 import { useSettings } from '@/state/settings';
 import { client } from '@/state/client';
 import { runInForeground } from '@/state/foreground';
-import { Banner, Button, Card, Chip, Field, Row, Screen, Section, T } from '@/ui/components';
+import { Banner, Button, Card, Chip, Field, Row, Screen, Section, Sheet, T } from '@/ui/components';
 import { ModelPicker } from '@/ui/components/ModelPicker';
 import { serif, useTheme } from '@/ui/theme';
 import { shortModel } from '@/ui/format';
@@ -21,15 +22,16 @@ import { shortModel } from '@/ui/format';
 /**
  * Prompt lab: a strong model revises one piece of the prompt stack toward a
  * goal, you test the revision on the next passage, then accept it with the
- * rationale recorded as a revision.
+ * rationale recorded as a revision. Voice changes can override the shared
+ * voice or become a new voice attached to this story.
  */
 export default function Lab() {
-  const { session: sid } = useLocalSearchParams<{ session?: string }>();
+  const { session: sid, target: initialTarget } = useLocalSearchParams<{ session?: string; target?: string }>();
   const db = useSQLiteContext();
   const t = useTheme();
   const s = useSession();
   const { apiKey, defaults, setDefaults, templates } = useSettings();
-  const [target, setTarget] = useState<LabTarget>('system');
+  const [target, setTarget] = useState<LabTarget>(initialTarget && initialTarget in LAB_TARGET_INFO ? (initialTarget as LabTarget) : 'system');
   const [goal, setGoal] = useState('');
   const [sample, setSample] = useState('');
   const [includeLast, setIncludeLast] = useState(true);
@@ -39,37 +41,43 @@ export default function Lab() {
   const [test, setTest] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [used, setUsed] = useState(0);
+  const [askHow, setAskHow] = useState(false);
+  const [newName, setNewName] = useState('');
 
   useEffect(() => {
     if (sid && s.session?.id !== sid) void s.open(db, sid);
   }, [db, sid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const styleId = s.session?.styleId;
+  useEffect(() => {
+    void (styleId ? styleUsage(db, styleId) : Promise.resolve(0)).then(setUsed);
+  }, [db, styleId]);
 
   const session = s.session;
   const editorModel = defaults.editorModel || session?.models.writer || defaults.models.writer;
   const lastPassage = useMemo(() => [...s.path].reverse().find((b) => b.role === 'prose')?.text ?? '', [s.path]);
-  const preset = s.bundle.preset;
   const style = s.bundle.style;
+  const onVoice = LAB_TARGET_INFO[target].where === 'voice';
 
   const current = (): string => {
-    if (target === 'system') return preset?.system ?? templates.craft;
-    if (target === 'postHistory') return preset?.postHistory ?? '';
+    if (target === 'system') return style?.system || templates.craft;
+    if (target === 'postHistory') return style?.postHistory ?? '';
     if (target === 'style') return style ? renderStyle(style) : '';
     return session?.brief ?? '';
   };
-  const available = (tg: LabTarget) => (tg === 'system' || tg === 'postHistory' ? !!preset : tg === 'style' ? !!style : !!session);
+  const available = (tg: LabTarget) => (LAB_TARGET_INFO[tg].where === 'voice' ? !!style : !!session);
 
-  function overridden(): { preset: Preset | null; style: Style | null; brief: string } {
-    let p = preset;
+  function overridden(): { style: Style | null; brief: string } {
     let st = style;
     let brief = session?.brief ?? '';
-    if (target === 'system' && p) p = { ...p, system: revisedText };
-    if (target === 'postHistory' && p) p = { ...p, postHistory: revisedText };
+    if (target === 'system' && st) st = { ...st, system: revisedText };
+    if (target === 'postHistory' && st) st = { ...st, postHistory: revisedText };
     if (target === 'brief') brief = revisedText;
     if (target === 'style' && st && result && typeof result.revised === 'object') {
       const r = result.revised as Partial<Style>;
       st = { ...st, ...r, register: (['clinical', 'euphemistic', 'blunt'] as const).includes(r.register as never) ? (r.register as Style['register']) : st.register, bannedPhrases: Array.isArray(r.bannedPhrases) ? r.bannedPhrases.map(String) : st.bannedPhrases };
     }
-    return { preset: p, style: st, brief };
+    return { style: st, brief };
   }
 
   async function revise() {
@@ -96,10 +104,10 @@ export default function Lab() {
     setBusy('test'); setErr(null); setTest('');
     try {
       const o = overridden();
-      const ctx = assembleContext({ session: { ...session, brief: o.brief }, path: s.path, ...s.bundle, preset: o.preset, style: o.style, model: session.models.writer, templates });
+      const ctx = assembleContext({ session: { ...session, brief: o.brief }, path: s.path, ...s.bundle, style: o.style, model: session.models.writer, templates });
       let text = '';
       await runInForeground('Testing the revision', async () => {
-        for await (const ev of client.stream({ apiKey, model: session.models.writer, messages: ctx.messages, params: applyRepetition(session.params, o.style?.repetition), zdr: session.zdr, providerIgnore: o.preset?.providerIgnore, providerOrder: o.preset?.providerOrder })) {
+        for await (const ev of client.stream({ apiKey, model: session.models.writer, messages: ctx.messages, params: applyRepetition(session.params, o.style?.repetition), zdr: session.zdr, providerIgnore: o.style?.providerIgnore, providerOrder: o.style?.providerOrder })) {
           if (ev.type === 'text') { text += ev.text ?? ''; setTest(text); }
           if (ev.type === 'error') throw new Error(ev.error);
         }
@@ -108,18 +116,32 @@ export default function Lab() {
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
   }
 
-  async function accept() {
+  function accept() {
     if (!session || !result) return;
+    if (onVoice && used > 1) {
+      setNewName(style ? `${style.name} (${session.title})` : session.title);
+      setAskHow(true);
+      return;
+    }
+    void commit('override');
+  }
+
+  async function commit(how: 'override' | 'new') {
+    if (!session || !result) return;
+    setAskHow(false);
     const note = [goal.trim() ? `Goal: ${goal.trim()}` : '', result.rationale].filter(Boolean).join('\n');
     const o = overridden();
-    if ((target === 'system' || target === 'postHistory') && o.preset) {
-      await addRevision(db, 'preset', o.preset.id, { system: preset!.system, postHistory: preset!.postHistory }, 'Before lab change');
-      await savePreset(db, o.preset);
-      await addRevision(db, 'preset', o.preset.id, { system: o.preset.system, postHistory: o.preset.postHistory }, note);
-    } else if (target === 'style' && o.style) {
-      await addRevision(db, 'style', o.style.id, style, 'Before lab change');
-      await saveStyle(db, o.style);
-      await addRevision(db, 'style', o.style.id, o.style, note);
+    if (onVoice && o.style && style) {
+      if (how === 'new') {
+        const copy: Style = { ...o.style, id: newId(), name: newName.trim() || `${style.name} (${session.title})`, createdAt: Date.now(), updatedAt: Date.now() };
+        await saveStyle(db, copy);
+        await addRevision(db, 'style', copy.id, copy, `Forked from ${style.name} in the lab.\n${note}`);
+        await patchSession(db, session.id, { styleId: copy.id });
+      } else {
+        await addRevision(db, 'style', style.id, style, 'Before lab change');
+        await saveStyle(db, o.style);
+        await addRevision(db, 'style', style.id, o.style, note);
+      }
     } else if (target === 'brief') {
       await addRevision(db, 'brief', session.id, session.brief, 'Before lab change');
       await patchSession(db, session.id, { brief: o.brief });
@@ -127,8 +149,15 @@ export default function Lab() {
     }
     await s.reload();
     setResult(null); setTest('');
-    s.setNotice('Revision accepted and recorded.');
+    s.setNotice(how === 'new' ? 'New voice created and attached to this story.' : 'Revision accepted and recorded in the voice’s history.');
     router.back();
+  }
+
+  async function attachVoice() {
+    if (!session) return;
+    const v = { ...newStyle(), name: `${session.title} voice` };
+    await saveStyle(db, v);
+    await s.patch({ styleId: v.id });
   }
 
   if (!session) return <Screen><T v="dim">Open the lab from a story so it has a prompt to work on.</T></Screen>;
@@ -140,7 +169,11 @@ export default function Lab() {
         <Row style={{ flexWrap: 'wrap' }}>
           {(Object.keys(LAB_TARGET_INFO) as LabTarget[]).map((k) => <Chip key={k} label={LAB_TARGET_INFO[k].label} selected={target === k} onPress={() => { setTarget(k); setResult(null); setTest(''); }} />)}
         </Row>
-        {!available(target) ? <T v="faint">This story has no {LAB_TARGET_INFO[target].label.toLowerCase()} attached. Set one in session settings first.</T> : <Card><T v="mono" numberOfLines={12}>{current() || '(empty)'}</T></Card>}
+        {onVoice ? (
+          style ? <T v="faint">Lives on the voice “{style.name}”{used > 1 ? `, shared by ${used} stories` : ''}. {target === 'system' && !style.system ? 'This voice has no writer prompt of its own yet, so you are revising the app default; accepting writes the result onto the voice.' : target === 'postHistory' && !style.postHistory ? 'Empty now: nothing is sent after the manuscript. A one-line reminder of what to do next often helps.' : ''}</T>
+          : <View style={{ gap: 8 }}><T v="faint">This story has no voice attached, and the writer prompt, post-history and card live on the voice.</T><Button small kind="outline" title="Create a voice for this story" onPress={attachVoice} /></View>
+        ) : <T v="faint">Lives on this story. Sent to the writer with every passage.</T>}
+        {available(target) ? <Card><T v="mono" numberOfLines={12}>{current() || '(empty)'}</T></Card> : null}
       </Section>
       <Section title="Editor model" right={<Button small kind="ghost" title={shortModel(editorModel)} icon="hardware-chip-outline" onPress={() => setPickerOpen(true)} />}>
         <T v="faint">Use the strongest model you have. It sees the whole request the writer gets, the last passage, your goal and any sample.</T>
@@ -167,6 +200,12 @@ export default function Lab() {
         </Section>
       ) : null}
       <ModelPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onSelect={(id) => setDefaults(db, { editorModel: id })} current={editorModel} title="Editor model" />
+      <Sheet open={askHow} onClose={() => setAskHow(false)} title="Shared voice">
+        <T v="dim">“{style?.name}” is used by {used} stories. Override it and all of them change; save as a new voice and only this story moves to it.</T>
+        <Button title={`Override (used by ${used})`} icon="git-merge-outline" onPress={() => commit('override')} />
+        <Field label="Or save as a new voice" value={newName} onChangeText={setNewName} />
+        <Button kind="outline" title="Save as new and attach here" icon="duplicate-outline" onPress={() => commit('new')} />
+      </Sheet>
     </Screen>
   );
 }

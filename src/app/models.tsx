@@ -21,6 +21,7 @@ export default function Models() {
   async function choose(id: string) {
     const [kind, sid, slot] = (target ?? '').split(':');
     if (kind === 'default' && sid === 'editorModel') await settings.setDefaults(db, { editorModel: id });
+    else if (kind === 'default' && sid === 'imageModel') await settings.setDefaults(db, { imageModel: id });
     else if (kind === 'default') await settings.setDefaults(db, { models: { ...settings.defaults.models, [sid as Slot]: id } });
     else if (kind === 'session' && sid && slot) {
       if (sessionStore.session?.id === sid) await sessionStore.patch({ models: { ...sessionStore.session.models, [slot as Slot]: id } });
@@ -34,7 +35,7 @@ export default function Models() {
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
-      <ModelPicker open onClose={() => router.back()} onSelect={(id) => void choose(id)} current={current ?? null} />
+      <ModelPicker open onClose={() => router.back()} onSelect={(id) => void choose(id)} current={current ?? null} only={target === 'default:imageModel' ? 'image' : undefined} title={target === 'default:imageModel' ? 'Image model' : 'Choose model'} />
     </>
   );
 }

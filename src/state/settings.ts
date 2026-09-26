@@ -9,9 +9,10 @@ export interface Defaults {
   models: ModelSlots;
   /** Strong model used by the prompt lab. Empty means the writer model. */
   editorModel: string;
+  /** Image model for illustrations. */
+  imageModel: string;
   zdr: boolean;
   fontSize: number;
-  presetId: string | null;
   styleId: string | null;
   theme: 'system' | 'dark' | 'light';
 }
@@ -19,9 +20,9 @@ export interface Defaults {
 const DEFAULTS: Defaults = {
   models: { writer: 'anthropic/claude-sonnet-4', summarizer: 'google/gemini-2.5-flash', helper: 'google/gemini-2.5-flash' },
   editorModel: '',
+  imageModel: 'google/gemini-2.5-flash-image',
   zdr: false,
   fontSize: 17,
-  presetId: null,
   styleId: null,
   theme: 'dark',
 };

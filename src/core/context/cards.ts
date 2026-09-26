@@ -6,7 +6,13 @@ function field(label: string, value: string | undefined | null): string {
   return v ? `${label}: ${v}` : '';
 }
 
+/** True when the voice card has nothing to say about the prose (prompt-only voice). */
+export function styleCardEmpty(s: Style): boolean {
+  return !s.pointOfView && !s.tense && !s.proseDensity && !s.dialogueRatio && !s.vocabulary && !s.influences && !s.bannedPhrases.length && !s.samples.some((p) => p.trim());
+}
+
 export function renderStyle(s: Style): string {
+  if (styleCardEmpty(s)) return '';
   const lines = [
     `# Style: ${s.name}`,
     field('Point of view', s.pointOfView),

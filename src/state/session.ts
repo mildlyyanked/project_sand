@@ -1,17 +1,19 @@
 import { create } from 'zustand';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import type { Beat, Character, ContextLayer, Id, LoreEntry, Preset, RefusalStep, Session, Species, Style, Universe } from '@/core/types';
+import type { Beat, Character, ContextLayer, Id, Illustration, LoreEntry, RefusalStep, Session, Species, Style, Universe } from '@/core/types';
 import { indexBeats, pathTo, type BeatIndex, descendants, leafOf, stepSibling } from '@/core/beatTree';
 import { assembleContext, splitPath, summaryPrompt, type AssembleInput } from '@/core/context/assemble';
-import { critiquePrompt, planPrompt } from '@/core/helpers';
+import { critiquePrompt, imagePromptPrompt, parseSuggestions, planPrompt, scenePrompt, suggestPrompt } from '@/core/helpers';
+import { manuscriptText } from '@/core/beatTree';
 import { generateWithChain, momentumTail } from '@/core/openrouter/generate';
 import { applyRepetition, trimDegenerate } from '@/core/repetition';
-import { now } from '@/core/ids';
+import { newId, now } from '@/core/ids';
 import { client } from './client';
 import { runInForeground } from './foreground';
+import { removeImage, saveImage } from './images';
 import { useSettings } from './settings';
 import { deleteBeats, getSession, insertBeat, listBeats, makeBeat, patchSession, updateBeatText } from '@/db/repo/sessions';
-import { getCharacters, getPreset, getStyle, getUniverse, listLore, listModelStats, listSpecies, recordAttempt } from '@/db/repo/library';
+import { deleteIllustration, getCharacters, getStyle, getUniverse, listIllustrations, listLore, listModelStats, listSpecies, recordAttempt, saveIllustration } from '@/db/repo/library';
 
 export interface Streaming {
   text: string;
@@ -19,14 +21,21 @@ export interface Streaming {
   attempt: number;
   step: RefusalStep | null;
   model: string;
-  phase: 'summarizing' | 'writing' | 'reweaving' | 'planning' | 'critiquing';
+  phase: 'summarizing' | 'writing' | 'reweaving' | 'planning' | 'critiquing' | 'proposing' | 'suggesting' | 'illustrating';
   startedAt: number;
   /** Beat being replaced (regenerate) or the parent for a new beat. */
   parentId: Id | null;
 }
 
+/** A sibling draft written by an extra model alongside the main passage. */
+export interface Draft {
+  model: string;
+  text: string;
+  done: boolean;
+  error?: string;
+}
+
 interface Bundle {
-  preset: Preset | null;
   style: Style | null;
   characters: Character[];
   species: Species[];
@@ -42,6 +51,10 @@ interface SessionState {
   path: Beat[];
   bundle: Bundle;
   streaming: Streaming | null;
+  drafts: Draft[];
+  illustrations: Illustration[];
+  suggestions: string[];
+  sceneProposal: string | null;
   error: string | null;
   notice: string | null;
   dropped: Set<string>;
@@ -65,12 +78,21 @@ interface SessionState {
   toggleDropped(key: string): void;
   clearError(): void;
   setNotice(n: string | null): void;
-  insertGenerated(o: { parentId: Id | null; text: string; model: string; direction?: string; reasoning?: string; plan?: string | null; usage?: { promptTokens: number; completionTokens: number; costUsd: number | null } | null }): Promise<Beat>;
+  insertGenerated(o: { parentId: Id | null; text: string; model: string; direction?: string; reasoning?: string; plan?: string | null; usage?: { promptTokens: number; completionTokens: number; costUsd: number | null } | null; keepCurrent?: boolean }): Promise<Beat>;
   critiqueAndRedo(beatId: Id): Promise<void>;
+  /** Ask the helper for a scene plan; the result waits in sceneProposal. */
+  proposeScene(wish: string): Promise<void>;
+  clearScene(): void;
+  /** Three short instructions the writer could send next. */
+  suggest(): Promise<void>;
+  clearSuggestions(): void;
+  /** Passage to image prompt to picture, one tap. */
+  illustrate(beatId: Id): Promise<void>;
+  removeIllustration(id: Id): Promise<void>;
 }
 
 const emptyIndex = indexBeats([]);
-const emptyBundle: Bundle = { preset: null, style: null, characters: [], species: [], universe: null, lore: [] };
+const emptyBundle: Bundle = { style: null, characters: [], species: [], universe: null, lore: [] };
 
 export const useSession = create<SessionState>((set, get) => {
   const recompute = (beats: Beat[], session: Session) => {
@@ -80,9 +102,9 @@ export const useSession = create<SessionState>((set, get) => {
   };
 
   async function loadBundle(db: SQLiteDatabase, s: Session): Promise<Bundle> {
-    const [preset, style, characters, universe] = await Promise.all([getPreset(db, s.presetId), getStyle(db, s.styleId), getCharacters(db, s.characterIds), s.universeId ? getUniverse(db, s.universeId) : Promise.resolve(null)]);
+    const [style, characters, universe] = await Promise.all([getStyle(db, s.styleId), getCharacters(db, s.characterIds), s.universeId ? getUniverse(db, s.universeId) : Promise.resolve(null)]);
     const [species, lore] = s.universeId ? await Promise.all([listSpecies(db, s.universeId), listLore(db, s.universeId)]) : [await listSpecies(db, null), []];
-    return { preset, style, characters, species, universe, lore };
+    return { style, characters, species, universe, lore };
   }
 
   const assembleInput = (direction?: string, model?: string): AssembleInput | null => {
@@ -92,7 +114,7 @@ export const useSession = create<SessionState>((set, get) => {
   };
 
   return {
-    db: null, session: null, beats: [], index: emptyIndex, path: [], bundle: emptyBundle, streaming: null, error: null, notice: null, dropped: new Set(), lastLog: [], abort: null,
+    db: null, session: null, beats: [], index: emptyIndex, path: [], bundle: emptyBundle, streaming: null, drafts: [], illustrations: [], suggestions: [], sceneProposal: null, error: null, notice: null, dropped: new Set(), lastLog: [], abort: null,
 
     async open(db, id) {
       const session = await getSession(db, id);
@@ -100,9 +122,9 @@ export const useSession = create<SessionState>((set, get) => {
         set({ db, session: null, beats: [], index: emptyIndex, path: [], error: 'Session not found' });
         return;
       }
-      const beats = await listBeats(db, id);
-      const bundle = await loadBundle(db, session);
-      set({ db, session, bundle, error: null, dropped: new Set(), ...recompute(beats, session) });
+      const [beats, bundle, illustrations] = await Promise.all([listBeats(db, id), loadBundle(db, session), listIllustrations(db, id)]);
+      const fresh = get().session?.id !== id;
+      set({ db, session, bundle, illustrations, error: null, dropped: fresh ? new Set() : get().dropped, ...(fresh ? { suggestions: [], sceneProposal: null, drafts: [] } : {}), ...recompute(beats, session) });
     },
     async reload() {
       const { db, session } = get();
@@ -113,7 +135,7 @@ export const useSession = create<SessionState>((set, get) => {
       if (!db || !session) return;
       const next = await patchSession(db, session.id, p);
       if (!next) return;
-      const needBundle = 'presetId' in p || 'styleId' in p || 'characterIds' in p || 'universeId' in p;
+      const needBundle = 'styleId' in p || 'characterIds' in p || 'universeId' in p;
       const bundle = needBundle ? await loadBundle(db, next) : get().bundle;
       set({ session: next, bundle, ...recompute(get().beats, next) });
     },
@@ -189,13 +211,13 @@ export const useSession = create<SessionState>((set, get) => {
       get().abort?.abort();
     },
 
-    async insertGenerated({ parentId, text, model, direction, reasoning, plan, usage }) {
+    async insertGenerated({ parentId, text, model, direction, reasoning, plan, usage, keepCurrent }) {
       const { db, session } = get();
       if (!db || !session) throw new Error('No session');
       const b = makeBeat({ sessionId: session.id, parentId, role: 'prose', text, model, direction: direction ?? null, reasoning: reasoning || null, plan: plan || null, promptTokens: usage?.promptTokens ?? null, completionTokens: usage?.completionTokens ?? null, costUsd: usage?.costUsd ?? null });
       await insertBeat(db, b);
       const beats = [...get().beats, b];
-      const next = (await patchSession(db, session.id, { currentBeatId: b.id }))!;
+      const next = keepCurrent ? get().session! : (await patchSession(db, session.id, { currentBeatId: b.id }))!;
       set({ session: next, ...recompute(beats, next) });
       return b;
     },
@@ -288,7 +310,7 @@ export const useSession = create<SessionState>((set, get) => {
       }
       let path = pathTo(index, parentId);
       const abort = new AbortController();
-      set({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model, phase: 'writing', startedAt: now(), parentId } });
+      set({ abort, error: null, suggestions: [], drafts: [], streaming: { text: '', reasoning: '', attempt: 0, step: null, model, phase: 'writing', startedAt: now(), parentId } });
 
       await runInForeground('Writing the next passage', async () => {
       try {
@@ -327,6 +349,27 @@ export const useSession = create<SessionState>((set, get) => {
         }
         const ctx = assembleContext({ session: sess, path, ...bundle, model, direction: o.direction, dropped: get().dropped, plan: plan.trim() || undefined, templates: useSettings.getState().templates });
         set({ lastLog: ctx.log });
+        // Extra drafts: other models write the same passage as siblings, without the chain, so the writer can compare in place.
+        const extra = o.regenerateId ? [] : sess.draftModels.filter((m) => m && m !== model);
+        const draftJobs = extra.map(async (dm, i) => {
+          const upd = (p: Partial<Draft>) => set((st) => ({ drafts: st.drafts.map((d, j) => (j === i ? { ...d, ...p } : d)) }));
+          try {
+            const dctx = model === dm ? ctx : assembleContext({ session: sess, path, ...bundle, model: dm, direction: o.direction, dropped: get().dropped, plan: plan.trim() || undefined, templates: useSettings.getState().templates });
+            let text = '';
+            let cost: number | null = null;
+            for await (const ev of client.stream({ apiKey, model: dm, messages: dctx.messages, params: applyRepetition(sess.params, bundle.style?.repetition), zdr: sess.zdr, providerIgnore: bundle.style?.providerIgnore, providerOrder: bundle.style?.providerOrder, signal: abort.signal })) {
+              if (ev.type === 'text') { text += ev.text ?? ''; upd({ text }); }
+              if (ev.type === 'usage') cost = ev.usage?.costUsd ?? null;
+              if (ev.type === 'error') throw new Error(ev.error);
+            }
+            const clean = trimDegenerate(text).text.trim();
+            upd({ done: true, text: clean });
+            if (clean.length > 40 && !abort.signal.aborted) await get().insertGenerated({ parentId, text: clean, model: dm, direction: o.direction, plan: plan.trim() || null, usage: cost != null ? { promptTokens: 0, completionTokens: 0, costUsd: cost } : null, keepCurrent: true });
+          } catch (e) {
+            upd({ done: true, error: e instanceof Error ? e.message : String(e) });
+          }
+        });
+        if (extra.length) set({ drafts: extra.map((m) => ({ model: m, text: '', done: false })) });
         const stats = await listModelStats(db);
         const autoModel = (exclude: string[]) => {
           const ranked = stats
@@ -336,8 +379,8 @@ export const useSession = create<SessionState>((set, get) => {
           return best && best.refusals / best.attempts < 0.34 ? best.model : null;
         };
         const attempts = await generateWithChain({
-          client, apiKey, model, messages: ctx.messages, params: applyRepetition(sess.params, bundle.style?.repetition), zdr: sess.zdr, refusalChain: bundle.preset?.refusalChain ?? [], signal: abort.signal,
-          providerIgnore: bundle.preset?.providerIgnore, providerOrder: bundle.preset?.providerOrder,
+          client, apiKey, model, messages: ctx.messages, params: applyRepetition(sess.params, bundle.style?.repetition), zdr: sess.zdr, refusalChain: bundle.style?.refusalChain ?? [], signal: abort.signal,
+          providerIgnore: bundle.style?.providerIgnore, providerOrder: bundle.style?.providerOrder,
           helperModel: sess.models.helper,
           momentumText: lastProse ? momentumTail(lastProse.text) : '',
           instructionText: [lastBeat?.role === 'instruction' ? lastBeat.text : '', o.direction ?? ''].filter(Boolean).join('\n') || undefined,
@@ -348,6 +391,7 @@ export const useSession = create<SessionState>((set, get) => {
         });
         for (const a of attempts) if (!a.skipped && !a.error) void recordAttempt(db, a.model, a.refused);
         if (abort.signal.aborted) {
+          await Promise.all(draftJobs);
           const partial = attempts[attempts.length - 1];
           const partialText = partial && partial.stripPrefix && partial.text.startsWith(partial.stripPrefix) ? partial.text.slice(partial.stripPrefix.length) : partial?.text ?? '';
           if (partial && partialText.trim().length > 40) {
@@ -359,6 +403,7 @@ export const useSession = create<SessionState>((set, get) => {
         const final = [...attempts].reverse().find((a) => !a.skipped) ?? attempts[attempts.length - 1];
         if (!final) return;
         if (final.error && !final.text.trim()) {
+          await Promise.all(draftJobs);
           set({ error: final.error });
           return;
         }
@@ -368,16 +413,124 @@ export const useSession = create<SessionState>((set, get) => {
         const totalCost = attempts.reduce((n, a) => n + (a.usage?.costUsd ?? 0), 0);
         const usage = final.usage ? { ...final.usage, costUsd: attempts.some((a) => a.usage?.costUsd != null) ? totalCost : null } : null;
         await get().insertGenerated({ parentId, text: finalText.trim(), model: final.model, direction: o.direction, reasoning: final.reasoning, plan: plan.trim() || null, usage });
+        // The passage is on the page; the footer now only tracks the extra drafts still writing.
+        set((st) => (st.streaming ? { streaming: { ...st.streaming, text: '', reasoning: '' } } : {}));
+        await Promise.all(draftJobs);
         const ran = attempts.filter((a) => !a.skipped);
+        const okDrafts = get().drafts.filter((d) => d.done && !d.error && d.text.length > 40).length;
+        if (okDrafts) set({ notice: `${okDrafts + 1} drafts written. Swipe the passage's arrows to compare; the others stay one swipe away.` });
         if (guarded.trimmed) set({ notice: 'Cut a tail where the prose broke down into a run-on. If this keeps happening, set the style card\'s repetition control to Off; sampler penalties can starve a long passage of articles and punctuation.' });
         else if (final.refused) set({ notice: `Every step of the refusal chain came back as a refusal (${ran.length} attempts). Kept the last one so you can judge.` });
         else if (ran.length > 1) set({ notice: `Pushed through on attempt ${ran.length}${final.step ? ` via ${final.step.kind}` : ''}${final.model !== model ? ` on ${final.model.split('/').pop()}` : ''}.` });
       } catch (e) {
         if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
       } finally {
-        set({ streaming: null, abort: null });
+        set({ streaming: null, abort: null, drafts: [] });
       }
       });
+    },
+
+    async proposeScene(wish) {
+      const { session, path, bundle } = get();
+      const { apiKey } = useSettings.getState();
+      if (!session || !apiKey || get().streaming) return;
+      const abort = new AbortController();
+      set({ abort, error: null, sceneProposal: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'proposing', startedAt: now(), parentId: session.currentBeatId } });
+      try {
+        await runInForeground('Planning the next scene', async () => {
+          const recent = manuscriptText(path.slice(-3));
+          let text = '';
+          for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: scenePrompt({ universe: bundle.universe, characters: bundle.characters, style: bundle.style, summary: session.summary, recent, wish }), params: { temperature: 0.9, topP: 0.95, maxTokens: 500, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
+            if (ev.type === 'text') {
+              text += ev.text ?? '';
+              set((st) => (st.streaming ? { streaming: { ...st.streaming, text } } : {}));
+            }
+            if (ev.type === 'error') throw new Error(ev.error);
+          }
+          set({ sceneProposal: text.trim() || null });
+        });
+      } catch (e) {
+        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
+      } finally {
+        set({ streaming: null, abort: null });
+      }
+    },
+    clearScene: () => set({ sceneProposal: null }),
+
+    async suggest() {
+      const { session, path, bundle } = get();
+      const { apiKey } = useSettings.getState();
+      if (!session || !apiKey || get().streaming) return;
+      const abort = new AbortController();
+      set({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'suggesting', startedAt: now(), parentId: session.currentBeatId } });
+      try {
+        const recent = [...path].reverse().find((b) => b.role === 'prose')?.text ?? '';
+        const interactive = /second person|\byou\b/i.test(bundle.style?.pointOfView ?? '');
+        let text = '';
+        for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: suggestPrompt({ brief: session.brief, summary: session.summary, recent, style: bundle.style, interactive }), params: { temperature: 0.9, topP: 0.95, maxTokens: 200, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
+          if (ev.type === 'text') text += ev.text ?? '';
+          if (ev.type === 'error') throw new Error(ev.error);
+        }
+        const list = parseSuggestions(text);
+        if (!list.length) throw new Error('The helper did not return suggestions. Try again.');
+        set({ suggestions: list });
+      } catch (e) {
+        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
+      } finally {
+        set({ streaming: null, abort: null });
+      }
+    },
+    clearSuggestions: () => set({ suggestions: [] }),
+
+    async illustrate(beatId) {
+      const { db, session, index, bundle } = get();
+      const { apiKey, defaults } = useSettings.getState();
+      if (!db || !session || get().streaming) return;
+      if (!apiKey) {
+        set({ error: 'Add your OpenRouter key in Settings first.' });
+        return;
+      }
+      if (!defaults.imageModel) {
+        set({ error: 'Pick an image model in Settings first.' });
+        return;
+      }
+      const beat = index.byId.get(beatId);
+      if (!beat) return;
+      const abort = new AbortController();
+      set({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'illustrating', startedAt: now(), parentId: beat.parentId } });
+      try {
+        await runInForeground('Illustrating the passage', async () => {
+          let prompt = '';
+          for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: imagePromptPrompt({ passage: beat.text, characters: bundle.characters, universe: bundle.universe, style: bundle.style, brief: session.brief }), params: { temperature: 0.7, topP: 0.95, maxTokens: 300, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
+            if (ev.type === 'text') {
+              prompt += ev.text ?? '';
+              set((st) => (st.streaming ? { streaming: { ...st.streaming, text: prompt } } : {}));
+            }
+            if (ev.type === 'error') throw new Error(ev.error);
+          }
+          prompt = prompt.trim();
+          if (!prompt) throw new Error('The helper produced no image prompt.');
+          set((st) => (st.streaming ? { streaming: { ...st.streaming, model: defaults.imageModel } } : {}));
+          const img = await client.generateImage({ apiKey, model: defaults.imageModel, prompt, zdr: session.zdr, signal: abort.signal });
+          const id = newId();
+          const uri = await saveImage(id, img.dataUrl);
+          const ill = { id, sessionId: session.id, beatId, prompt, uri, model: img.model, createdAt: now() };
+          await saveIllustration(db, ill);
+          set({ illustrations: [...get().illustrations, ill] });
+        });
+      } catch (e) {
+        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
+      } finally {
+        set({ streaming: null, abort: null });
+      }
+    },
+    async removeIllustration(id) {
+      const { db, illustrations } = get();
+      if (!db) return;
+      const ill = illustrations.find((i) => i.id === id);
+      await deleteIllustration(db, id);
+      if (ill) await removeImage(ill.uri);
+      set({ illustrations: illustrations.filter((i) => i.id !== id) });
     },
   };
 });

@@ -35,7 +35,7 @@ export default function Home() {
   );
 
   async function createBlank() {
-    const s = blankSession({ models: defaults.models, zdr: defaults.zdr, presetId: defaults.presetId, styleId: defaults.styleId });
+    const s = blankSession({ models: defaults.models, zdr: defaults.zdr, styleId: defaults.styleId });
     await upsertSession(db, s);
     setSheet(false);
     router.push(`/session/${s.id}`);

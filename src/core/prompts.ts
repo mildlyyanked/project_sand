@@ -1,10 +1,10 @@
 /**
  * Every fixed piece of prompt text the app sends, in one place, so it can be
- * read, edited in Settings, and iterated on in the lab. Presets and style cards
+ * read, edited in Settings, and iterated on in the lab. Voices
  * hold the per-story voice; these are the app's own scaffolding.
  */
 export interface PromptTemplates {
-  /** System prompt used when a session has no preset. Seeded presets start from it too. */
+  /** System prompt used when the voice has none of its own. Seeded voices build on it. */
   craft: string;
   /** Added as the final user turn when the story has no prose yet. */
   opening: string;
@@ -40,7 +40,7 @@ export const DEFAULT_TEMPLATES: PromptTemplates = {
 };
 
 export const TEMPLATE_INFO: Record<keyof PromptTemplates, { label: string; hint: string }> = {
-  craft: { label: 'Writer, default system prompt', hint: 'Used when a session has no preset. Presets replace it entirely.' },
+  craft: { label: 'Writer, default system prompt', hint: 'Used when the voice has no writer prompt of its own. A voice with one replaces it entirely.' },
   opening: { label: 'Opening directive', hint: 'Sent as the final user turn when the story has no prose yet.' },
   continueAsk: { label: 'Continue ask', hint: 'The plain ask when there is nothing else to say.' },
   planLead: { label: 'Plan lead-in', hint: 'Introduces the helper\'s plan in the request.' },

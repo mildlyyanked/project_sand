@@ -4,7 +4,7 @@ import { listRevisions, type Revision, type RevisionKind } from '@/db/repo/libra
 import { Button, Card, Row, Sheet, T } from './index';
 import { relTime } from '../format';
 
-/** Revision history for a preset, style or brief, with restore. */
+/** Revision history for a voice or brief, with restore. */
 export function HistorySheet({ open, onClose, kind, targetId, onRestore }: { open: boolean; onClose: () => void; kind: RevisionKind; targetId: string; onRestore: (payload: string) => void }) {
   const db = useSQLiteContext();
   const [rows, setRows] = useState<Revision[]>([]);

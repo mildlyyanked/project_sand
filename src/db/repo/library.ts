@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import type { CanonEvent, Character, Id, LoreEntry, ModelStat, Preset, Species, Style, Universe } from '@/core/types';
+import type { CanonEvent, Character, Id, Illustration, LoreEntry, ModelStat, Species, Style, Universe } from '@/core/types';
 import { newId, now } from '@/core/ids';
 import { b, ib, j, pj } from './map';
 
@@ -99,8 +99,8 @@ export const newCharacter = (): Character => ({ id: newId(), universeId: null, s
 
 // Styles
 
-interface StRow { id: string; name: string; pov: string; tense: string; density: string; dialogue: string; register: string; vocabulary: string; influences: string; repetition: string; banned_json: string; samples_json: string; created_at: number; updated_at: number }
-const stFrom = (r: StRow): Style => ({ id: r.id, name: r.name, pointOfView: r.pov, tense: r.tense, proseDensity: r.density, dialogueRatio: r.dialogue, register: r.register as Style['register'], vocabulary: r.vocabulary, influences: r.influences ?? '', repetition: (r.repetition as Style['repetition']) || 'light', bannedPhrases: pj(r.banned_json, []), samples: pj(r.samples_json, []), createdAt: r.created_at, updatedAt: r.updated_at });
+interface StRow { id: string; name: string; pov: string; tense: string; density: string; dialogue: string; register: string; vocabulary: string; influences: string; repetition: string; banned_json: string; samples_json: string; system: string; prefill: string; post_history: string; overrides_json: string; chain_json: string; system_as_user: number; provider_ignore_json: string; provider_order_json: string; created_at: number; updated_at: number }
+const stFrom = (r: StRow): Style => ({ id: r.id, name: r.name, system: r.system ?? '', prefill: r.prefill ?? '', postHistory: r.post_history ?? '', modelOverrides: pj(r.overrides_json, {}), refusalChain: pj(r.chain_json, []), systemAsUser: b(r.system_as_user), providerIgnore: pj(r.provider_ignore_json, []), providerOrder: pj(r.provider_order_json, []), pointOfView: r.pov, tense: r.tense, proseDensity: r.density, dialogueRatio: r.dialogue, register: r.register as Style['register'], vocabulary: r.vocabulary, influences: r.influences ?? '', repetition: (r.repetition as Style['repetition']) || 'light', bannedPhrases: pj(r.banned_json, []), samples: pj(r.samples_json, []), createdAt: r.created_at, updatedAt: r.updated_at });
 export async function listStyles(db: SQLiteDatabase): Promise<Style[]> {
   return (await db.getAllAsync<StRow>('SELECT * FROM styles ORDER BY name')).map(stFrom);
 }
@@ -110,34 +110,13 @@ export async function getStyle(db: SQLiteDatabase, id: Id | null): Promise<Style
   return r ? stFrom(r) : null;
 }
 export async function saveStyle(db: SQLiteDatabase, s: Style): Promise<void> {
-  await db.runAsync('INSERT OR REPLACE INTO styles (id, name, pov, tense, density, dialogue, register, vocabulary, influences, repetition, banned_json, samples_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', s.id, s.name, s.pointOfView, s.tense, s.proseDensity, s.dialogueRatio, s.register, s.vocabulary, s.influences, s.repetition, j(s.bannedPhrases), j(s.samples), s.createdAt, now());
+  await db.runAsync('INSERT OR REPLACE INTO styles (id, name, pov, tense, density, dialogue, register, vocabulary, influences, repetition, banned_json, samples_json, system, prefill, post_history, overrides_json, chain_json, system_as_user, provider_ignore_json, provider_order_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', s.id, s.name, s.pointOfView, s.tense, s.proseDensity, s.dialogueRatio, s.register, s.vocabulary, s.influences, s.repetition, j(s.bannedPhrases), j(s.samples), s.system, s.prefill, s.postHistory, j(s.modelOverrides), j(s.refusalChain), ib(s.systemAsUser), j(s.providerIgnore), j(s.providerOrder), s.createdAt, now());
 }
 export async function deleteStyle(db: SQLiteDatabase, id: Id): Promise<void> {
   await db.runAsync('UPDATE sessions SET style_id = NULL WHERE style_id = ?', id);
   await db.runAsync('DELETE FROM styles WHERE id = ?', id);
 }
-export const newStyle = (): Style => ({ id: newId(), name: 'New style', pointOfView: '', tense: '', proseDensity: '', dialogueRatio: '', register: 'blunt', vocabulary: '', influences: '', repetition: 'light', bannedPhrases: [], samples: [], createdAt: now(), updatedAt: now() });
-
-// Presets
-
-interface PRow { id: string; name: string; system: string; prefill: string; post_history: string; overrides_json: string; chain_json: string; system_as_user: number; provider_ignore_json: string; provider_order_json: string; created_at: number; updated_at: number }
-const pFrom = (r: PRow): Preset => ({ id: r.id, name: r.name, system: r.system, prefill: r.prefill, postHistory: r.post_history, modelOverrides: pj(r.overrides_json, {}), refusalChain: pj(r.chain_json, []), systemAsUser: b(r.system_as_user), providerIgnore: pj(r.provider_ignore_json, []), providerOrder: pj(r.provider_order_json, []), createdAt: r.created_at, updatedAt: r.updated_at });
-export async function listPresets(db: SQLiteDatabase): Promise<Preset[]> {
-  return (await db.getAllAsync<PRow>('SELECT * FROM presets ORDER BY name')).map(pFrom);
-}
-export async function getPreset(db: SQLiteDatabase, id: Id | null): Promise<Preset | null> {
-  if (!id) return null;
-  const r = await db.getFirstAsync<PRow>('SELECT * FROM presets WHERE id = ?', id);
-  return r ? pFrom(r) : null;
-}
-export async function savePreset(db: SQLiteDatabase, p: Preset): Promise<void> {
-  await db.runAsync('INSERT OR REPLACE INTO presets (id, name, system, prefill, post_history, overrides_json, chain_json, system_as_user, provider_ignore_json, provider_order_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', p.id, p.name, p.system, p.prefill, p.postHistory, j(p.modelOverrides), j(p.refusalChain), ib(p.systemAsUser), j(p.providerIgnore), j(p.providerOrder), p.createdAt, now());
-}
-export async function deletePreset(db: SQLiteDatabase, id: Id): Promise<void> {
-  await db.runAsync('UPDATE sessions SET preset_id = NULL WHERE preset_id = ?', id);
-  await db.runAsync('DELETE FROM presets WHERE id = ?', id);
-}
-export const newPreset = (): Preset => ({ id: newId(), name: 'New preset', system: '', prefill: '', postHistory: '', modelOverrides: {}, refusalChain: [], systemAsUser: false, providerIgnore: [], providerOrder: [], createdAt: now(), updatedAt: now() });
+export const newStyle = (): Style => ({ id: newId(), name: 'New voice', system: '', prefill: '', postHistory: '', modelOverrides: {}, refusalChain: [], systemAsUser: false, providerIgnore: [], providerOrder: [], pointOfView: '', tense: '', proseDensity: '', dialogueRatio: '', register: 'blunt', vocabulary: '', influences: '', repetition: 'light', bannedPhrases: [], samples: [], createdAt: now(), updatedAt: now() });
 
 // Model stats: the refusal ledger
 
@@ -173,4 +152,24 @@ export async function addRevision(db: SQLiteDatabase, kind: RevisionKind, target
 export async function listRevisions(db: SQLiteDatabase, kind: RevisionKind, targetId: Id): Promise<Revision[]> {
   const rows = await db.getAllAsync<{ id: string; kind: string; target_id: string; payload: string; note: string; created_at: number }>('SELECT * FROM revisions WHERE kind = ? AND target_id = ? ORDER BY created_at DESC', kind, targetId);
   return rows.map((r) => ({ id: r.id, kind: r.kind as RevisionKind, targetId: r.target_id, payload: r.payload, note: r.note, createdAt: r.created_at }));
+}
+
+/** How many stories use a voice; shown before overriding a shared card. */
+export async function styleUsage(db: SQLiteDatabase, styleId: Id): Promise<number> {
+  const r = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) as n FROM sessions WHERE style_id = ?', styleId);
+  return r?.n ?? 0;
+}
+
+// Illustrations
+
+interface IRow { id: string; session_id: string; beat_id: string | null; prompt: string; uri: string; model: string; created_at: number }
+const iFrom = (r: IRow): Illustration => ({ id: r.id, sessionId: r.session_id, beatId: r.beat_id, prompt: r.prompt, uri: r.uri, model: r.model, createdAt: r.created_at });
+export async function listIllustrations(db: SQLiteDatabase, sessionId: Id): Promise<Illustration[]> {
+  return (await db.getAllAsync<IRow>('SELECT * FROM illustrations WHERE session_id = ? ORDER BY created_at', sessionId)).map(iFrom);
+}
+export async function saveIllustration(db: SQLiteDatabase, i: Illustration): Promise<void> {
+  await db.runAsync('INSERT OR REPLACE INTO illustrations (id, session_id, beat_id, prompt, uri, model, created_at) VALUES (?,?,?,?,?,?,?)', i.id, i.sessionId, i.beatId, i.prompt, i.uri, i.model, i.createdAt);
+}
+export async function deleteIllustration(db: SQLiteDatabase, id: Id): Promise<void> {
+  await db.runAsync('DELETE FROM illustrations WHERE id = ?', id);
 }

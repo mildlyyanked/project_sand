@@ -7,7 +7,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import type { Character, ChatMessage, Style, Universe } from '@/core/types';
 import { briefNote, briefPrompt, openingPrompt, parseBrief, parsePremises, workshopSystem, type Brief } from '@/core/helpers';
 import { newId } from '@/core/ids';
-import { listCharacters, listStyles, listUniverses, newCharacter, newStyle, newUniverse, saveCharacter, saveStyle, saveUniverse } from '@/db/repo/library';
+import { getStyle, listCharacters, listStyles, listUniverses, newCharacter, newStyle, newUniverse, saveCharacter, saveStyle, saveUniverse } from '@/db/repo/library';
 import { blankSession, insertBeat, makeBeat, upsertSession } from '@/db/repo/sessions';
 import { useSettings } from '@/state/settings';
 import { client } from '@/state/client';
@@ -141,7 +141,10 @@ export default function Workshop() {
           uId = u.id;
         }
         if (brief.style && !sId) {
-          const st = { ...newStyle(), name: brief.style.name, pointOfView: brief.style.pointOfView, tense: brief.style.tense, register: brief.style.register, proseDensity: brief.style.proseDensity, influences: brief.style.influences };
+          // The workshop writes the card; the writer prompt and persistence chain come from the default voice.
+          const base = defaults.styleId ? await getStyle(db, defaults.styleId) : null;
+          const inherited = base ? { system: base.system, prefill: base.prefill, postHistory: base.postHistory, modelOverrides: base.modelOverrides, refusalChain: base.refusalChain, systemAsUser: base.systemAsUser, providerIgnore: base.providerIgnore, providerOrder: base.providerOrder, repetition: base.repetition } : {};
+          const st = { ...newStyle(), ...inherited, name: brief.style.name, pointOfView: brief.style.pointOfView, tense: brief.style.tense, register: brief.style.register, proseDensity: brief.style.proseDensity, influences: brief.style.influences };
           await saveStyle(db, st);
           sId = st.id;
         }
@@ -154,7 +157,7 @@ export default function Workshop() {
       }
       const title = brief?.title || premise.split(/[.!?]/)[0]!.split(/\s+/).slice(0, 6).join(' ') || 'Untitled';
       const briefText = brief ? briefNote(brief) : `Premise: ${premise.trim()}`;
-      const s = blankSession({ title, models: defaults.models, zdr: defaults.zdr, presetId: defaults.presetId, styleId: sId, universeId: uId, characterIds: cIds, brief: briefText });
+      const s = blankSession({ title, models: defaults.models, zdr: defaults.zdr, styleId: sId ?? defaults.styleId, universeId: uId, characterIds: cIds, brief: briefText });
       await upsertSession(db, s);
       const note = makeBeat({ sessionId: s.id, parentId: null, role: 'note', text: briefText });
       await insertBeat(db, note);

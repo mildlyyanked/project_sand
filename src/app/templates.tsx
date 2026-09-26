@@ -14,7 +14,7 @@ export default function Templates() {
   const keys = Object.keys(DEFAULT_TEMPLATES) as (keyof PromptTemplates)[];
   return (
     <Screen scroll>
-      <T v="dim" style={{ marginBottom: space.lg }}>These are the app’s own words in every request. Presets and style cards carry the story’s voice; this is the scaffolding around them. Edits apply to the next request. The inspector shows exactly where each one lands.</T>
+      <T v="dim" style={{ marginBottom: space.lg }}>These are the app’s own words in every request. Voices carry the writer prompt; this is the scaffolding around them. Edits apply to the next request. The inspector shows exactly where each one lands.</T>
       {keys.map((k) => {
         const value = draft[k] ?? templates[k];
         const changed = templates[k] !== DEFAULT_TEMPLATES[k];

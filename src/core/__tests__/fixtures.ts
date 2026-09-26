@@ -1,4 +1,4 @@
-import type { Beat, Session, Preset, Style, Character, LoreEntry } from '../types';
+import type { Beat, Session, Style, Character, LoreEntry } from '../types';
 import { DEFAULT_PARAMS, DEFAULT_STRATEGY } from '../types';
 
 export function beat(p: Partial<Beat> & { id: string; parentId: string | null; text: string }): Beat {
@@ -7,19 +7,20 @@ export function beat(p: Partial<Beat> & { id: string; parentId: string | null; t
 
 export function session(p: Partial<Session> = {}): Session {
   return {
-    id: 's1', title: 'T', universeId: null, styleId: null, presetId: null, characterIds: [],
-    models: { writer: 'm/writer', summarizer: 'm/sum', helper: 'm/help' },
+    id: 's1', title: 'T', universeId: null, styleId: null, characterIds: [],
+    models: { writer: 'm/writer', summarizer: 'm/sum', helper: 'm/help' }, draftModels: [],
     params: DEFAULT_PARAMS, strategy: DEFAULT_STRATEGY, zdr: false, explicit: false, heat: 2,
     currentBeatId: null, summary: '', summaryUpToBeatId: null, variantOf: null, variantNote: '', isTemplate: false, brief: '', planFirst: true, createdAt: 0, updatedAt: 0, ...p,
   };
 }
 
-export function preset(p: Partial<Preset> = {}): Preset {
-  return { id: 'p1', name: 'P', system: 'SYS', prefill: '', postHistory: '', modelOverrides: {}, refusalChain: [], systemAsUser: false, providerIgnore: [], providerOrder: [], createdAt: 0, updatedAt: 0, ...p };
+export function style(p: Partial<Style> = {}): Style {
+  return { id: 'st1', name: 'Terse', system: '', prefill: '', postHistory: '', modelOverrides: {}, refusalChain: [], systemAsUser: false, providerIgnore: [], providerOrder: [], pointOfView: 'third close', tense: 'past', proseDensity: 'lean', dialogueRatio: 'high', register: 'blunt', vocabulary: '', influences: '', repetition: 'light', bannedPhrases: ['tapestry'], samples: [], createdAt: 0, updatedAt: 0, ...p };
 }
 
-export function style(p: Partial<Style> = {}): Style {
-  return { id: 'st1', name: 'Terse', pointOfView: 'third close', tense: 'past', proseDensity: 'lean', dialogueRatio: 'high', register: 'blunt', vocabulary: '', influences: '', repetition: 'light', bannedPhrases: ['tapestry'], samples: [], createdAt: 0, updatedAt: 0, ...p };
+/** A voice with only the writer prompt set, for tests that used to build a preset. */
+export function preset(p: Partial<Style> = {}): Style {
+  return style({ id: 'p1', name: 'P', system: 'SYS', pointOfView: '', tense: '', proseDensity: '', dialogueRatio: '', bannedPhrases: [], ...p });
 }
 
 export function character(p: Partial<Character> = {}): Character {

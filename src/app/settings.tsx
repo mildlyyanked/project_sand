@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Linking, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useSettings } from '@/state/settings';
+import { listStyles } from '@/db/repo/library';
+import type { Style } from '@/core/types';
 import { client } from '@/state/client';
-import { Banner, Button, Card, Field, ListItem, Row, Section, Screen, Segmented, Stepper, SwitchRow, T } from '@/ui/components';
+import { Banner, Button, Card, Chip, Field, ListItem, Row, Section, Screen, Segmented, Stepper, SwitchRow, T } from '@/ui/components';
 import { relTime, shortModel } from '@/ui/format';
 import { space } from '@/ui/theme';
 
@@ -14,6 +16,10 @@ export default function Settings() {
   const [key, setKey] = useState(s.apiKey);
   const [busy, setBusy] = useState<'test' | 'models' | null>(null);
   const [msg, setMsg] = useState<{ text: string; tone: 'ok' | 'danger' | 'info' } | null>(null);
+  const [voices, setVoices] = useState<Style[]>([]);
+  useEffect(() => {
+    void listStyles(db).then(setVoices);
+  }, [db]);
 
   async function saveAndTest() {
     setBusy('test');
@@ -63,6 +69,16 @@ export default function Settings() {
           ))}
         </Card>
         <T v="faint">Defaults for new sessions. The writer writes prose, the summarizer maintains the story summary, the helper powers scene ideas, premises and reweaving.</T>
+        <Card style={{ padding: 0, paddingHorizontal: space.md }}>
+          <ListItem title="Image model" subtitle={s.defaults.imageModel || 'not set'} right={<T v="faint">{shortModel(s.defaults.imageModel)}</T>} onPress={() => router.push(`/models?target=default:imageModel&current=${encodeURIComponent(s.defaults.imageModel)}`)} />
+        </Card>
+        <T v="faint">Illustrations: the helper turns a passage into an image prompt, this model paints it. Only models with image output work.</T>
+      </Section>
+      <Section title="Default voice">
+        <Row style={{ flexWrap: 'wrap' }}>
+          {voices.map((v) => <Chip key={v.id} label={v.name} selected={s.defaults.styleId === v.id} onPress={() => s.setDefaults(db, { styleId: v.id })} />)}
+        </Row>
+        <T v="faint">New stories start with this voice: its writer prompt, persistence chain and card. The workshop may replace it with a voice it writes for the story.</T>
       </Section>
       <Section title="Privacy">
         <SwitchRow label="Zero data retention by default" hint="New sessions only route to providers that keep nothing. Fewer models qualify." value={s.defaults.zdr} onChange={(v) => s.setDefaults(db, { zdr: v })} />
@@ -77,7 +93,7 @@ export default function Settings() {
           <ListItem title="Prompt templates" subtitle="Every fixed piece of prompt text the app sends, editable" onPress={() => router.push('/templates')} />
           <ListItem title="Editor model for the prompt lab" subtitle={s.defaults.editorModel || 'Same as the writer'} onPress={() => router.push('/models?target=default:editorModel')} />
         </Card>
-        <T v="faint">Open the lab from a story’s menu to have a strong model revise its preset, style or brief against a goal, test the result, and accept it with the rationale on record.</T>
+        <T v="faint">Open the lab from a story’s menu to have a strong model revise its voice or brief against a goal, test the result, and accept it with the rationale on record.</T>
       </Section>
       <Section title="Appearance">
         <Segmented value={s.defaults.theme} onChange={(v) => s.setDefaults(db, { theme: v })} options={[{ key: 'dark', label: 'Dark' }, { key: 'light', label: 'Light' }, { key: 'system', label: 'System' }]} />

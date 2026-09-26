@@ -72,12 +72,9 @@ export default function RootLayout() {
                 <Stack.Screen name="session/[id]/index" options={{ title: '' }} />
                 <Stack.Screen name="session/[id]/context" options={{ title: 'Context', presentation: 'modal' }} />
                 <Stack.Screen name="session/[id]/settings" options={{ title: 'Session' }} />
-                <Stack.Screen name="session/[id]/scene" options={{ title: 'Next scene', presentation: 'modal' }} />
-                <Stack.Screen name="session/[id]/race" options={{ title: 'Draft race', presentation: 'modal' }} />
                 <Stack.Screen name="library/index" options={{ title: 'Library' }} />
                 <Stack.Screen name="library/character/[id]" options={{ title: 'Character' }} />
-                <Stack.Screen name="library/style/[id]" options={{ title: 'Style' }} />
-                <Stack.Screen name="library/preset/[id]" options={{ title: 'Preset' }} />
+                <Stack.Screen name="library/style/[id]" options={{ title: 'Voice' }} />
                 <Stack.Screen name="library/universe/[id]" options={{ title: 'World' }} />
               </Stack>
             </Boot>

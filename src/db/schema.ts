@@ -37,6 +37,19 @@ const MIGRATIONS: string[] = [
   CREATE TABLE revisions (id TEXT PRIMARY KEY, kind TEXT NOT NULL, target_id TEXT NOT NULL, payload TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
   CREATE INDEX revisions_target ON revisions(kind, target_id, created_at);
   `,
+  `
+  ALTER TABLE styles ADD COLUMN system TEXT NOT NULL DEFAULT '';
+  ALTER TABLE styles ADD COLUMN prefill TEXT NOT NULL DEFAULT '';
+  ALTER TABLE styles ADD COLUMN post_history TEXT NOT NULL DEFAULT '';
+  ALTER TABLE styles ADD COLUMN overrides_json TEXT NOT NULL DEFAULT '{}';
+  ALTER TABLE styles ADD COLUMN chain_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE styles ADD COLUMN system_as_user INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE styles ADD COLUMN provider_ignore_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE styles ADD COLUMN provider_order_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE sessions ADD COLUMN draft_models_json TEXT NOT NULL DEFAULT '[]';
+  CREATE TABLE illustrations (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, beat_id TEXT, prompt TEXT NOT NULL, uri TEXT NOT NULL, model TEXT NOT NULL, created_at INTEGER NOT NULL);
+  CREATE INDEX illustrations_session ON illustrations(session_id);
+  `,
 ];
 
 export async function migrate(db: SQLiteDatabase): Promise<void> {

@@ -117,7 +117,32 @@ export function createClient(fetchImpl: FetchLike) {
     return { label: j.data?.label ?? '', usage: j.data?.usage ?? 0, limit: j.data?.limit ?? null };
   }
 
-  return { stream, listModels, listZdrModelIds, keyInfo };
+  /**
+   * One image from a chat-completions call with image output. OpenRouter returns
+   * images on the message as data URLs; the first one is what we keep.
+   */
+  async function generateImage(o: { apiKey: string; model: string; prompt: string; zdr: boolean; signal?: AbortSignal }): Promise<{ dataUrl: string; model: string }> {
+    const provider: Record<string, unknown> = { data_collection: 'deny', allow_fallbacks: true };
+    if (o.zdr) provider.zdr = true;
+    const body = { model: o.model, messages: [{ role: 'user', content: o.prompt }], modalities: ['image', 'text'], stream: false, provider };
+    const res = await fetchImpl(`${OPENROUTER_BASE}/chat/completions`, { method: 'POST', headers: headers(o.apiKey), body: JSON.stringify(body), signal: o.signal });
+    const text = await res.text();
+    if (!res.ok) {
+      let msg = text;
+      try {
+        msg = (JSON.parse(text) as { error?: { message?: string } }).error?.message ?? text;
+      } catch {}
+      throw new OpenRouterError(msg || `HTTP ${res.status}`, res.status);
+    }
+    const j = JSON.parse(text) as ImageCompletionJson;
+    if (j.error) throw new OpenRouterError(j.error.message ?? 'Image generation failed', res.status);
+    const msg = j.choices?.[0]?.message;
+    const url = msg?.images?.[0]?.image_url?.url;
+    if (!url) throw new OpenRouterError(msg?.content?.trim() ? `The model answered with text instead of an image: ${msg.content.trim().slice(0, 200)}` : 'The model returned no image. Pick a model that lists image output.', res.status);
+    return { dataUrl: url, model: j.model ?? o.model };
+  }
+
+  return { stream, listModels, listZdrModelIds, keyInfo, generateImage };
 }
 
 export type OpenRouterClient = ReturnType<typeof createClient>;
@@ -135,6 +160,12 @@ function usageFrom(j: CompletionJson): Usage | null {
   return { promptTokens: j.usage.prompt_tokens ?? 0, completionTokens: j.usage.completion_tokens ?? 0, costUsd: j.usage.cost ?? j.usage.total_cost ?? null };
 }
 
+interface ImageCompletionJson {
+  model?: string;
+  error?: { message?: string };
+  choices?: { message?: { content?: string; images?: { image_url?: { url?: string } }[] } }[];
+}
+
 interface RawModel {
   id: string;
   name?: string;
@@ -142,6 +173,7 @@ interface RawModel {
   pricing?: { prompt?: string; completion?: string };
   supported_parameters?: string[];
   top_provider?: { context_length?: number };
+  architecture?: { output_modalities?: string[] };
 }
 
 export function toModelInfo(m: RawModel): ModelInfo {
@@ -154,5 +186,6 @@ export function toModelInfo(m: RawModel): ModelInfo {
     completionPricePerM: per(m.pricing?.completion),
     supportsReasoning: (m.supported_parameters ?? []).some((p) => p === 'reasoning' || p === 'include_reasoning'),
     privacy: 'unknown',
+    outputImage: (m.architecture?.output_modalities ?? []).includes('image'),
   };
 }

@@ -10,7 +10,7 @@ const path = [
 
 describe('assembleContext', () => {
   it('orders layers and folds system layers into one message', () => {
-    const ctx = assembleContext({ session: session(), path, preset: preset(), style: style(), characters: [character()], species: [], universe: null, lore: [], model: 'm/writer' });
+    const ctx = assembleContext({ session: session(), path, style: style({ system: 'SYS' }), characters: [character()], species: [], universe: null, lore: [], model: 'm/writer' });
     expect(ctx.layers.map((l) => l.key)).toEqual(['system', 'style', 'characters', 'beat:b1', 'beat:b2', 'beat:b3']);
     expect(ctx.messages[0]!.role).toBe('system');
     expect(ctx.messages[0]!.content).toContain('SYS');
@@ -20,13 +20,13 @@ describe('assembleContext', () => {
     expect(ctx.messages[ctx.messages.length - 1]!.content).toBe('Continue the manuscript.');
   });
   it('adds a user turn when the path is empty', () => {
-    const ctx = assembleContext({ session: session(), path: [], preset: null, style: null, characters: [], species: [], universe: null, lore: [], model: 'x' });
+    const ctx = assembleContext({ session: session(), path: [], style: null, characters: [], species: [], universe: null, lore: [], model: 'x' });
     expect(ctx.messages.map((m) => m.role)).toEqual(['system', 'user']);
     expect(ctx.messages[1]!.content).toContain('This is the opening');
   });
   it('triggers lore from recent beats and respects the lore budget', () => {
     const entries = [lore({ id: 'warden', keys: ['warden'], priority: 2 }), lore({ id: 'hold', keys: ['hold'], priority: 1 }), lore({ id: 'quiet', keys: ['zzz'] }), lore({ id: 'always', alwaysOn: true })];
-    const ctx = assembleContext({ session: session({ universeId: 'u1' }), path, preset: null, style: null, characters: [], species: [], universe: { id: 'u1', name: 'W', description: 'desc', createdAt: 0, updatedAt: 0 }, lore: entries, model: 'x' });
+    const ctx = assembleContext({ session: session({ universeId: 'u1' }), path, style: null, characters: [], species: [], universe: { id: 'u1', name: 'W', description: 'desc', createdAt: 0, updatedAt: 0 }, lore: entries, model: 'x' });
     const loreLayer = ctx.layers.find((l) => l.key === 'lore')!;
     expect(loreLayer.text).toContain('## warden');
     expect(loreLayer.text).toContain('## hold');
@@ -35,7 +35,7 @@ describe('assembleContext', () => {
     expect(ctx.layers.find((l) => l.key === 'universe')!.text).toContain('## always');
   });
   it('puts heat, direction and post-history at the end, then prefill last', () => {
-    const ctx = assembleContext({ session: session({ explicit: true, heat: 4 }), path, preset: preset({ postHistory: 'POST', prefill: 'She' }), style: null, characters: [], species: [], universe: null, lore: [], model: 'x', direction: 'slower' });
+    const ctx = assembleContext({ session: session({ explicit: true, heat: 4 }), path, style: preset({ postHistory: 'POST', prefill: 'She', system: '' }), characters: [], species: [], universe: null, lore: [], model: 'x', direction: 'slower' });
     const last = ctx.messages[ctx.messages.length - 1]!;
     expect(last).toEqual({ role: 'assistant', content: 'She' });
     const post = ctx.messages[ctx.messages.length - 2]!;
@@ -45,11 +45,11 @@ describe('assembleContext', () => {
     expect(post.content).toContain('Direction for this passage: slower');
   });
   it('does not mention heat when the session is not explicit', () => {
-    const ctx = assembleContext({ session: session({ explicit: false, heat: 4 }), path, preset: null, style: null, characters: [], species: [], universe: null, lore: [], model: 'x' });
+    const ctx = assembleContext({ session: session({ explicit: false, heat: 4 }), path, style: null, characters: [], species: [], universe: null, lore: [], model: 'x' });
     expect(JSON.stringify(ctx.messages)).not.toContain('Intensity');
   });
   it('drops layers the inspector marked dropped', () => {
-    const ctx = assembleContext({ session: session(), path, preset: null, style: style(), characters: [], species: [], universe: null, lore: [], model: 'x', dropped: new Set(['style']) });
+    const ctx = assembleContext({ session: session(), path, style: style(), characters: [], species: [], universe: null, lore: [], model: 'x', dropped: new Set(['style']) });
     expect(ctx.layers.find((l) => l.key === 'style')!.dropped).toBe(true);
     expect(ctx.messages[0]!.content).not.toContain('Style');
   });
@@ -61,7 +61,7 @@ describe('assembleContext', () => {
     expect(parts.recent.length).toBeGreaterThan(0);
     expect(parts.recent.length).toBeLessThan(7);
     expect(parts.overflow.length + parts.recent.length).toBe(7);
-    const ctx = assembleContext({ session: s, path: long, preset: null, style: null, characters: [], species: [], universe: null, lore: [], model: 'x' });
+    const ctx = assembleContext({ session: s, path: long, style: null, characters: [], species: [], universe: null, lore: [], model: 'x' });
     expect(ctx.layers.find((l) => l.key === 'overflow')!.dropped).toBe(true);
     expect(ctx.layers.find((l) => l.key === 'summary')!.text).toContain('so far');
   });
@@ -74,13 +74,13 @@ describe('assembleContext', () => {
 
 describe('brief, opening and plan', () => {
   it('sends the brief as a system layer and an opening directive when there is no prose yet', () => {
-    const ctx = assembleContext({ session: session({ brief: 'Premise: a yacht.' }), path: [], preset: null, style: null, characters: [], species: [], universe: null, lore: [], model: 'x' });
+    const ctx = assembleContext({ session: session({ brief: 'Premise: a yacht.' }), path: [], style: null, characters: [], species: [], universe: null, lore: [], model: 'x' });
     expect(ctx.layers.map((l) => l.key)).toEqual(['system', 'brief', 'post']);
     expect(ctx.messages[0]!.content).toContain('# The story\nPremise: a yacht.');
     expect(ctx.messages[ctx.messages.length - 1]!.content).toContain('This is the opening');
   });
   it('drops the opening directive once prose exists and carries the plan', () => {
-    const ctx = assembleContext({ session: session(), path, preset: null, style: null, characters: [], species: [], universe: null, lore: [], model: 'x', plan: 'Elias meets Serena on deck.' });
+    const ctx = assembleContext({ session: session(), path, style: null, characters: [], species: [], universe: null, lore: [], model: 'x', plan: 'Elias meets Serena on deck.' });
     const last = ctx.messages[ctx.messages.length - 1]!;
     expect(last.content).not.toContain('This is the opening');
     expect(last.content).toContain('Plan for this passage');

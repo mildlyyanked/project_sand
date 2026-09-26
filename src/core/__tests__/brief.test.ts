@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { briefNote, parseBrief } from '../helpers';
+import { briefNote, imagePromptPrompt, parseBrief, parseSuggestions, suggestPrompt } from '../helpers';
 
 describe('parseBrief', () => {
   it('parses fenced JSON and fills defaults', () => {
@@ -14,5 +14,27 @@ describe('parseBrief', () => {
     expect(parseBrief('no json here')).toBeNull();
     expect(parseBrief('{"title":"x","style":{"register":"purple"}}')!.style?.register).toBe('blunt');
     expect(parseBrief('{"title":"x","world":{"name":""}}')!.world).toBeNull();
+  });
+});
+
+
+describe('suggestions', () => {
+  it('parses numbered and bulleted lines, at most three', () => {
+    expect(parseSuggestions('1. She opens the letter\n2) He lies about the car\n- The storm reaches the house\n4. extra')).toEqual(['She opens the letter', 'He lies about the car', 'The storm reaches the house']);
+  });
+  it('drops noise lines', () => {
+    expect(parseSuggestions('Sure:\n1. **Go down to the cellar**\n\nok')).toEqual(['Sure:', 'Go down to the cellar']);
+  });
+  it('asks for protagonist moves when the voice is second person', () => {
+    const m = suggestPrompt({ brief: '', summary: '', recent: 'x', style: null, interactive: true });
+    expect(m[0]!.content).toMatch(/protagonist does or says/);
+  });
+});
+
+describe('image prompt', () => {
+  it('carries the passage and never the character names as names', () => {
+    const m = imagePromptPrompt({ passage: 'The lamp guttered.', characters: [], universe: null, style: null, brief: 'A quiet house.' });
+    expect(m[1]!.content).toContain('The lamp guttered.');
+    expect(m[0]!.content).toMatch(/never by name/);
   });
 });

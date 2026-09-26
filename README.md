@@ -43,7 +43,7 @@ On the home screen, hold a story for Open, Session settings, Duplicate and Delet
 
 ## How a passage gets written
 
-Every request carries, in order: the preset's system prompt with craft guidance, the style card, the character cards, the **brief** (premise, ideas, people, limits; editable in session settings), the world and lore, the rolling summary, the recent passages, and then the ask. When the story has no prose yet the ask is an **opening directive**: start before anything goes wrong, introduce the people who matter, end on the first hint of trouble.
+Every request carries, in order: the voice's writer prompt with craft guidance, the voice card, the character cards, the **brief** (premise, ideas, people, limits; editable in session settings), the world and lore, the rolling summary, the recent passages, and then the ask. When the story has no prose yet the ask is an **opening directive**: start before anything goes wrong, introduce the people who matter, end on the first hint of trouble.
 
 With **Plan before writing** on (the default), the helper first writes a plan of at most 120 words for the passage; the writer is told to follow it. The plan is stored on the beat and shown in the inspector and the beat menu.
 
@@ -53,13 +53,13 @@ With **Plan before writing** on (the default), the helper first writes a plan of
 
 Everything the writer receives is visible in the inspector, in send order, and can be copied as a transcript or as the raw messages array to compare like for like in another chat. The app's own fixed text (default system prompt, opening directive, planner, summarizer, editor, soften step) lives in **Settings → Prompt templates**, editable with reset.
 
-**Prompt lab** (story menu → Prompt lab) hands one piece of the stack to a strong editor model with a goal and an optional reference sample: the preset's system prompt or post-history, the style card, or the brief. It returns a revision with a rationale and a change list; you can edit it, test it on the next passage without touching the story, then accept. Accepting records a revision (before and after, with the rationale) that preset and style editors show under **History**, with restore.
+**Prompt lab** (story menu → Prompt lab) hands one piece of the stack to a strong editor model with a goal and an optional reference sample: the voice's writer prompt or post-history, the voice card, or the brief. It returns a revision with a rationale and a change list; you can edit it, test it on the next passage without touching the story, then accept. The writer prompt, post-history and card live on the voice, which is shared across stories: when more than one story uses it, accepting asks whether to **override** it for all of them or **save as a new voice** attached to this story only. Every accepted change records a revision (before and after, with the rationale) that the voice editor shows under **History**, with restore.
 
-Two seeded starting points: **Persistent** (third-person manuscript, planning on) and **Interactive narrator** with the **Literary, controlled** style (second person, present, 180 to 350 words, stop and wait for the writer's move).
+Three seeded voices: **Close third, past** and **First person, present** (manuscript voices with the persistent writer prompt and chain) and **Interactive narrator** (second person, present, 180 to 350 words, stop and wait for the writer's move). Settings names the default voice for new stories; the workshop writes a card of its own for each story and inherits the default voice's prompt and chain.
 
 ## Persistence (getting past refusals)
 
-A preset's **Persistence** chain runs when a reply looks like a refusal. Each step is applied in order and the passage is retried; later retries carry earlier changes. The seeded **Persistent** preset uses, in order:
+A voice's **Persistence** chain runs when a reply looks like a refusal. Each step is applied in order and the passage is retried; later retries carry earlier changes. The seeded manuscript voices use, in order:
 
 1. **Momentum**: prefill the reply with the last sentence of the manuscript, so the model continues mid-flow instead of judging a request.
 2. **Soften**: the helper model rewrites your latest instruction as a quiet author's note in the story's own register. Same content, no imperative.
@@ -68,13 +68,23 @@ A preset's **Persistence** chain runs when a reply looks like a refusal. Each st
 5. **Reframe**: prepend stronger framing to the system prompt.
 6. **Model, auto**: retry on the model with the best record in the refusal ledger.
 
-The ledger counts attempts and refusals per model and shows up as a badge in the model picker, with a **Proven** filter. Presets can also deliver the system prompt as the first user turn and avoid or prefer specific OpenRouter providers.
+The ledger counts attempts and refusals per model and shows up as a badge in the model picker, with a **Proven** filter. A voice can also deliver the system prompt as the first user turn and avoid or prefer specific OpenRouter providers.
+
+New stories start explicit with the heat dial fully up. The only gate is structural: every attached character must be flagged adult, and nothing about that check enters a prompt.
 
 Nothing in this chain claims a false identity or authorization; it changes how the request is shaped and where it goes.
 
-## Style cards
+## Voices
 
-Besides voice, register and banned phrases, a style card carries **Influences** (writers to draw on, sent to the writer verbatim) and a **Repetition control** level. The level is applied purely through sampler penalties on the request, never as prompt text, and it leans on presence penalty: frequency and repetition penalties grow with token count and, over a long passage, strip out articles and then punctuation until the prose collapses into one run-on sentence. A guard trims such a tail off a generated passage and says so. The voice check on the manuscript also flags phrases reused from recent passages.
+A voice is one card for everything that shapes the writing: the card the model reads and the way it is driven (writer prompt, post-history, prefill, persistence chain, delivery). Besides point of view, register and banned phrases, the card carries **Influences** (writers to draw on, sent to the writer verbatim) and a **Repetition control** level. The level is applied purely through sampler penalties on the request, never as prompt text, and it leans on presence penalty: frequency and repetition penalties grow with token count and, over a long passage, strip out articles and then punctuation until the prose collapses into one run-on sentence. A guard trims such a tail off a generated passage and says so. The voice check on the manuscript also flags phrases reused from recent passages.
+
+## Composer, drafts and pictures
+
+The composer has three modes. **Write** puts your own prose on the page. **Direct** tells the writer what happens next and lets it write; the sparkle button asks the helper for three possible next moves as tappable chips. **Scene** asks the helper for a scene plan (setting, tension, goal, turn, opening) from an optional wish; you read it, then **Write it**, ask for **Another**, or keep it as a note. Notes remain in the manuscript as before; only Write and Direct add beats directly.
+
+**Extra drafts** (the pill next to the writer model) names up to two more models that write every passage alongside the writer. Their drafts land as siblings of the main passage with a model chip each, so you compare in place and keep whichever you like; the others stay one swipe away.
+
+**Illustrate** in a passage's menu is one tap: the helper turns the passage into an image prompt (strongest moment, people by appearance, medium and light), the image model from Settings paints it, and the picture is saved on device under the passage. Tap it to see it full size, share it, ask for another, or delete it.
 
 ## Background generation
 

@@ -15,13 +15,15 @@ interface Props {
   title?: string;
   /** Ids to show first, e.g. models already used in the story. */
   pinned?: string[];
+  /** Only models that can return images. Falls back to a name match when the cached catalog predates that flag. */
+  only?: 'image';
 }
 
 /**
  * The one way to choose a model anywhere in the app. Pulls the OpenRouter
  * catalog when it is missing or stale, and never asks for a typed id.
  */
-export function ModelPicker({ open, onClose, onSelect, current, title = 'Choose model', pinned = [] }: Props) {
+export function ModelPicker({ open, onClose, onSelect, current, title = 'Choose model', pinned = [], only }: Props) {
   const db = useSQLiteContext();
   const t = useTheme();
   const { models, zdrIds, modelsLoading, modelsError, modelsFetchedAt, apiKey, ensureModels, stats, refreshStats } = useSettings();
@@ -38,10 +40,15 @@ export function ModelPicker({ open, onClose, onSelect, current, title = 'Choose 
   const zdr = useMemo(() => new Set(zdrIds), [zdrIds]);
   const list = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const filtered = models.filter((m) => (!zdrOnly || zdr.has(m.id)) && (!reasoningOnly || m.supportsReasoning) && (!provenOnly || proven(m.id)) && (!needle || m.id.toLowerCase().includes(needle) || m.name.toLowerCase().includes(needle)));
+    let pool = models;
+    if (only === 'image') {
+      const flagged = models.filter((m) => m.outputImage);
+      pool = flagged.length ? flagged : models.filter((m) => /image|diffusion|flux|imagen|dall/i.test(`${m.id} ${m.name}`));
+    }
+    const filtered = pool.filter((m) => (!zdrOnly || zdr.has(m.id)) && (!reasoningOnly || m.supportsReasoning) && (!provenOnly || proven(m.id)) && (!needle || m.id.toLowerCase().includes(needle) || m.name.toLowerCase().includes(needle)));
     const rank = (m: ModelInfo) => (m.id === current ? 0 : pinned.includes(m.id) ? 1 : 2);
     return filtered.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
-  }, [models, q, zdrOnly, reasoningOnly, provenOnly, zdr, current, pinned]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [models, q, zdrOnly, reasoningOnly, provenOnly, zdr, current, pinned, only]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const Item = ({ m }: { m: ModelInfo }) => {
     const isZ = zdr.has(m.id);
@@ -58,6 +65,7 @@ export function ModelPicker({ open, onClose, onSelect, current, title = 'Choose 
           <T v="small">{kTokens(m.contextLength)} ctx</T>
           <T v="small">${m.promptPricePerM.toFixed(2)} / ${m.completionPricePerM.toFixed(2)} per M</T>
           {m.supportsReasoning ? <T v="small">reasoning</T> : null}
+          {m.outputImage ? <T v="small">images</T> : null}
         </Row>
       </Pressable>
     );

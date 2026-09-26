@@ -2,13 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { Alert, Share, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import type { Character, Preset, Style, Universe } from '@/core/types';
+import type { Character, Style, Universe } from '@/core/types';
 import { HEAT_LABELS } from '@/core/types';
 import { useSession } from '@/state/session';
-import { listCharacters, listPresets, listStyles, listUniverses } from '@/db/repo/library';
+import { listCharacters, listStyles, listUniverses } from '@/db/repo/library';
 import { copySession, deleteSession, listBeats } from '@/db/repo/sessions';
 import { manuscriptText, pathTo, indexBeats } from '@/core/beatTree';
 import { Banner, Button, Card, Chip, Field, ListItem, MenuItem, Row, Screen, Section, Sheet, Stepper, SwitchRow, T } from '@/ui/components';
+import { ModelPicker } from '@/ui/components/ModelPicker';
 import { shortModel } from '@/ui/format';
 import { space } from '@/ui/theme';
 
@@ -19,7 +20,7 @@ export default function SessionSettings() {
   const session = s.session;
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [styles, setStyles] = useState<Style[]>([]);
-  const [presets, setPresets] = useState<Preset[]>([]);
+  const [draftPicker, setDraftPicker] = useState(false);
   const [chars, setChars] = useState<Character[]>([]);
   const [title, setTitle] = useState<string | null>(null);
   const [ask, setAsk] = useState<'variant' | 'template' | 'duplicate' | null>(null);
@@ -28,10 +29,9 @@ export default function SessionSettings() {
 
   useEffect(() => {
     if (session?.id !== id) void s.open(db, id!);
-    void Promise.all([listUniverses(db), listStyles(db), listPresets(db), listCharacters(db)]).then(([u, st, p, c]) => {
+    void Promise.all([listUniverses(db), listStyles(db), listCharacters(db)]).then(([u, st, c]) => {
       setUniverses(u);
       setStyles(st);
-      setPresets(p);
       setChars(c);
     });
   }, [db, id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -89,6 +89,15 @@ export default function SessionSettings() {
             <ListItem key={slot} title={slot[0]!.toUpperCase() + slot.slice(1)} subtitle={session.models[slot] || 'not set'} right={<T v="faint">{shortModel(session.models[slot])}</T>} onPress={() => router.push(`/models?target=session:${session.id}:${slot}&current=${encodeURIComponent(session.models[slot])}`)} />
           ))}
         </Card>
+        <View style={{ gap: 6 }}>
+          <T v="label">Extra drafts</T>
+          <T v="faint">Up to two more models write every passage alongside the writer. They land as siblings: swipe the passage’s arrows to compare and keep the one you like. Costs one extra request per model.</T>
+          <Row style={{ flexWrap: 'wrap' }}>
+            {session.draftModels.map((m) => <Chip key={m} label={shortModel(m)} selected onPress={() => s.patch({ draftModels: session.draftModels.filter((x) => x !== m) })} />)}
+            {session.draftModels.length < 2 ? <Chip label="Add a model" onPress={() => setDraftPicker(true)} /> : null}
+          </Row>
+        </View>
+        <ModelPicker open={draftPicker} onClose={() => setDraftPicker(false)} onSelect={(m) => { if (m !== session.models.writer && !session.draftModels.includes(m)) void s.patch({ draftModels: [...session.draftModels, m] }); }} title="Extra draft model" />
         <Row between><T>Temperature</T><Stepper value={session.params.temperature} min={0} max={2} step={0.05} format={(v) => v.toFixed(2)} onChange={(v) => s.patch({ params: { ...session.params, temperature: v } })} /></Row>
         <Row between><T>Max tokens</T><Stepper value={session.params.maxTokens} min={200} max={8000} step={100} onChange={(v) => s.patch({ params: { ...session.params, maxTokens: v } })} /></Row>
         <SwitchRow label="Request reasoning" hint="Shows the model's train of thought in the inspector when the model supports it" value={session.params.reasoning} onChange={(v) => s.patch({ params: { ...session.params, reasoning: v } })} />
@@ -96,7 +105,7 @@ export default function SessionSettings() {
       </Section>
 
       <Section title="Content">
-        <SwitchRow label="Explicit" hint="Enables the heat dial and its instruction to the writer" value={session.explicit} onChange={setExplicit} />
+        <SwitchRow label="Explicit" hint="On by default. Enables the heat dial and its instruction to the writer. The only gate is structural: every attached character must be flagged adult." value={session.explicit} onChange={setExplicit} />
         {session.explicit ? (
           <Row style={{ flexWrap: 'wrap' }}>
             {HEAT_LABELS.map((l, i) => <Chip key={l} label={l} selected={session.heat === i} onPress={() => s.patch({ heat: i })} />)}
@@ -104,20 +113,13 @@ export default function SessionSettings() {
         ) : null}
       </Section>
 
-      <Section title="Preset">
-        <Row style={{ flexWrap: 'wrap' }}>
-          <Chip label="None" selected={!session.presetId} onPress={() => s.patch({ presetId: null })} />
-          {presets.map((p) => <Chip key={p.id} label={p.name} selected={session.presetId === p.id} onPress={() => s.patch({ presetId: p.id })} />)}
-        </Row>
-        {session.presetId ? <Button small kind="ghost" title="Edit preset" onPress={() => router.push(`/library/preset/${session.presetId}`)} /> : null}
-      </Section>
-
-      <Section title="Style">
+      <Section title="Voice">
+        <T v="faint">The writer prompt, persistence chain and card the writer follows. Shared across stories; edit it from the library or refine it in the prompt lab.</T>
         <Row style={{ flexWrap: 'wrap' }}>
           <Chip label="None" selected={!session.styleId} onPress={() => s.patch({ styleId: null })} />
           {styles.map((p) => <Chip key={p.id} label={p.name} selected={session.styleId === p.id} onPress={() => s.patch({ styleId: p.id })} />)}
         </Row>
-        {session.styleId ? <Button small kind="ghost" title="Edit style" onPress={() => router.push(`/library/style/${session.styleId}`)} /> : null}
+        {session.styleId ? <Button small kind="ghost" title="Edit voice" onPress={() => router.push(`/library/style/${session.styleId}`)} /> : null}
       </Section>
 
       <Section title="World">
@@ -152,7 +154,7 @@ export default function SessionSettings() {
       </Section>
 
       <Sheet open={!!ask} onClose={() => setAsk(null)} title={ask === 'variant' ? 'New variant' : ask === 'template' ? 'Save as template' : 'Duplicate'}>
-        {ask === 'variant' ? <Field label="What is different" value={note} onChangeText={setNote} placeholder="e.g. Mara refuses the deal in chapter 2" multiline autoFocus /> : <T v="dim">{ask === 'template' ? 'A template keeps the world, cards, preset, style and models. The text stays here.' : 'Creates a complete copy, branches included, and opens it.'}</T>}
+        {ask === 'variant' ? <Field label="What is different" value={note} onChangeText={setNote} placeholder="e.g. Mara refuses the deal in chapter 2" multiline autoFocus /> : <T v="dim">{ask === 'template' ? 'A template keeps the world, cards, voice and models. The text stays here.' : 'Creates a complete copy, branches included, and opens it.'}</T>}
         <Button title={ask === 'variant' ? 'Create variant' : ask === 'template' ? 'Save template' : 'Duplicate'} onPress={doCopy} disabled={ask === 'variant' && !note.trim()} />
       </Sheet>
     </Screen>
