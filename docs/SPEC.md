@@ -14,7 +14,7 @@ Mobile-first story writing app on top of OpenRouter. Single user, everything on 
 | Context | Layered by default: rolling summary of older beats, keyword-triggered lore, last N beats verbatim. Per-session override. Context Inspector shows every layer and its token estimate before sending. |
 | Models | Three slots per session: writer, summarizer, helper. Swappable any time. Model used is recorded on every beat. |
 | Voices | One card per voice: how the prose reads (point of view, tense, register, banned phrases, samples) and how the writer is driven (system prompt, assistant prefill, post-history instruction, per-model overrides, refusal chain, delivery). Shared across stories. |
-| Refusals | The voice defines a chain: detect refusal → momentum prefill → soften → two-step → heat → reframe → fallback model. |
+| Refusals | The voice defines a chain: detect refusal → momentum prefill → fallback model → diagnose (open the refusal clinic, a conversation with the editor model that proposes edits to prompt, brief or instruction and retries). Soften, two-step, heat, reframe and prefill steps remain available. |
 | Drafts | A story can name up to two extra models that write every passage alongside the writer; they land as siblings, compared by swiping in place. |
 | Illustrations | One tap on a passage: the helper describes its strongest moment as an image prompt, an image model paints it, the file is stored on device under the passage. |
 | Adulthood | Species define adulthood in their own terms. A character card carries an `adult` flag. An explicit-enabled session requires every attached card to be flagged adult. This is a structural check only; nothing about it is ever injected into the prompt. |

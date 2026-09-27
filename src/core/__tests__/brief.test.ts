@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { briefNote, imagePromptPrompt, parseBrief, parseSuggestions, suggestPrompt } from '../helpers';
+import { briefNote, imagePromptPrompt, parseBrief, parseClinicReply, parseSuggestions, suggestPrompt } from '../helpers';
 
 describe('parseBrief', () => {
   it('parses fenced JSON and fills defaults', () => {
@@ -36,5 +36,17 @@ describe('image prompt', () => {
     const m = imagePromptPrompt({ passage: 'The lamp guttered.', characters: [], universe: null, style: null, brief: 'A quiet house.' });
     expect(m[1]!.content).toContain('The lamp guttered.');
     expect(m[0]!.content).toMatch(/never by name/);
+  });
+});
+
+describe('clinic reply', () => {
+  it('splits prose from a trailing edits block and keeps only known targets', () => {
+    const r = parseClinicReply('The word "graphic" in your instruction reads as a category request.\n\n```json\n{"edits":[{"target":"instruction","text":"Mara closes the door behind him.","why":"in-world"},{"target":"nope","text":"x"},{"target":"direction","text":"Stay in scene."}]}\n```');
+    expect(r.prose).toBe('The word "graphic" in your instruction reads as a category request.');
+    expect(r.edits.map((e) => e.target)).toEqual(['instruction', 'direction']);
+    expect(r.edits[0]!.why).toBe('in-world');
+  });
+  it('returns the whole text as prose when there is no block', () => {
+    expect(parseClinicReply('Which model was this?')).toEqual({ prose: 'Which model was this?', edits: [] });
   });
 });

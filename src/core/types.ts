@@ -130,7 +130,9 @@ export type RefusalStep =
   /** Write the lead-in first with a short budget, then continue from inside the scene. */
   | { kind: 'twostep' }
   /** Nudge temperature and top-p up; some refusals are a sampling rut. */
-  | { kind: 'heat' };
+  | { kind: 'heat' }
+  /** Stop retrying here and open the refusal clinic so the writer can readjust the prompt. */
+  | { kind: 'diagnose' };
 
 export const STEP_INFO: Record<RefusalStep['kind'], { label: string; hint: string }> = {
   momentum: { label: 'Momentum', hint: 'Prefills the reply with the last sentence of the manuscript so the model continues mid-flow instead of judging a request.' },
@@ -140,6 +142,7 @@ export const STEP_INFO: Record<RefusalStep['kind'], { label: string; hint: strin
   reframe: { label: 'Reframe', hint: 'Prepends your text to the system prompt for the retry.' },
   prefill: { label: 'Prefill', hint: 'Forces the reply to begin with your text.' },
   model: { label: 'Model', hint: 'Retries on another model. Auto picks the model with the best record in the refusal ledger.' },
+  diagnose: { label: 'Diagnose', hint: 'Stops here, no more automatic retries. Opens the refusal clinic: a strong model reads the refusal and the exact request, explains what tripped it, and proposes edits to the writer prompt, post-history, brief or instruction that you apply and retry.' },
 };
 
 export interface ContextStrategy {

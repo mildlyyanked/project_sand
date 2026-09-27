@@ -97,3 +97,21 @@ describe('generateWithChain steps', () => {
     expect(attempts[1]!.refused).toBe(false);
   });
 });
+
+describe('diagnose step', () => {
+  it('stops the chain without another request and marks the halt', async () => {
+    const { client, calls } = scripted(() => REFUSAL);
+    const attempts = await generateWithChain({ ...base, client, messages, refusalChain: [{ kind: 'diagnose' }, { kind: 'heat' }] });
+    expect(calls.length).toBe(1);
+    expect(attempts[0]!.refused).toBe(true);
+    expect(attempts[attempts.length - 1]!.step).toEqual({ kind: 'diagnose' });
+    expect(attempts[attempts.length - 1]!.skipped).toMatch(/diagnosis/);
+  });
+  it('is never reached when an earlier step succeeds', async () => {
+    const { client, calls } = scripted((b) => (b.temperature > DEFAULT_PARAMS.temperature ? PROSE : REFUSAL));
+    const attempts = await generateWithChain({ ...base, client, messages, refusalChain: [{ kind: 'heat' }, { kind: 'diagnose' }] });
+    expect(calls.length).toBe(2);
+    expect(attempts[attempts.length - 1]!.refused).toBe(false);
+    expect(attempts.some((a) => a.step?.kind === 'diagnose')).toBe(false);
+  });
+});

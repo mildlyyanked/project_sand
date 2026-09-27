@@ -3,7 +3,8 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Beat, Character, ContextLayer, Id, Illustration, LoreEntry, RefusalStep, Session, Species, Style, Universe } from '@/core/types';
 import { indexBeats, pathTo, type BeatIndex, descendants, leafOf, stepSibling } from '@/core/beatTree';
 import { assembleContext, splitPath, summaryPrompt, type AssembleInput } from '@/core/context/assemble';
-import { critiquePrompt, imagePromptPrompt, parseSuggestions, planPrompt, scenePrompt, suggestPrompt } from '@/core/helpers';
+import { critiquePrompt, imagePromptPrompt, parseSuggestions, planPrompt, scenePrompt, suggestPrompt, transcriptOf } from '@/core/helpers';
+import { renderHeat } from '@/core/context/cards';
 import { manuscriptText } from '@/core/beatTree';
 import { generateWithChain, momentumTail } from '@/core/openrouter/generate';
 import { applyRepetition, trimDegenerate } from '@/core/repetition';
@@ -35,6 +36,22 @@ export interface Draft {
   error?: string;
 }
 
+/** A refusal the chain could not, or was told not to, get past. The clinic works from this. */
+export interface Refusal {
+  text: string;
+  model: string;
+  transcript: string;
+  instruction: string;
+  /** The instruction beat that was sent last, if any; the clinic can rewrite it. */
+  instructionBeatId: Id | null;
+  parentId: Id | null;
+  regenerateId?: Id;
+  direction?: string;
+  heat: string | null;
+  /** True when a Diagnose step stopped the chain: open the clinic without asking. */
+  auto: boolean;
+}
+
 interface Bundle {
   style: Style | null;
   characters: Character[];
@@ -55,6 +72,7 @@ interface SessionState {
   illustrations: Illustration[];
   suggestions: string[];
   sceneProposal: string | null;
+  refusal: Refusal | null;
   error: string | null;
   notice: string | null;
   dropped: Set<string>;
@@ -89,6 +107,9 @@ interface SessionState {
   /** Passage to image prompt to picture, one tap. */
   illustrate(beatId: Id): Promise<void>;
   removeIllustration(id: Id): Promise<void>;
+  clearRefusal(): void;
+  /** Retry the refused passage, optionally with a one-time direction or on another model. */
+  retryRefusal(o?: { direction?: string; model?: string }): Promise<void>;
 }
 
 const emptyIndex = indexBeats([]);
@@ -114,7 +135,7 @@ export const useSession = create<SessionState>((set, get) => {
   };
 
   return {
-    db: null, session: null, beats: [], index: emptyIndex, path: [], bundle: emptyBundle, streaming: null, drafts: [], illustrations: [], suggestions: [], sceneProposal: null, error: null, notice: null, dropped: new Set(), lastLog: [], abort: null,
+    db: null, session: null, beats: [], index: emptyIndex, path: [], bundle: emptyBundle, streaming: null, drafts: [], illustrations: [], suggestions: [], sceneProposal: null, refusal: null, error: null, notice: null, dropped: new Set(), lastLog: [], abort: null,
 
     async open(db, id) {
       const session = await getSession(db, id);
@@ -124,7 +145,7 @@ export const useSession = create<SessionState>((set, get) => {
       }
       const [beats, bundle, illustrations] = await Promise.all([listBeats(db, id), loadBundle(db, session), listIllustrations(db, id)]);
       const fresh = get().session?.id !== id;
-      set({ db, session, bundle, illustrations, error: null, dropped: fresh ? new Set() : get().dropped, ...(fresh ? { suggestions: [], sceneProposal: null, drafts: [] } : {}), ...recompute(beats, session) });
+      set({ db, session, bundle, illustrations, error: null, dropped: fresh ? new Set() : get().dropped, ...(fresh ? { suggestions: [], sceneProposal: null, drafts: [], refusal: null } : {}), ...recompute(beats, session) });
     },
     async reload() {
       const { db, session } = get();
@@ -310,7 +331,7 @@ export const useSession = create<SessionState>((set, get) => {
       }
       let path = pathTo(index, parentId);
       const abort = new AbortController();
-      set({ abort, error: null, suggestions: [], drafts: [], streaming: { text: '', reasoning: '', attempt: 0, step: null, model, phase: 'writing', startedAt: now(), parentId } });
+      set({ abort, error: null, suggestions: [], drafts: [], refusal: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model, phase: 'writing', startedAt: now(), parentId } });
 
       await runInForeground('Writing the next passage', async () => {
       try {
@@ -402,6 +423,16 @@ export const useSession = create<SessionState>((set, get) => {
         }
         const final = [...attempts].reverse().find((a) => !a.skipped) ?? attempts[attempts.length - 1];
         if (!final) return;
+        const halted = attempts[attempts.length - 1]?.step?.kind === 'diagnose';
+        const recordRefusal = (auto: boolean) => {
+          const refusedText = final.stripPrefix && final.text.startsWith(final.stripPrefix) ? final.text.slice(final.stripPrefix.length) : final.text;
+          set({ refusal: { text: refusedText.trim(), model: final.model, transcript: transcriptOf(ctx.messages), instruction: lastBeat?.role === 'instruction' ? lastBeat.text : '', instructionBeatId: lastBeat?.role === 'instruction' ? lastBeat.id : null, parentId, regenerateId: o.regenerateId, direction: o.direction, heat: sess.explicit ? renderHeat(sess.heat) : null, auto } });
+        };
+        if (halted && final.refused) {
+          await Promise.all(draftJobs);
+          recordRefusal(true);
+          return;
+        }
         if (final.error && !final.text.trim()) {
           await Promise.all(draftJobs);
           set({ error: final.error });
@@ -420,7 +451,10 @@ export const useSession = create<SessionState>((set, get) => {
         const okDrafts = get().drafts.filter((d) => d.done && !d.error && d.text.length > 40).length;
         if (okDrafts) set({ notice: `${okDrafts + 1} drafts written. Swipe the passage's arrows to compare; the others stay one swipe away.` });
         if (guarded.trimmed) set({ notice: 'Cut a tail where the prose broke down into a run-on. If this keeps happening, set the style card\'s repetition control to Off; sampler penalties can starve a long passage of articles and punctuation.' });
-        else if (final.refused) set({ notice: `Every step of the refusal chain came back as a refusal (${ran.length} attempts). Kept the last one so you can judge.` });
+        else if (final.refused) {
+          recordRefusal(false);
+          set({ notice: `Every step of the refusal chain came back as a refusal (${ran.length} attempts). Kept the last one so you can judge; the clinic can work out why.` });
+        }
         else if (ran.length > 1) set({ notice: `Pushed through on attempt ${ran.length}${final.step ? ` via ${final.step.kind}` : ''}${final.model !== model ? ` on ${final.model.split('/').pop()}` : ''}.` });
       } catch (e) {
         if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
@@ -523,6 +557,16 @@ export const useSession = create<SessionState>((set, get) => {
       } finally {
         set({ streaming: null, abort: null });
       }
+    },
+    clearRefusal: () => set({ refusal: null }),
+    async retryRefusal(o = {}) {
+      const r = get().refusal;
+      if (!r) return;
+      set({ refusal: null });
+      // A kept refusal sits on the page as the current beat; the retry replaces it as a sibling.
+      const cur = get().session?.currentBeatId ?? null;
+      const keptRefusal = !r.auto && cur && cur !== r.parentId ? cur : undefined;
+      await get().generate({ parentId: keptRefusal ? undefined : r.parentId, regenerateId: keptRefusal ?? r.regenerateId, direction: o.direction ?? r.direction, model: o.model });
     },
     async removeIllustration(id) {
       const { db, illustrations } = get();

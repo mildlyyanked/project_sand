@@ -59,7 +59,7 @@ Three seeded voices: **Close third, past** and **First person, present** (manusc
 
 ## Persistence (getting past refusals)
 
-A voice's **Persistence** chain runs when a reply looks like a refusal. Each step is applied in order and the passage is retried; later retries carry earlier changes. The seeded manuscript voices use, in order:
+A voice's **Persistence** chain runs when a reply looks like a refusal. Each step is applied in order and the passage is retried; later retries carry earlier changes. The seeded voices use **Momentum**, then **Model, auto**, then **Diagnose**: in practice the free prefill and a model switch are what get past refusals, and after that it is better to ask the author than to keep guessing. Every step is still available:
 
 1. **Momentum**: prefill the reply with the last sentence of the manuscript, so the model continues mid-flow instead of judging a request.
 2. **Soften**: the helper model rewrites your latest instruction as a quiet author's note in the story's own register. Same content, no imperative.
@@ -67,6 +67,9 @@ A voice's **Persistence** chain runs when a reply looks like a refusal. Each ste
 4. **Heat**: raise temperature and top-p.
 5. **Reframe**: prepend stronger framing to the system prompt.
 6. **Model, auto**: retry on the model with the best record in the refusal ledger.
+7. **Diagnose**: stop retrying and open the refusal clinic.
+
+**Refusal clinic.** A conversation with the editor model (Settings → Prompts) about one refusal. It sees the refusal, the model, your instruction, the voice's writer prompt and post-history, the brief, the heat directive, the refusal ledger and the exact request as sent. It says which words most likely tripped the model and why, and proposes up to three concrete edits: the writer prompt or post-history (saved on the voice with a revision), the brief, your latest instruction (rewritten in place), or a one-time direction for the retry. Apply the ones you agree with, push back in the chat, then **Retry**, or retry on another model. The clinic also opens from the banner after any refusal the chain could not get past; the refused text stays on the page until you retry, and the retry replaces it as a sibling.
 
 The ledger counts attempts and refusals per model and shows up as a badge in the model picker, with a **Proven** filter. A voice can also deliver the system prompt as the first user turn and avoid or prefer specific OpenRouter providers.
 

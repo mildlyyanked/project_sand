@@ -5,7 +5,7 @@ import { Button, Card, Chip, Field, IconButton, Row, Section, T } from './index'
 import { ModelPicker } from './ModelPicker';
 import { shortModel } from '../format';
 
-const KINDS = ['momentum', 'soften', 'twostep', 'heat', 'reframe', 'prefill', 'model'] as const;
+const KINDS = ['momentum', 'soften', 'twostep', 'heat', 'reframe', 'prefill', 'model', 'diagnose'] as const;
 
 /** Ordered list of what to try when a reply looks like a refusal. */
 export function ChainEditor({ chain, onChange }: { chain: RefusalStep[]; onChange: (c: RefusalStep[]) => void }) {

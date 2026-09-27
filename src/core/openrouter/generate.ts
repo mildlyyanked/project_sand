@@ -149,6 +149,11 @@ export async function generateWithChain(o: GenerateOptions): Promise<GenerateAtt
         case 'twostep':
           // Handled below: it is two requests inside one attempt.
           break;
+        case 'diagnose':
+          // Hand the refusal back to the writer instead of trying again.
+          a.skipped = 'stopped for diagnosis';
+          attempts.push(a);
+          return attempts;
       }
     }
 
