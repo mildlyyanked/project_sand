@@ -1,11 +1,12 @@
 import React, { useCallback, useState } from 'react';
 import { Alert, FlatList, Pressable, View } from 'react-native';
-import { Stack, router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import type { Session } from '@/core/types';
 import { blankSession, copySession, deleteSession, listSessions, sessionStats, upsertSession } from '@/db/repo/sessions';
 import { useSettings } from '@/state/settings';
-import { Badge, Card, Empty, IconButton, Ionicons, MenuItem, Row, Sheet, T } from '@/ui/components';
+import { Badge, Card, Empty, Ionicons, MenuItem, Row, Sheet, T } from '@/ui/components';
+import { appVersion } from '@/ui/version';
 import { radius, space, useTheme } from '@/ui/theme';
 import { relTime, shortModel } from '@/ui/format';
 
@@ -61,22 +62,12 @@ export default function Home() {
 
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
-      <Stack.Screen
-        options={{
-          headerRight: () => (
-            <Row gap={0}>
-              <IconButton name="library-outline" onPress={() => router.push('/library')} />
-              <IconButton name="settings-outline" onPress={() => router.push('/settings')} badge={!apiKey} />
-            </Row>
-          ),
-        }}
-      />
       <FlatList
         data={sessions}
         keyExtractor={(s) => s.id}
         contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: 120, flexGrow: 1 }}
         ListEmptyComponent={<Empty icon="book-outline" title="No stories yet" hint={apiKey ? 'Tap + to start one.' : 'Add your OpenRouter key in Settings, then tap + to start.'} />}
-        ListFooterComponent={sessions.length ? <T v="faint" style={{ textAlign: 'center', marginTop: 8 }}>Hold a story for options</T> : null}
+        ListFooterComponent={<T v="small" style={{ textAlign: 'center', marginTop: 8, opacity: 0.6 }}>{sessions.length ? 'Hold a story for options · ' : ''}{appVersion()}</T>}
         renderItem={({ item }) => {
           const st = stats[item.id];
           return (

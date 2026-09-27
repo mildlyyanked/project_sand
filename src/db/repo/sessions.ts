@@ -122,3 +122,28 @@ export async function sessionStats(db: SQLiteDatabase, sessionId: Id): Promise<{
   const words = rows.reduce((n, x) => n + x.text.split(/\s+/).filter(Boolean).length, 0);
   return { beats: r?.n ?? 0, cost: r?.cost ?? 0, words };
 }
+
+export interface UsageStats {
+  total: { requests: number; promptTokens: number; completionTokens: number; costUsd: number; words: number };
+  byModel: { model: string; requests: number; promptTokens: number; completionTokens: number; costUsd: number }[];
+  bySession: { sessionId: Id; title: string; requests: number; costUsd: number; words: number }[];
+  /** Newest first; days with nothing recorded are left out. */
+  byDay: { day: string; requests: number; costUsd: number }[];
+}
+
+/** What the writer has spent, from the tokens and cost recorded on every generated beat. */
+export async function usageStats(db: SQLiteDatabase): Promise<UsageStats> {
+  const tot = await db.getFirstAsync<{ n: number; p: number | null; c: number | null; cost: number | null }>('SELECT COUNT(*) as n, SUM(prompt_tokens) as p, SUM(completion_tokens) as c, SUM(cost_usd) as cost FROM beats WHERE model IS NOT NULL');
+  const wordsRow = await db.getAllAsync<{ text: string; session_id: string }>("SELECT text, session_id FROM beats WHERE role = 'prose'");
+  const wordsBySession = new Map<string, number>();
+  let words = 0;
+  for (const r of wordsRow) {
+    const w = r.text.split(/\s+/).filter(Boolean).length;
+    words += w;
+    wordsBySession.set(r.session_id, (wordsBySession.get(r.session_id) ?? 0) + w);
+  }
+  const byModel = (await db.getAllAsync<{ model: string; n: number; p: number | null; c: number | null; cost: number | null }>('SELECT model, COUNT(*) as n, SUM(prompt_tokens) as p, SUM(completion_tokens) as c, SUM(cost_usd) as cost FROM beats WHERE model IS NOT NULL GROUP BY model ORDER BY cost DESC, n DESC')).map((r) => ({ model: r.model, requests: r.n, promptTokens: r.p ?? 0, completionTokens: r.c ?? 0, costUsd: r.cost ?? 0 }));
+  const bySession = (await db.getAllAsync<{ session_id: string; title: string | null; n: number; cost: number | null }>('SELECT b.session_id, s.title, COUNT(*) as n, SUM(b.cost_usd) as cost FROM beats b LEFT JOIN sessions s ON s.id = b.session_id WHERE b.model IS NOT NULL GROUP BY b.session_id ORDER BY cost DESC, n DESC')).map((r) => ({ sessionId: r.session_id, title: r.title ?? 'Deleted story', requests: r.n, costUsd: r.cost ?? 0, words: wordsBySession.get(r.session_id) ?? 0 }));
+  const byDay = (await db.getAllAsync<{ day: string; n: number; cost: number | null }>("SELECT date(created_at / 1000, 'unixepoch', 'localtime') as day, COUNT(*) as n, SUM(cost_usd) as cost FROM beats WHERE model IS NOT NULL GROUP BY day ORDER BY day DESC LIMIT 30")).map((r) => ({ day: r.day, requests: r.n, costUsd: r.cost ?? 0 }));
+  return { total: { requests: tot?.n ?? 0, promptTokens: tot?.p ?? 0, completionTokens: tot?.c ?? 0, costUsd: tot?.cost ?? 0, words }, byModel, bySession, byDay };
+}

@@ -12,6 +12,7 @@ import { newId, now } from '@/core/ids';
 import { client } from './client';
 import { runInForeground } from './foreground';
 import { removeImage, saveImage } from './images';
+import { generateViaBackend } from './imageBackend';
 import { useSettings } from './settings';
 import { deleteBeats, getSession, insertBeat, listBeats, makeBeat, patchSession, updateBeatText } from '@/db/repo/sessions';
 import { deleteIllustration, getCharacters, getStyle, getUniverse, listIllustrations, listLore, listModelStats, listSpecies, recordAttempt, saveIllustration } from '@/db/repo/library';
@@ -528,14 +529,19 @@ export const useSession = create<SessionState>((set, get) => {
 
     async illustrate(beatId) {
       const { db, session, index, bundle } = get();
-      const { apiKey, defaults } = useSettings.getState();
+      const { apiKey, imageKey, defaults } = useSettings.getState();
+      const backend = defaults.imageBackend;
       if (!db || !session || get().streaming) return;
       if (!apiKey) {
         set({ error: 'Add your OpenRouter key in Settings first.' });
         return;
       }
-      if (!defaults.imageModel) {
+      if (backend.kind === 'openrouter' && !defaults.imageModel) {
         set({ error: 'Pick an image model in Settings first.' });
+        return;
+      }
+      if (backend.kind !== 'openrouter' && !backend.baseUrl.trim()) {
+        set({ error: 'Set the image server address in Settings → Illustrations first.' });
         return;
       }
       const beat = index.byId.get(beatId);
@@ -554,8 +560,10 @@ export const useSession = create<SessionState>((set, get) => {
           }
           prompt = prompt.trim();
           if (!prompt) throw new Error('The helper produced no image prompt.');
-          set((st) => (st.streaming ? { streaming: { ...st.streaming, model: defaults.imageModel } } : {}));
-          const img = await client.generateImage({ apiKey, model: defaults.imageModel, prompt, zdr: session.zdr, signal: abort.signal });
+          set((st) => (st.streaming ? { streaming: { ...st.streaming, model: backend.kind === 'openrouter' ? defaults.imageModel : backend.model || backend.kind } } : {}));
+          const img = backend.kind === 'openrouter'
+            ? await client.generateImage({ apiKey, model: defaults.imageModel, prompt, zdr: session.zdr, signal: abort.signal })
+            : await generateViaBackend(backend, imageKey, prompt, abort.signal);
           const id = newId();
           const uri = await saveImage(id, img.dataUrl);
           const ill = { id, sessionId: session.id, beatId, prompt, uri, model: img.model, createdAt: now() };

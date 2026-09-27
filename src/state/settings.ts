@@ -3,14 +3,17 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { ModelInfo, ModelSlots, ModelStat } from '@/core/types';
 import { DEFAULT_TEMPLATES, mergeTemplates, type PromptTemplates } from '@/core/prompts';
 import { kvGet, kvSet, listModelStats } from '@/db/repo/library';
-import { loadApiKey, saveApiKey } from './secrets';
+import { loadApiKey, loadImageKey, saveApiKey, saveImageKey } from './secrets';
+import { DEFAULT_IMAGE_BACKEND, type ImageBackend } from '@/core/images';
 
 export interface Defaults {
   models: ModelSlots;
   /** Strong model used by the prompt lab. Empty means the writer model. */
   editorModel: string;
-  /** Image model for illustrations. */
+  /** Image model for illustrations through OpenRouter. */
   imageModel: string;
+  /** Where illustrations are generated when not through OpenRouter. */
+  imageBackend: ImageBackend;
   zdr: boolean;
   fontSize: number;
   styleId: string | null;
@@ -21,6 +24,7 @@ const DEFAULTS: Defaults = {
   models: { writer: 'anthropic/claude-sonnet-4', summarizer: 'google/gemini-2.5-flash', helper: 'google/gemini-2.5-flash' },
   editorModel: '',
   imageModel: 'google/gemini-2.5-flash-image',
+  imageBackend: DEFAULT_IMAGE_BACKEND,
   zdr: false,
   fontSize: 17,
   styleId: null,
@@ -30,6 +34,9 @@ const DEFAULTS: Defaults = {
 interface SettingsState {
   ready: boolean;
   apiKey: string;
+  /** Key for the image host, when the backend needs one. Kept in the secure store like the OpenRouter key. */
+  imageKey: string;
+  setImageKey(key: string): Promise<void>;
   defaults: Defaults;
   models: ModelInfo[];
   modelsFetchedAt: number | null;
@@ -51,6 +58,11 @@ interface SettingsState {
 export const useSettings = create<SettingsState>((set, get) => ({
   ready: false,
   apiKey: '',
+  imageKey: '',
+  async setImageKey(key) {
+    await saveImageKey(key.trim());
+    set({ imageKey: key.trim() });
+  },
   defaults: DEFAULTS,
   models: [],
   modelsFetchedAt: null,
@@ -88,10 +100,13 @@ export const useSettings = create<SettingsState>((set, get) => ({
     }
   },
   async load(db) {
-    const [apiKey, d, m, z, at, tp] = await Promise.all([loadApiKey(), kvGet(db, 'defaults'), kvGet(db, 'models'), kvGet(db, 'zdrIds'), kvGet(db, 'modelsFetchedAt'), kvGet(db, 'templates')]);
+    const [apiKey, imageKey, d, m, z, at, tp] = await Promise.all([loadApiKey(), loadImageKey(), kvGet(db, 'defaults'), kvGet(db, 'models'), kvGet(db, 'zdrIds'), kvGet(db, 'modelsFetchedAt'), kvGet(db, 'templates')]);
     let defaults = DEFAULTS;
     try {
-      if (d) defaults = { ...DEFAULTS, ...(JSON.parse(d) as Partial<Defaults>), models: { ...DEFAULTS.models, ...((JSON.parse(d) as Partial<Defaults>).models ?? {}) } };
+      if (d) {
+        const p = JSON.parse(d) as Partial<Defaults>;
+        defaults = { ...DEFAULTS, ...p, models: { ...DEFAULTS.models, ...(p.models ?? {}) }, imageBackend: { ...DEFAULT_IMAGE_BACKEND, ...(p.imageBackend ?? {}) } };
+      }
     } catch {}
     let models: ModelInfo[] = [];
     let zdrIds: string[] = [];
@@ -104,7 +119,7 @@ export const useSettings = create<SettingsState>((set, get) => ({
     try {
       if (tp) templates = mergeTemplates(JSON.parse(tp) as Partial<PromptTemplates>);
     } catch {}
-    set({ ready: true, apiKey, defaults, models, zdrIds, stats, templates, modelsFetchedAt: at ? Number(at) : null });
+    set({ ready: true, apiKey, imageKey, defaults, models, zdrIds, stats, templates, modelsFetchedAt: at ? Number(at) : null });
   },
   async setApiKey(db, key) {
     await saveApiKey(key.trim());
@@ -112,7 +127,7 @@ export const useSettings = create<SettingsState>((set, get) => ({
     void db;
   },
   async setDefaults(db, patch) {
-    const defaults = { ...get().defaults, ...patch, models: { ...get().defaults.models, ...(patch.models ?? {}) } };
+    const defaults = { ...get().defaults, ...patch, models: { ...get().defaults.models, ...(patch.models ?? {}) }, imageBackend: { ...get().defaults.imageBackend, ...(patch.imageBackend ?? {}) } };
     await kvSet(db, 'defaults', JSON.stringify(defaults));
     set({ defaults });
   },

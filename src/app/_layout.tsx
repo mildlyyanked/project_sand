@@ -1,5 +1,6 @@
-import React, { Suspense, useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import React, { Suspense, useEffect, useMemo } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import type { ErrorBoundaryProps } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SQLiteProvider, useSQLiteContext } from 'expo-sqlite';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
@@ -31,13 +32,35 @@ function Spinner() {
   );
 }
 
+/** Shown instead of a hard crash, with the message so it can be reported. */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return (
+    <View style={{ flex: 1, backgroundColor: dark.bg, padding: 24, justifyContent: 'center', gap: 12 }}>
+      <Text style={{ color: dark.text, fontSize: 18, fontWeight: '600' }}>Something broke</Text>
+      <ScrollView style={{ maxHeight: 260 }}><Text style={{ color: dark.dim, fontFamily: 'monospace', fontSize: 12 }}>{String(error?.message ?? error)}{'\n'}{String(error?.stack ?? '').slice(0, 1500)}</Text></ScrollView>
+      <Pressable onPress={retry} style={{ backgroundColor: dark.accent, padding: 12, borderRadius: 12, alignItems: 'center' }}><Text style={{ color: dark.accentText, fontWeight: '700' }}>Try again</Text></Pressable>
+    </View>
+  );
+}
+
 export default function RootLayout() {
   const scheme = useScheme();
   const t = scheme === 'light' ? light : dark;
   useEffect(() => {
-    void SystemUI.setBackgroundColorAsync(t.bg).catch(() => {});
+    try {
+      void SystemUI.setBackgroundColorAsync(t.bg).catch(() => {});
+    } catch {}
   }, [t.bg]);
-  const navTheme = scheme === 'light' ? { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: t.bg, card: t.bg, text: t.text, border: t.border, primary: t.accent } } : { ...DarkTheme, colors: { ...DarkTheme.colors, background: t.bg, card: t.bg, text: t.text, border: t.border, primary: t.accent } };
+  // Stable per scheme: a fresh theme object on every render makes the navigators re-apply header styles mid-transition.
+  const navTheme = useMemo(() => (scheme === 'light' ? { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: t.bg, card: t.bg, text: t.text, border: t.border, primary: t.accent } } : { ...DarkTheme, colors: { ...DarkTheme.colors, background: t.bg, card: t.bg, text: t.text, border: t.border, primary: t.accent } }), [scheme, t]);
+  const screenOptions = useMemo(() => ({
+    headerStyle: { backgroundColor: t.bg },
+    headerTintColor: t.text,
+    headerShadowVisible: false,
+    headerTitleStyle: { fontWeight: '600' as const },
+    contentStyle: { backgroundColor: t.bg },
+    headerBackButtonDisplayMode: 'minimal' as const,
+  }), [t]);
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: t.bg }}>
       <KeyboardRoot>
@@ -53,17 +76,8 @@ export default function RootLayout() {
             }}
           >
             <Boot>
-              <Stack
-                screenOptions={{
-                  headerStyle: { backgroundColor: t.bg },
-                  headerTintColor: t.text,
-                  headerShadowVisible: false,
-                  headerTitleStyle: { fontWeight: '600' },
-                  contentStyle: { backgroundColor: t.bg },
-                  headerBackButtonDisplayMode: 'minimal',
-                }}
-              >
-                <Stack.Screen name="index" options={{ title: 'Sand' }} />
+              <Stack screenOptions={screenOptions}>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 <Stack.Screen name="settings" options={{ title: 'Settings' }} />
                 <Stack.Screen name="models" options={{ title: '', presentation: 'modal', headerShown: false }} />
                 <Stack.Screen name="new" options={{ title: 'Workshop' }} />
@@ -73,7 +87,6 @@ export default function RootLayout() {
                 <Stack.Screen name="session/[id]/context" options={{ title: 'Context', presentation: 'modal' }} />
                 <Stack.Screen name="session/[id]/settings" options={{ title: 'Session' }} />
                 <Stack.Screen name="session/[id]/clinic" options={{ title: 'Refusal clinic' }} />
-                <Stack.Screen name="library/index" options={{ title: 'Library' }} />
                 <Stack.Screen name="library/character/[id]" options={{ title: 'Character' }} />
                 <Stack.Screen name="library/style/[id]" options={{ title: 'Voice' }} />
                 <Stack.Screen name="library/universe/[id]" options={{ title: 'World' }} />

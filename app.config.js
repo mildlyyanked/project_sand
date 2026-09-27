@@ -27,5 +27,6 @@ module.exports = {
     web: { favicon: './assets/favicon.png' },
     plugins: ['expo-router', 'expo-sqlite', 'expo-secure-store', 'expo-system-ui', './plugins/withForegroundService.js'],
     experiments: { typedRoutes: true },
+    extra: { commit: process.env.GITHUB_SHA || '' },
   },
 };

@@ -5,10 +5,12 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useSettings } from '@/state/settings';
 import { listStyles } from '@/db/repo/library';
 import type { Style } from '@/core/types';
+import { describeBackend, type ImageBackendKind } from '@/core/images';
 import { client } from '@/state/client';
 import { Banner, Button, Card, Chip, Field, ListItem, Row, Section, Screen, Segmented, Stepper, SwitchRow, T } from '@/ui/components';
 import { relTime, shortModel } from '@/ui/format';
 import { space } from '@/ui/theme';
+import { appVersion } from '@/ui/version';
 
 export default function Settings() {
   const db = useSQLiteContext();
@@ -17,6 +19,9 @@ export default function Settings() {
   const [busy, setBusy] = useState<'test' | 'models' | null>(null);
   const [msg, setMsg] = useState<{ text: string; tone: 'ok' | 'danger' | 'info' } | null>(null);
   const [voices, setVoices] = useState<Style[]>([]);
+  const [imgKey, setImgKey] = useState<string | null>(null);
+  const ib = s.defaults.imageBackend;
+  const setIb = (patch: Partial<typeof ib>) => s.setDefaults(db, { imageBackend: { ...ib, ...patch } });
   useEffect(() => {
     void listStyles(db).then(setVoices);
   }, [db]);
@@ -69,10 +74,34 @@ export default function Settings() {
           ))}
         </Card>
         <T v="faint">Defaults for new sessions. The writer writes prose, the summarizer maintains the story summary, the helper powers scene ideas, premises and reweaving.</T>
-        <Card style={{ padding: 0, paddingHorizontal: space.md }}>
-          <ListItem title="Image model" subtitle={s.defaults.imageModel || 'not set'} right={<T v="faint">{shortModel(s.defaults.imageModel)}</T>} onPress={() => router.push(`/models?target=default:imageModel&current=${encodeURIComponent(s.defaults.imageModel)}`)} />
-        </Card>
-        <T v="faint">Illustrations: the helper turns a passage into an image prompt, this model paints it. Only models with image output work.</T>
+      </Section>
+      <Section title="Illustrations">
+        <T v="faint">The helper turns a passage into an image prompt; this is what paints it. OpenRouter’s image models carry their providers’ filters. An open-weights model on a host or PC of your own does not.</T>
+        <Segmented value={ib.kind} onChange={(v: ImageBackendKind) => setIb({ kind: v })} options={[{ key: 'openrouter', label: 'OpenRouter' }, { key: 'openai', label: 'Images API' }, { key: 'a1111', label: 'SD web UI' }]} />
+        {ib.kind === 'openrouter' ? (
+          <Card style={{ padding: 0, paddingHorizontal: space.md }}>
+            <ListItem title="Image model" subtitle={s.defaults.imageModel || 'not set'} right={<T v="faint">{shortModel(s.defaults.imageModel)}</T>} onPress={() => router.push(`/models?target=default:imageModel&current=${encodeURIComponent(s.defaults.imageModel)}`)} />
+          </Card>
+        ) : ib.kind === 'openai' ? (
+          <>
+            <T v="faint">Any host that speaks the OpenAI images shape (POST /images/generations): Venice, Together, fal, a RunPod template, a local server. Paste the base URL up to and including /v1.</T>
+            <Field label="Base URL" value={ib.baseUrl} onChangeText={(v) => setIb({ baseUrl: v })} placeholder="https://api.venice.ai/api/v1" autoCapitalize="none" autoCorrect={false} keyboardType="url" />
+            <Field label="Model" value={ib.model} onChangeText={(v) => setIb({ model: v })} placeholder="e.g. lustify-sdxl, flux-dev, or empty for the host default" autoCapitalize="none" autoCorrect={false} />
+            <Field label="API key" value={imgKey ?? s.imageKey} onChangeText={setImgKey} onBlur={() => { if (imgKey != null) void s.setImageKey(imgKey); setImgKey(null); }} placeholder="Sent as a Bearer token; kept in the secure store" secureTextEntry autoCapitalize="none" autoCorrect={false} />
+            <Field label="Negative prompt, optional" value={ib.negativePrompt} onChangeText={(v) => setIb({ negativePrompt: v })} placeholder="Sent when the host supports it" />
+          </>
+        ) : (
+          <>
+            <T v="faint">AUTOMATIC1111, Forge or SD.Next running on a PC with --api --listen, on the same network or through a tunnel. Loads whichever checkpoint the UI has, so any open model works.</T>
+            <Field label="Server address" value={ib.baseUrl} onChangeText={(v) => setIb({ baseUrl: v })} placeholder="http://192.168.1.20:7860" autoCapitalize="none" autoCorrect={false} keyboardType="url" />
+            <Field label="Checkpoint, optional" value={ib.model} onChangeText={(v) => setIb({ model: v })} placeholder="Exact checkpoint name, or empty for the loaded one" autoCapitalize="none" autoCorrect={false} />
+            <Field label="Negative prompt" value={ib.negativePrompt} onChangeText={(v) => setIb({ negativePrompt: v })} placeholder="e.g. text, watermark, extra fingers" />
+            <Row between><T>Steps</T><Stepper value={ib.steps} min={0} max={60} step={5} format={(v) => (v ? String(v) : 'default')} onChange={(v) => setIb({ steps: v })} /></Row>
+            <Field label="API key, if the server asks for one" value={imgKey ?? s.imageKey} onChangeText={setImgKey} onBlur={() => { if (imgKey != null) void s.setImageKey(imgKey); setImgKey(null); }} secureTextEntry autoCapitalize="none" autoCorrect={false} />
+          </>
+        )}
+        {ib.kind !== 'openrouter' ? <Row between><T>Image size</T><Stepper value={ib.size} min={512} max={1536} step={128} onChange={(v) => setIb({ size: v })} /></Row> : null}
+        <T v="faint">Painting with: {describeBackend(ib)}</T>
       </Section>
       <Section title="Default voice">
         <Row style={{ flexWrap: 'wrap' }}>
@@ -102,6 +131,7 @@ export default function Settings() {
           <Stepper value={s.defaults.fontSize} min={13} max={24} onChange={(v) => s.setDefaults(db, { fontSize: v })} />
         </Row>
       </Section>
+      <T v="faint" style={{ textAlign: 'center', marginTop: space.lg }}>{appVersion()}</T>
     </Screen>
   );
 }

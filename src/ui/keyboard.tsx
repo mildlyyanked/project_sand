@@ -1,6 +1,13 @@
 import React from 'react';
 import { KeyboardAvoidingView as RNKeyboardAvoidingView, Platform, ScrollView, type ScrollViewProps, type ViewStyle, type StyleProp } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView as KCKeyboardAvoidingView, KeyboardAwareScrollView, KeyboardProvider } from 'react-native-keyboard-controller';
+
+/** Height of the native stack header plus the status bar, for keyboard offsets on screens under a header. */
+export function useHeaderOffset(): number {
+  const insets = useSafeAreaInsets();
+  return insets.top + (Platform.OS === 'ios' ? 44 : 56);
+}
 
 /**
  * Keyboard handling that works with Android edge-to-edge, where the window no
@@ -21,8 +28,18 @@ export function KeyboardShift({ children, style, offset = 0 }: { children: React
   );
 }
 
-export function KeyboardScroll(props: ScrollViewProps & { bottomOffset?: number }) {
+/**
+ * A scrolling screen body that both shrinks for the keyboard and scrolls the
+ * focused field above it. `headerOffset` is the header height when the screen
+ * sits under a native stack header (the default); 0 inside modals.
+ */
+export function KeyboardScroll(props: ScrollViewProps & { bottomOffset?: number; headerOffset?: number }) {
+  const header = useHeaderOffset();
   if (Platform.OS === 'web') return <ScrollView {...props} />;
-  const { bottomOffset = 24, ...rest } = props;
-  return <KeyboardAwareScrollView bottomOffset={bottomOffset} {...rest} />;
+  const { bottomOffset = 32, headerOffset = header, ...rest } = props;
+  return (
+    <KCKeyboardAvoidingView behavior="padding" keyboardVerticalOffset={headerOffset} style={{ flex: 1 }}>
+      <KeyboardAwareScrollView bottomOffset={bottomOffset} {...rest} />
+    </KCKeyboardAvoidingView>
+  );
 }

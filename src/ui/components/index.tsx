@@ -1,9 +1,9 @@
 import React from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, type PressableProps, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle, KeyboardAvoidingView, Platform } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, type PressableProps, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { radius, serif, space, useTheme, mono } from '../theme';
-import { KeyboardScroll } from '../keyboard';
+import { KeyboardScroll, KeyboardShift } from '../keyboard';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -170,7 +170,7 @@ export function Sheet({ open, onClose, title, children, full }: { open: boolean;
   const t = useTheme();
   return (
     <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
+      <KeyboardShift style={{ flex: 1, justifyContent: 'flex-end' }}>
         <Pressable onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.55)' }]} />
         <SafeAreaView edges={['bottom']} style={{ backgroundColor: t.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, maxHeight: full ? '92%' : '80%' }}>
           <View style={{ alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: t.border, marginTop: 8 }} />
@@ -183,7 +183,7 @@ export function Sheet({ open, onClose, title, children, full }: { open: boolean;
             {children}
           </ScrollView>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+      </KeyboardShift>
     </Modal>
   );
 }

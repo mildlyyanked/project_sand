@@ -89,6 +89,14 @@ The composer has three modes. **Write** puts your own prose on the page. **Direc
 
 **Illustrate** in a passage's menu is one tap: the helper turns the passage into an image prompt (strongest moment, people by appearance, medium and light), the image model from Settings paints it, and the picture is saved on device under the passage. Tap it to see it full size, share it, ask for another, or delete it.
 
+OpenRouter's image models come with their providers' filters. **Settings → Illustrations** can point the painter elsewhere: any host that speaks the OpenAI images shape (Venice, Together, fal, a RunPod template, a local server), or a Stable Diffusion web UI (AUTOMATIC1111, Forge, SD.Next) running on your own PC with `--api --listen`, which loads whatever open checkpoint you like. The host key, if any, lives in the secure store next to the OpenRouter key. Perchance's generator has no API and is not wired in.
+
+## Home
+
+Home is three tabs: **Stories**, **Library** (people, voices, worlds) and **Usage**. Usage shows spend today, over the last week and all time, totals for passages, words and tokens, and breakdowns by model (with the refusal ledger), by story and by day, all from the cost OpenRouter reports on every writer request; helper calls are not itemized. With a key saved it also shows what OpenRouter has counted against the key. The build version sits at the foot of Stories and Settings.
+
+While a passage streams, the manuscript follows the writing only until you scroll up; then it stays put and a **Follow the writing** button brings you back to the end.
+
 ## Background generation
 
 On Android the app runs a foreground service while anything is generating, with a small "Sand" notification, so switching apps does not freeze the process and drop the stream. If a connection still drops mid-reply, the client resumes from the text already received. Allow notifications when asked; the service still works without them, only silently.

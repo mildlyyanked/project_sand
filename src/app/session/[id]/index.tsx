@@ -55,6 +55,8 @@ export default function Manuscript() {
   const [viewing, setViewing] = useState<Illustration | null>(null);
   const listRef = useRef<FlatList<Beat>>(null);
   const atBottom = useRef(true);
+  /** False once the reader scrolls up; auto-scroll pauses until they return to the end or tap the button. */
+  const [pinned, setPinned] = useState(true);
 
   useEffect(() => {
     if (id) void s.open(db, id);
@@ -83,8 +85,12 @@ export default function Manuscript() {
   }, [s.illustrations]);
 
   useEffect(() => {
-    if (atBottom.current) setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
-  }, [path.length, s.streaming?.text.length]);
+    if (pinned) setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+  }, [path.length, s.streaming?.text.length, pinned]);
+  const jumpToLatest = () => {
+    setPinned(true);
+    listRef.current?.scrollToEnd({ animated: true });
+  };
   // A Diagnose step in the chain opens the clinic without asking.
   const refusalAuto = s.refusal?.auto;
   useEffect(() => {
@@ -245,8 +251,14 @@ export default function Manuscript() {
         renderItem={renderBeat}
         onScroll={(e) => {
           const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-          atBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
+          const nowAtBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
+          if (nowAtBottom !== atBottom.current) {
+            atBottom.current = nowAtBottom;
+            // Back at the end by hand: resume following. Auto-scroll itself never unpins.
+            if (nowAtBottom) setPinned(true);
+          }
         }}
+        onScrollBeginDrag={() => setPinned(false)}
         scrollEventThrottle={100}
         contentContainerStyle={{ paddingVertical: space.md, flexGrow: 1 }}
         keyboardShouldPersistTaps="handled"
@@ -289,6 +301,15 @@ export default function Manuscript() {
           )
         }
       />
+
+      {!pinned ? (
+        <View style={{ alignItems: 'center', marginTop: -44, marginBottom: 8 }} pointerEvents="box-none">
+          <Pressable onPress={jumpToLatest} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: t.surface2, borderWidth: 1, borderColor: t.border, paddingVertical: 6, paddingHorizontal: 12, borderRadius: radius.pill, opacity: pressed ? 0.7 : 1 })}>
+            <Ionicons name="arrow-down" size={14} color={t.text} />
+            <T v="small" style={{ color: t.text }}>{streaming ? 'Follow the writing' : 'Latest'}</T>
+          </Pressable>
+        </View>
+      ) : null}
 
       {/* Composer */}
       <View style={{ borderTopWidth: 1, borderTopColor: t.border, backgroundColor: t.bg, paddingHorizontal: space.md, paddingTop: space.sm, paddingBottom: Platform.OS === 'ios' ? space.xl : space.md, gap: space.sm }}>
