@@ -2,7 +2,7 @@ import React, { Suspense, useEffect, useMemo } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import type { ErrorBoundaryProps } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SQLiteProvider, useSQLiteContext } from 'expo-sqlite';
+import { SQLiteProvider, useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
@@ -31,6 +31,17 @@ function Spinner() {
     </View>
   );
 }
+
+/**
+ * Stable identity on purpose: SQLiteProvider closes and reopens the database
+ * whenever this callback changes, and a re-render of the root (a theme switch,
+ * for one) with an inline function here opened a second connection that ran
+ * the migrations against a database the first connection still held.
+ */
+const initDatabase = async (db: SQLiteDatabase) => {
+  await migrate(db);
+  await seedIfEmpty(db);
+};
 
 /** Shown instead of a hard crash, with the message so it can be reported. */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
@@ -70,10 +81,7 @@ export default function RootLayout() {
           <SQLiteProvider
             databaseName={DB_NAME}
             useSuspense
-            onInit={async (db) => {
-              await migrate(db);
-              await seedIfEmpty(db);
-            }}
+            onInit={initDatabase}
           >
             <Boot>
               <Stack screenOptions={screenOptions}>
