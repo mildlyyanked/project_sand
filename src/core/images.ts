@@ -8,8 +8,10 @@
  *   local servers that expose it.
  * - `a1111`: POST {baseUrl}/sdapi/v1/txt2img, the AUTOMATIC1111 / Forge / SD.Next
  *   web UI API. Run it on a PC with `--api --listen` and point the phone at it.
+ * - `prompt`: no painting at all. The image prompt is shown to copy into any
+ *   generator's web page, such as Perchance, which has no API.
  */
-export type ImageBackendKind = 'openrouter' | 'openai' | 'a1111';
+export type ImageBackendKind = 'openrouter' | 'openai' | 'a1111' | 'prompt';
 
 export interface ImageBackend {
   kind: ImageBackendKind;
@@ -69,6 +71,7 @@ function errorText(j: { error?: unknown; detail?: unknown }): string {
 
 export function describeBackend(b: ImageBackend): string {
   if (b.kind === 'openrouter') return 'OpenRouter';
+  if (b.kind === 'prompt') return 'nothing here; the prompt is copied to a generator of your choice';
   if (b.kind === 'a1111') return `Stable Diffusion web UI at ${trimBase(b.baseUrl) || '…'}`;
   return `${trimBase(b.baseUrl) || '…'}${b.model ? ` · ${b.model}` : ''}`;
 }

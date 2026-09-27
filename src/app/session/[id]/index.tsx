@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Dimensions, FlatList, Image, Platform, Pressable, TextInput, View } from 'react-native';
+import { Dimensions, FlatList, Image, Platform, Pressable, Share, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardShift } from '@/ui/keyboard';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -41,6 +41,7 @@ export default function Manuscript() {
   const insets = useSafeAreaInsets();
   const s = useSession();
   const fontSize = useSettings((x) => x.defaults.fontSize);
+  const imageBackend = useSettings((x) => x.defaults.imageBackend);
   const [text, setText] = useState('');
   const [mode, setMode] = useState<Mode>('direct');
   const [menu, setMenu] = useState(false);
@@ -386,7 +387,8 @@ export default function Manuscript() {
             {beatMenu.role === 'prose' ? <MenuItem icon="refresh-outline" label="Regenerate" hint="A new version as a sibling; the old one stays" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.generate({ regenerateId: b.id }); }} /> : null}
             {beatMenu.role === 'prose' ? <MenuItem icon="compass-outline" label="Regenerate with direction" onPress={() => openDirection(beatMenu.id)} /> : null}
             {beatMenu.role === 'prose' && beatMenu.model ? <MenuItem icon="glasses-outline" label="Critique and redo" hint="The helper marks up this passage; the writer rewrites it against the notes" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.critiqueAndRedo(b.id); }} /> : null}
-            {beatMenu.role === 'prose' ? <MenuItem icon="image-outline" label="Illustrate" hint="The helper describes the strongest moment; the image model paints it" onPress={() => { const b = beatMenu; setBeatMenu(null); void askNotificationPermission(); void s.illustrate(b.id); }} /> : null}
+            {beatMenu.role === 'prose' && imageBackend.kind !== 'prompt' ? <MenuItem icon="image-outline" label="Illustrate" hint="The helper describes the strongest moment; the image model paints it" onPress={() => { const b = beatMenu; setBeatMenu(null); void askNotificationPermission(); void s.illustrate(b.id); }} /> : null}
+            {beatMenu.role === 'prose' ? <MenuItem icon="color-palette-outline" label="Picture prompt" hint="Only the image prompt, to paste into Perchance or any generator" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.illustrate(b.id, { promptOnly: true }); }} /> : null}
             {beatMenu.plan ? <MenuItem icon="map-outline" label="Show the plan it followed" onPress={() => { const b = beatMenu; setBeatMenu(null); s.setNotice(`Plan: ${b.plan}`); }} /> : null}
             {beatMenu.id !== session.currentBeatId ? <MenuItem icon="cut-outline" label="Continue from here" hint="Later beats stay on their branch" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.setCurrent(b.id); }} /> : null}
             <MenuItem icon="copy-outline" label="Copy text" onPress={async () => { await Clipboard.setStringAsync(beatMenu.text); setBeatMenu(null); }} />
@@ -439,6 +441,17 @@ export default function Manuscript() {
       </Sheet>
       <ModelPicker open={draftPicker} onClose={() => setDraftPicker(false)} onSelect={(m) => toggleDraft(m)} pinned={usedModels} title="Extra draft model" />
 
+      {/* Image prompt to take elsewhere */}
+      <Sheet open={!!s.imagePrompt} onClose={s.clearImagePrompt} title="Picture prompt">
+        <T selectable style={{ fontFamily: serif, fontSize: 16, lineHeight: 24 }}>{s.imagePrompt?.prompt}</T>
+        <T v="faint">Paste it into Perchance, Civitai, a local web UI or any other generator. Nothing was sent anywhere; this is just the description.</T>
+        <Row style={{ flexWrap: 'wrap' }}>
+          <Button icon="copy-outline" title="Copy" onPress={async () => { if (s.imagePrompt) { await Clipboard.setStringAsync(s.imagePrompt.prompt); s.clearImagePrompt(); s.setNotice('Prompt copied.'); } }} />
+          <Button kind="outline" icon="share-outline" title="Share" onPress={async () => { if (s.imagePrompt) { const p = s.imagePrompt.prompt; s.clearImagePrompt(); await Share.share({ message: p }); } }} />
+          <Button kind="ghost" icon="refresh-outline" title="Another" onPress={() => { const b = s.imagePrompt?.beatId; s.clearImagePrompt(); if (b) void s.illustrate(b, { promptOnly: true }); }} />
+        </Row>
+      </Sheet>
+
       {/* Illustration */}
       <Sheet open={!!viewing} onClose={() => setViewing(null)} full>
         {viewing ? (
@@ -448,6 +461,7 @@ export default function Manuscript() {
             <T v="small">{shortModel(viewing.model)}</T>
             <Row style={{ flexWrap: 'wrap' }}>
               <Button kind="outline" icon="share-outline" title="Share" onPress={() => shareImage(viewing)} />
+              <Button kind="outline" icon="copy-outline" title="Copy prompt" onPress={async () => { await Clipboard.setStringAsync(viewing.prompt); s.setNotice('Prompt copied.'); }} />
               <Button kind="outline" icon="refresh-outline" title="Another" onPress={() => { const v = viewing; setViewing(null); if (v.beatId) void s.illustrate(v.beatId); }} />
               <Button kind="danger" icon="trash-outline" title="Delete" onPress={() => { const v = viewing; setViewing(null); void s.removeIllustration(v.id); }} />
             </Row>

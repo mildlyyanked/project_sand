@@ -74,6 +74,9 @@ interface SessionState {
   suggestions: string[];
   sceneProposal: string | null;
   refusal: Refusal | null;
+  /** An image prompt written for a passage, waiting to be copied into an outside generator. */
+  imagePrompt: { beatId: Id; prompt: string } | null;
+  clearImagePrompt(): void;
   /** Set by diagnoseNow: the running chain stops and the last refusal opens the clinic. */
   diagnoseOnStop: boolean;
   error: string | null;
@@ -107,8 +110,8 @@ interface SessionState {
   /** Three short instructions the writer could send next. */
   suggest(): Promise<void>;
   clearSuggestions(): void;
-  /** Passage to image prompt to picture, one tap. */
-  illustrate(beatId: Id): Promise<void>;
+  /** Passage to image prompt to picture, one tap. With promptOnly, or the prompt-only backend, it stops at the prompt. */
+  illustrate(beatId: Id, o?: { promptOnly?: boolean }): Promise<void>;
   removeIllustration(id: Id): Promise<void>;
   clearRefusal(): void;
   /** Stop retrying right now and take the refusal seen so far to the clinic. */
@@ -140,7 +143,7 @@ export const useSession = create<SessionState>((set, get) => {
   };
 
   return {
-    db: null, session: null, beats: [], index: emptyIndex, path: [], bundle: emptyBundle, streaming: null, drafts: [], illustrations: [], suggestions: [], sceneProposal: null, refusal: null, diagnoseOnStop: false, error: null, notice: null, dropped: new Set(), lastLog: [], abort: null,
+    db: null, session: null, beats: [], index: emptyIndex, path: [], bundle: emptyBundle, streaming: null, drafts: [], illustrations: [], suggestions: [], sceneProposal: null, refusal: null, imagePrompt: null, diagnoseOnStop: false, error: null, notice: null, dropped: new Set(), lastLog: [], abort: null,
 
     async open(db, id) {
       const session = await getSession(db, id);
@@ -527,29 +530,31 @@ export const useSession = create<SessionState>((set, get) => {
     },
     clearSuggestions: () => set({ suggestions: [] }),
 
-    async illustrate(beatId) {
+    clearImagePrompt: () => set({ imagePrompt: null }),
+    async illustrate(beatId, o = {}) {
       const { db, session, index, bundle } = get();
       const { apiKey, imageKey, defaults } = useSettings.getState();
       const backend = defaults.imageBackend;
+      const promptOnly = o.promptOnly || backend.kind === 'prompt';
       if (!db || !session || get().streaming) return;
       if (!apiKey) {
         set({ error: 'Add your OpenRouter key in Settings first.' });
         return;
       }
-      if (backend.kind === 'openrouter' && !defaults.imageModel) {
+      if (!promptOnly && backend.kind === 'openrouter' && !defaults.imageModel) {
         set({ error: 'Pick an image model in Settings first.' });
         return;
       }
-      if (backend.kind !== 'openrouter' && !backend.baseUrl.trim()) {
+      if (!promptOnly && backend.kind !== 'openrouter' && !backend.baseUrl.trim()) {
         set({ error: 'Set the image server address in Settings → Illustrations first.' });
         return;
       }
       const beat = index.byId.get(beatId);
       if (!beat) return;
       const abort = new AbortController();
-      set({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'illustrating', startedAt: now(), parentId: beat.parentId } });
+      set({ abort, error: null, imagePrompt: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'illustrating', startedAt: now(), parentId: beat.parentId } });
       try {
-        await runInForeground('Illustrating the passage', async () => {
+        await runInForeground(promptOnly ? 'Describing the picture' : 'Illustrating the passage', async () => {
           let prompt = '';
           for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: imagePromptPrompt({ passage: beat.text, characters: bundle.characters, universe: bundle.universe, style: bundle.style, brief: session.brief }), params: { temperature: 0.7, topP: 0.95, maxTokens: 300, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
             if (ev.type === 'text') {
@@ -560,6 +565,10 @@ export const useSession = create<SessionState>((set, get) => {
           }
           prompt = prompt.trim();
           if (!prompt) throw new Error('The helper produced no image prompt.');
+          if (promptOnly) {
+            set({ imagePrompt: { beatId, prompt } });
+            return;
+          }
           set((st) => (st.streaming ? { streaming: { ...st.streaming, model: backend.kind === 'openrouter' ? defaults.imageModel : backend.model || backend.kind } } : {}));
           const img = backend.kind === 'openrouter'
             ? await client.generateImage({ apiKey, model: defaults.imageModel, prompt, zdr: session.zdr, signal: abort.signal })

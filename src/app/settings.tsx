@@ -77,11 +77,13 @@ export default function Settings() {
       </Section>
       <Section title="Illustrations">
         <T v="faint">The helper turns a passage into an image prompt; this is what paints it. OpenRouter’s image models carry their providers’ filters. An open-weights model on a host or PC of your own does not.</T>
-        <Segmented value={ib.kind} onChange={(v: ImageBackendKind) => setIb({ kind: v })} options={[{ key: 'openrouter', label: 'OpenRouter' }, { key: 'openai', label: 'Images API' }, { key: 'a1111', label: 'SD web UI' }]} />
+        <Segmented value={ib.kind} onChange={(v: ImageBackendKind) => setIb({ kind: v })} options={[{ key: 'openrouter', label: 'OpenRouter' }, { key: 'openai', label: 'Images API' }, { key: 'a1111', label: 'SD web UI' }, { key: 'prompt', label: 'Prompt only' }]} />
         {ib.kind === 'openrouter' ? (
           <Card style={{ padding: 0, paddingHorizontal: space.md }}>
             <ListItem title="Image model" subtitle={s.defaults.imageModel || 'not set'} right={<T v="faint">{shortModel(s.defaults.imageModel)}</T>} onPress={() => router.push(`/models?target=default:imageModel&current=${encodeURIComponent(s.defaults.imageModel)}`)} />
           </Card>
+        ) : ib.kind === 'prompt' ? (
+          <T v="faint">Illustrate writes the image prompt and stops. Copy it into Perchance or any generator’s page, then save the picture yourself. The prompt is also available in every passage’s menu as Picture prompt, whatever is picked here.</T>
         ) : ib.kind === 'openai' ? (
           <>
             <T v="faint">Any host that speaks the OpenAI images shape (POST /images/generations): Venice, Together, fal, a RunPod template, a local server. Paste the base URL up to and including /v1.</T>
