@@ -137,13 +137,24 @@ async function upgradeTo6(db: SQLiteDatabase): Promise<void> {
   }
 }
 
+/** Diagnose moves up to right after Momentum: the free prefill gets one try, then the author decides. */
+async function upgradeTo7(db: SQLiteDatabase): Promise<void> {
+  for (const st of await listStyles(db)) {
+    const rest = st.refusalChain.filter((s) => s.kind !== 'diagnose');
+    const at = rest[0]?.kind === 'momentum' ? 1 : 0;
+    const chain: RefusalStep[] = [...rest.slice(0, at), { kind: 'diagnose' }, ...rest.slice(at)];
+    if (JSON.stringify(chain) !== JSON.stringify(st.refusalChain)) await saveStyle(db, { ...st, refusalChain: chain });
+  }
+}
+
 export async function seedIfEmpty(db: SQLiteDatabase): Promise<void> {
   const version = Number((await kvGet(db, 'seeded')) ?? 0);
-  if (version >= 6) return;
+  if (version >= 7) return;
   if (version >= 1) {
     if (version < 5) await upgradeTo5(db);
-    await upgradeTo6(db);
-    await kvSet(db, 'seeded', '6');
+    if (version < 6) await upgradeTo6(db);
+    await upgradeTo7(db);
+    await kvSet(db, 'seeded', '7');
     return;
   }
   if ((await listStyles(db)).length === 0) {
@@ -157,5 +168,5 @@ export async function seedIfEmpty(db: SQLiteDatabase): Promise<void> {
     } catch {}
   }
   await db.execAsync('DROP TABLE IF EXISTS presets');
-  await kvSet(db, 'seeded', '6');
+  await kvSet(db, 'seeded', '7');
 }

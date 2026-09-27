@@ -73,6 +73,8 @@ interface SessionState {
   suggestions: string[];
   sceneProposal: string | null;
   refusal: Refusal | null;
+  /** Set by diagnoseNow: the running chain stops and the last refusal opens the clinic. */
+  diagnoseOnStop: boolean;
   error: string | null;
   notice: string | null;
   dropped: Set<string>;
@@ -108,6 +110,8 @@ interface SessionState {
   illustrate(beatId: Id): Promise<void>;
   removeIllustration(id: Id): Promise<void>;
   clearRefusal(): void;
+  /** Stop retrying right now and take the refusal seen so far to the clinic. */
+  diagnoseNow(): void;
   /** Retry the refused passage, optionally with a one-time direction or on another model. */
   retryRefusal(o?: { direction?: string; model?: string }): Promise<void>;
 }
@@ -135,7 +139,7 @@ export const useSession = create<SessionState>((set, get) => {
   };
 
   return {
-    db: null, session: null, beats: [], index: emptyIndex, path: [], bundle: emptyBundle, streaming: null, drafts: [], illustrations: [], suggestions: [], sceneProposal: null, refusal: null, error: null, notice: null, dropped: new Set(), lastLog: [], abort: null,
+    db: null, session: null, beats: [], index: emptyIndex, path: [], bundle: emptyBundle, streaming: null, drafts: [], illustrations: [], suggestions: [], sceneProposal: null, refusal: null, diagnoseOnStop: false, error: null, notice: null, dropped: new Set(), lastLog: [], abort: null,
 
     async open(db, id) {
       const session = await getSession(db, id);
@@ -331,7 +335,7 @@ export const useSession = create<SessionState>((set, get) => {
       }
       let path = pathTo(index, parentId);
       const abort = new AbortController();
-      set({ abort, error: null, suggestions: [], drafts: [], refusal: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model, phase: 'writing', startedAt: now(), parentId } });
+      set({ abort, error: null, suggestions: [], drafts: [], refusal: null, diagnoseOnStop: false, streaming: { text: '', reasoning: '', attempt: 0, step: null, model, phase: 'writing', startedAt: now(), parentId } });
 
       await runInForeground('Writing the next passage', async () => {
       try {
@@ -411,8 +415,18 @@ export const useSession = create<SessionState>((set, get) => {
           onDelta: (_a, text, reasoning) => set((s) => (s.streaming ? { streaming: { ...s.streaming, text, reasoning } } : {})),
         });
         for (const a of attempts) if (!a.skipped && !a.error) void recordAttempt(db, a.model, a.refused);
+        const recordRefusal = (att: (typeof attempts)[number], auto: boolean) => {
+          const refusedText = att.stripPrefix && att.text.startsWith(att.stripPrefix) ? att.text.slice(att.stripPrefix.length) : att.text;
+          set({ refusal: { text: refusedText.trim(), model: att.model, transcript: transcriptOf(ctx.messages), instruction: lastBeat?.role === 'instruction' ? lastBeat.text : '', instructionBeatId: lastBeat?.role === 'instruction' ? lastBeat.id : null, parentId, regenerateId: o.regenerateId, direction: o.direction, heat: sess.explicit ? renderHeat(sess.heat) : null, auto } });
+        };
         if (abort.signal.aborted) {
           await Promise.all(draftJobs);
+          if (get().diagnoseOnStop) {
+            const refused = [...attempts].reverse().find((a) => a.refused && !a.skipped);
+            if (refused) recordRefusal(refused, true);
+            else set({ notice: 'Stopped before a refusal was recorded.' });
+            return;
+          }
           const partial = attempts[attempts.length - 1];
           const partialText = partial && partial.stripPrefix && partial.text.startsWith(partial.stripPrefix) ? partial.text.slice(partial.stripPrefix.length) : partial?.text ?? '';
           if (partial && partialText.trim().length > 40) {
@@ -424,13 +438,9 @@ export const useSession = create<SessionState>((set, get) => {
         const final = [...attempts].reverse().find((a) => !a.skipped) ?? attempts[attempts.length - 1];
         if (!final) return;
         const halted = attempts[attempts.length - 1]?.step?.kind === 'diagnose';
-        const recordRefusal = (auto: boolean) => {
-          const refusedText = final.stripPrefix && final.text.startsWith(final.stripPrefix) ? final.text.slice(final.stripPrefix.length) : final.text;
-          set({ refusal: { text: refusedText.trim(), model: final.model, transcript: transcriptOf(ctx.messages), instruction: lastBeat?.role === 'instruction' ? lastBeat.text : '', instructionBeatId: lastBeat?.role === 'instruction' ? lastBeat.id : null, parentId, regenerateId: o.regenerateId, direction: o.direction, heat: sess.explicit ? renderHeat(sess.heat) : null, auto } });
-        };
         if (halted && final.refused) {
           await Promise.all(draftJobs);
-          recordRefusal(true);
+          recordRefusal(final, true);
           return;
         }
         if (final.error && !final.text.trim()) {
@@ -452,14 +462,14 @@ export const useSession = create<SessionState>((set, get) => {
         if (okDrafts) set({ notice: `${okDrafts + 1} drafts written. Swipe the passage's arrows to compare; the others stay one swipe away.` });
         if (guarded.trimmed) set({ notice: 'Cut a tail where the prose broke down into a run-on. If this keeps happening, set the style card\'s repetition control to Off; sampler penalties can starve a long passage of articles and punctuation.' });
         else if (final.refused) {
-          recordRefusal(false);
+          recordRefusal(final, false);
           set({ notice: `Every step of the refusal chain came back as a refusal (${ran.length} attempts). Kept the last one so you can judge; the clinic can work out why.` });
         }
         else if (ran.length > 1) set({ notice: `Pushed through on attempt ${ran.length}${final.step ? ` via ${final.step.kind}` : ''}${final.model !== model ? ` on ${final.model.split('/').pop()}` : ''}.` });
       } catch (e) {
         if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
       } finally {
-        set({ streaming: null, abort: null, drafts: [] });
+        set({ streaming: null, abort: null, drafts: [], diagnoseOnStop: false });
       }
       });
     },
@@ -559,6 +569,11 @@ export const useSession = create<SessionState>((set, get) => {
       }
     },
     clearRefusal: () => set({ refusal: null }),
+    diagnoseNow() {
+      if (!get().streaming || get().streaming?.phase !== 'writing') return;
+      set({ diagnoseOnStop: true });
+      get().abort?.abort();
+    },
     async retryRefusal(o = {}) {
       const r = get().refusal;
       if (!r) return;

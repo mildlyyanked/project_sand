@@ -263,8 +263,12 @@ export default function Manuscript() {
                   <Ionicons name={phaseIcon} size={14} color={t.accent} />
                   <T v="small">{phaseLabel}</T>
                 </Row>
-                <Button small kind="outline" title="Stop" onPress={s.stop} />
+                <Row gap={6}>
+                  {streaming.phase === 'writing' && streaming.attempt > 0 ? <Button small icon="medkit-outline" title="Diagnose instead" onPress={s.diagnoseNow} /> : null}
+                  <Button small kind="outline" title="Stop" onPress={s.stop} />
+                </Row>
               </Row>
+              {streaming.phase === 'writing' && streaming.attempt > 0 ? <T v="faint">Attempt {streaming.attempt} came back as a refusal. Retrying{streaming.step ? ` via ${streaming.step.kind}` : ''}; or stop and take it to the clinic.</T> : null}
               {streaming.reasoning ? (
                 <Pressable onPress={() => setShowReasoning(!showReasoning)}>
                   <T v="faint">{showReasoning ? '▾ thinking' : '▸ thinking…'}</T>

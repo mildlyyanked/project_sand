@@ -67,7 +67,7 @@ A voice's **Persistence** chain runs when a reply looks like a refusal. Each ste
 4. **Heat**: raise temperature and top-p.
 5. **Reframe**: prepend stronger framing to the system prompt.
 6. **Model, auto**: retry on the model with the best record in the refusal ledger.
-7. **Diagnose**: stop retrying and open the refusal clinic.
+7. **Diagnose**: stop retrying and open the refusal clinic. Existing chains get it placed right after Momentum, so the free prefill gets one try and then you decide. While a retry is running, the footer shows which attempt refused and offers **Diagnose instead**, which stops the chain and takes that refusal to the clinic.
 
 **Refusal clinic.** A conversation with the editor model (Settings → Prompts) about one refusal. It sees the refusal, the model, your instruction, the voice's writer prompt and post-history, the brief, the heat directive, the refusal ledger and the exact request as sent. It says which words most likely tripped the model and why, and proposes up to three concrete edits: the writer prompt or post-history (saved on the voice with a revision), the brief, your latest instruction (rewritten in place), or a one-time direction for the retry. Apply the ones you agree with, push back in the chat, then **Retry**, or retry on another model. The clinic also opens from the banner after any refusal the chain could not get past; the refused text stays on the page until you retry, and the retry replaces it as a sibling.
 
