@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { briefNote, imagePromptPrompt, parseBrief, parseClinicReply, parseSuggestions, suggestPrompt } from '../helpers';
+import { briefNote, forgePrompt, imagePromptPrompt, parseBrief, parseClinicReply, parseForge, parseSuggestions, suggestPrompt } from '../helpers';
 
 describe('parseBrief', () => {
   it('parses fenced JSON and fills defaults', () => {
@@ -48,5 +48,27 @@ describe('clinic reply', () => {
   });
   it('returns the whole text as prose when there is no block', () => {
     expect(parseClinicReply('Which model was this?')).toEqual({ prose: 'Which model was this?', edits: [] });
+  });
+});
+
+describe('forge', () => {
+  it('parses a world with its species and lore, keywords lower-cased', () => {
+    const r = parseForge('world', '```json\n{"name":"Vell","description":"A drowned city.","species":[{"name":"Moulters","adulthood":"after the third moult","notes":"n"}],"lore":[{"title":"Tide law","keys":["Tide","COURT"],"text":"Rules.","alwaysOn":true}]}\n```');
+    expect(r?.kind).toBe('world');
+    if (r?.kind === 'world') {
+      expect(r.world.species[0]!.adulthood).toBe('after the third moult');
+      expect(r.world.lore[0]).toMatchObject({ title: 'Tide law', keys: ['tide', 'court'], alwaysOn: true });
+    }
+  });
+  it('accepts a single object where a list was asked for, and defaults adult to true', () => {
+    const r = parseForge('character', '{"name":"Ora","summary":"A judge.","species":"Moulters"}');
+    expect(r?.kind === 'character' && r.characters[0]).toMatchObject({ name: 'Ora', adult: true, species: 'Moulters' });
+    expect(parseForge('lore', 'nothing here')).toBeNull();
+  });
+  it('tells the model what is already there', () => {
+    const m = forgePrompt('character', { wish: 'a smuggler', count: 1, ctx: { universe: { id: 'u', name: 'Vell', description: 'd', createdAt: 0, updatedAt: 0 }, species: [{ name: 'Moulters', adulthood: 'x' }], lore: [], characters: [{ name: 'Ora', summary: 'judge' }] } });
+    expect(m[1]!.content).toContain('Ora: judge');
+    expect(m[1]!.content).toContain('Moulters');
+    expect(m[0]!.content).toContain('Exactly 1 item.');
   });
 });

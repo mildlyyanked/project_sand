@@ -326,3 +326,86 @@ export function parseClinicReply(text: string): { prose: string; edits: ClinicEd
   } catch {}
   return { prose: text.trim().slice(0, m.index).trim(), edits };
 }
+
+/**
+ * Forge: have the writer model invent library entries from a wish. The
+ * existing world and its contents are given so new entries fit what is there.
+ */
+export type ForgeKind = 'world' | 'species' | 'lore' | 'character';
+
+export interface ForgeContext {
+  universe: Universe | null;
+  species: { name: string; adulthood: string }[];
+  lore: { title: string; keys: string[] }[];
+  characters: { name: string; summary: string }[];
+}
+
+export interface ForgedWorld { name: string; description: string; species: ForgedSpecies[]; lore: ForgedLore[] }
+export interface ForgedSpecies { name: string; adulthood: string; notes: string }
+export interface ForgedLore { title: string; keys: string[]; text: string; alwaysOn: boolean }
+export interface ForgedCharacter { name: string; species: string; lifeStage: string; adult: boolean; summary: string; voice: string; tells: string; relationships: string; limits: string; preferences: string }
+export type ForgeResult =
+  | { kind: 'world'; world: ForgedWorld }
+  | { kind: 'species'; species: ForgedSpecies[] }
+  | { kind: 'lore'; lore: ForgedLore[] }
+  | { kind: 'character'; characters: ForgedCharacter[] };
+
+const FORGE_SHAPES: Record<ForgeKind, string> = {
+  world: '{"name": string (2 to 4 words), "description": string (one paragraph of 120 to 220 words: place, era, what governs life there, what is strange or particular, the texture a writer needs), "species": [{"name", "adulthood": string (when a member counts as adult, in the world\'s own terms), "notes": string}] (0 to 3, only if the world calls for them), "lore": [{"title", "keys": string[] (3 to 6 lower-case trigger words), "text": string (60 to 120 words), "alwaysOn": boolean}] (2 to 4 entries)}',
+  species: '{"species": [{"name", "adulthood": string (when a member counts as adult, in the world\'s own terms), "notes": string (60 to 120 words: body, lifespan, society, how they read to a human eye)}]}',
+  lore: '{"lore": [{"title", "keys": string[] (3 to 6 lower-case words that should trigger this entry when they appear in the story), "text": string (60 to 140 words a writer can use directly), "alwaysOn": boolean (true only for what every scene needs)}]}',
+  character: '{"characters": [{"name", "species": string (one of the world\'s species by name, or "" for human), "lifeStage": string (age or stage, in the world\'s terms), "adult": boolean (by that species\' own definition), "summary": string (one or two lines the writer always sees), "voice": string (how they talk and think, 2 to 3 lines), "tells": string (habits, gestures, verbal tics), "relationships": string, "limits": string (what they will not do or have done to them), "preferences": string (what they lean into)}]}',
+};
+
+export function forgePrompt(kind: ForgeKind, o: { wish: string; count: number; ctx: ForgeContext }): ChatMessage[] {
+  const { ctx } = o;
+  const have = [
+    ctx.universe ? `World: ${ctx.universe.name}\n${ctx.universe.description}` : kind === 'world' ? '' : 'No world is attached; invent what the wish needs and keep it self-contained.',
+    ctx.species.length ? `Species already in it:\n${ctx.species.map((s) => `- ${s.name}: ${s.adulthood}`).join('\n')}` : '',
+    ctx.lore.length ? `Lore already written (titles): ${ctx.lore.map((l) => l.title).join('; ')}` : '',
+    ctx.characters.length ? `People already in it:\n${ctx.characters.map((c) => `- ${c.name}: ${c.summary}`).join('\n')}` : '',
+  ].filter(Boolean).join('\n\n');
+  const what = kind === 'world' ? 'a world' : `${o.count} ${kind === 'species' ? 'species' : kind === 'lore' ? 'lore entries' : 'characters'}`;
+  return [
+    { role: 'system', content: [
+      `You invent material for a fiction writer's library: ${what}, as JSON. Everything is invented fiction for an adult author; write with the specificity of a good novelist, not a catalogue. Concrete details over adjectives; one strange, memorable particular per entry; no names or ideas that already exist in the library below.`,
+      kind === 'character' ? 'Each character must be someone a scene could turn on: a want, a flaw, a way of speaking that is theirs alone. Keep names pronounceable and distinct from each other.' : '',
+      kind === 'lore' ? 'Each entry is what a writer needs when its subject comes up: how it works, how it looks, what it costs, who cares. Keywords are the words a passage would use.' : '',
+      `Output only JSON of this shape: ${FORGE_SHAPES[kind]}. Exactly ${kind === 'world' ? 'one world' : `${o.count} item${o.count === 1 ? '' : 's'}`}.`,
+    ].filter(Boolean).join('\n\n') },
+    { role: 'user', content: [have, `What I want: ${o.wish.trim() || (kind === 'world' ? 'a world worth setting stories in' : 'something that fits and surprises')}`].filter(Boolean).join('\n\n') },
+  ];
+}
+
+export function parseForge(kind: ForgeKind, text: string): ForgeResult | null {
+  const raw = text.replace(/^[\s\S]*?```(?:json)?/m, '').replace(/```[\s\S]*$/m, '').trim() || text.trim();
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start < 0 || end < 0) return null;
+  let j: Record<string, unknown>;
+  try {
+    j = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object') : []);
+  const keys = (v: unknown) => (Array.isArray(v) ? v.map(str).map((k) => k.toLowerCase()).filter(Boolean) : str(v).split(',').map((k) => k.trim().toLowerCase()).filter(Boolean));
+  const species = (v: unknown): ForgedSpecies[] => arr(v).map((s) => ({ name: str(s.name), adulthood: str(s.adulthood), notes: str(s.notes) })).filter((s) => s.name);
+  const lore = (v: unknown): ForgedLore[] => arr(v).map((l) => ({ title: str(l.title), keys: keys(l.keys), text: str(l.text), alwaysOn: l.alwaysOn === true })).filter((l) => l.title && l.text);
+  if (kind === 'world') {
+    const name = str(j.name);
+    if (!name) return null;
+    return { kind, world: { name, description: str(j.description), species: species(j.species), lore: lore(j.lore) } };
+  }
+  if (kind === 'species') {
+    const s = species(j.species ?? (j.name ? [j] : []));
+    return s.length ? { kind, species: s } : null;
+  }
+  if (kind === 'lore') {
+    const l = lore(j.lore ?? (j.title ? [j] : []));
+    return l.length ? { kind, lore: l } : null;
+  }
+  const characters = arr(j.characters ?? (j.name ? [j] : [])).map((c) => ({ name: str(c.name), species: str(c.species), lifeStage: str(c.lifeStage), adult: c.adult !== false, summary: str(c.summary), voice: str(c.voice), tells: str(c.tells), relationships: str(c.relationships), limits: str(c.limits), preferences: str(c.preferences) })).filter((c) => c.name);
+  return characters.length ? { kind, characters } : null;
+}

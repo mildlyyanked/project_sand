@@ -7,6 +7,8 @@ import { deleteCanon, deleteLore, deleteSpecies, deleteUniverse, getUniverse, li
 import { newId, now } from '@/core/ids';
 import { useEntity } from '@/ui/useEntity';
 import { Badge, Button, Field, ListItem, Row, Screen, Section, Sheet, Stepper, SwitchRow, T } from '@/ui/components';
+import { ForgeSheet } from '@/ui/components/Forge';
+import type { ForgeKind } from '@/core/helpers';
 
 export default function UniverseEditor() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -16,6 +18,7 @@ export default function UniverseEditor() {
   const [lore, setLore] = useState<LoreEntry[]>([]);
   const [canon, setCanon] = useState<CanonEvent[]>([]);
   const [edit, setEdit] = useState<{ kind: 'species'; v: Species } | { kind: 'lore'; v: LoreEntry } | { kind: 'canon'; v: CanonEvent } | null>(null);
+  const [forge, setForge] = useState<ForgeKind | null>(null);
   const reload = useCallback(() => {
     void Promise.all([listSpecies(db, id!), listLore(db, id!), listCanon(db, id!)]).then(([s, l, c]) => { setSpecies(s); setLore(l); setCanon(c); });
   }, [db, id]);
@@ -44,12 +47,13 @@ export default function UniverseEditor() {
       <Section title="World">
         <Field label="Name" value={u.name} onChangeText={(v) => update({ name: v })} />
         <Field label="Description" hint="Always sent to the writer when a story is set here." value={u.description} onChangeText={(v) => update({ description: v })} multiline style={{ minHeight: 120 }} />
+        <Button small kind="outline" icon="sparkles-outline" title="Forge people for this world" onPress={() => setForge('character')} />
       </Section>
-      <Section title="Species" right={<Button small kind="outline" icon="add" title="Add" onPress={() => setEdit({ kind: 'species', v: newSpecies(u.id) })} />}>
+      <Section title="Species" right={<Row gap={4}><Button small kind="ghost" icon="sparkles-outline" title="Forge" onPress={() => setForge('species')} /><Button small kind="outline" icon="add" title="Add" onPress={() => setEdit({ kind: 'species', v: newSpecies(u.id) })} /></Row>}>
         <T v="faint">Each species defines adulthood in its own terms. Character cards show that definition next to their adult flag.</T>
         {species.map((s) => <ListItem key={s.id} title={s.name} subtitle={s.adulthood} onPress={() => setEdit({ kind: 'species', v: s })} />)}
       </Section>
-      <Section title="Lore" right={<Button small kind="outline" icon="add" title="Add" onPress={() => setEdit({ kind: 'lore', v: newLore(u.id) })} />}>
+      <Section title="Lore" right={<Row gap={4}><Button small kind="ghost" icon="sparkles-outline" title="Forge" onPress={() => setForge('lore')} /><Button small kind="outline" icon="add" title="Add" onPress={() => setEdit({ kind: 'lore', v: newLore(u.id) })} /></Row>}>
         <T v="faint">Entries are sent when one of their keywords appears in the recent beats. Always-on entries ride with the description.</T>
         {lore.map((l) => <ListItem key={l.id} title={l.title} subtitle={l.alwaysOn ? 'always on' : l.keys.join(', ') || 'no keywords'} right={l.priority ? <Badge label={`p${l.priority}`} /> : undefined} onPress={() => setEdit({ kind: 'lore', v: l })} />)}
       </Section>
@@ -59,6 +63,7 @@ export default function UniverseEditor() {
       </Section>
       <Button kind="danger" title="Delete world" onPress={() => Alert.alert('Delete world?', 'Species, lore and canon go with it. Characters and stories stay, detached.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { await deleteUniverse(db, u.id); router.back(); } }])} />
 
+      <ForgeSheet open={!!forge} onClose={() => setForge(null)} kind={forge ?? 'species'} universeId={u.id} onSaved={reload} />
       <Sheet open={!!edit} onClose={saveEdit} title={edit?.kind === 'species' ? 'Species' : edit?.kind === 'lore' ? 'Lore entry' : 'Canon event'} full>
         {edit?.kind === 'species' ? (
           <>
