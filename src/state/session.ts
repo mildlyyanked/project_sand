@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import type { Beat, Character, ContextLayer, Id, Illustration, LoreEntry, RefusalStep, Session, Species, Style, Universe } from '@/core/types';
+import type { Beat, Character, ChatMessage, ContextLayer, Id, Illustration, LoreEntry, RefusalStep, Session, Species, Style, Universe } from '@/core/types';
 import { indexBeats, pathTo, type BeatIndex, descendants, leafOf, stepSibling } from '@/core/beatTree';
 import { assembleContext, splitPath, summaryPrompt, type AssembleInput } from '@/core/context/assemble';
-import { critiquePrompt, imagePromptPrompt, parseSuggestions, planPrompt, scenePrompt, suggestPrompt, transcriptOf } from '@/core/helpers';
+import { clinicOpening, clinicSystem, critiquePrompt, imagePromptPrompt, parseClinicReply, parseSuggestions, planPrompt, scenePrompt, suggestPrompt, transcriptOf, type ClinicEdit } from '@/core/helpers';
 import { renderHeat } from '@/core/context/cards';
 import { manuscriptText } from '@/core/beatTree';
 import { generateWithChain, momentumTail } from '@/core/openrouter/generate';
@@ -53,6 +53,21 @@ export interface Refusal {
   auto: boolean;
 }
 
+/** The refusal clinic's conversation. Kept here so leaving and returning never re-asks the editor model. */
+export interface ClinicTurn {
+  role: 'user' | 'assistant';
+  text: string;
+  edits: ClinicEdit[];
+  applied: number[];
+}
+export interface ClinicState {
+  turns: ClinicTurn[];
+  convo: ChatMessage[];
+  busy: boolean;
+  pending: string | null;
+  error: string | null;
+}
+
 interface Bundle {
   style: Style | null;
   characters: Character[];
@@ -74,6 +89,15 @@ interface SessionState {
   suggestions: string[];
   sceneProposal: string | null;
   refusal: Refusal | null;
+  clinic: ClinicState | null;
+  /** The manuscript opened the clinic for this refusal; do not open it again on its own. */
+  ackClinic(): void;
+  /** Start the clinic's diagnosis if it has not started; a no-op when a conversation exists or a call is in flight. */
+  clinicStart(): Promise<void>;
+  clinicSend(text: string): Promise<void>;
+  /** Ask again after a failed round, with the same conversation. */
+  clinicRetry(): Promise<void>;
+  clinicMarkApplied(turn: number, edit: number): void;
   /** An image prompt written for a passage: to copy out, or to review and then paint. */
   imagePrompt: { beatId: Id; prompt: string; canPaint: boolean } | null;
   clearImagePrompt(): void;
@@ -138,6 +162,34 @@ export const useSession = create<SessionState>((set, get) => {
     return { style, characters, species, universe, lore };
   }
 
+  let clinicStarting = false;
+
+  /** One round of the clinic. Runs to completion even if the screen is left; the result lands in the store. */
+  async function clinicAsk(history: ChatMessage[]): Promise<void> {
+    const { session } = get();
+    const { apiKey, defaults } = useSettings.getState();
+    if (!session || !apiKey) return;
+    const editorModel = defaults.editorModel || session.models.writer || defaults.models.writer;
+    const patch = (p: Partial<ClinicState>) => set((st) => (st.clinic ? { clinic: { ...st.clinic, ...p } } : {}));
+    patch({ busy: true, pending: '', error: null });
+    let out = '';
+    try {
+      await runInForeground('Diagnosing the refusal', async () => {
+        for await (const ev of client.stream({ apiKey, model: editorModel, messages: history, params: { temperature: 0.4, topP: 0.9, maxTokens: 2500, reasoning: false }, zdr: session.zdr })) {
+          if (ev.type === 'text') {
+            out += ev.text ?? '';
+            patch({ pending: parseClinicReply(out).prose || out });
+          }
+          if (ev.type === 'error') throw new Error(ev.error);
+        }
+      });
+      const parsed = parseClinicReply(out);
+      set((st) => (st.clinic ? { clinic: { ...st.clinic, convo: [...history, { role: 'assistant', content: out }], turns: [...st.clinic.turns, { role: 'assistant', text: parsed.prose, edits: parsed.edits, applied: [] }], busy: false, pending: null } } : {}));
+    } catch (e) {
+      patch({ busy: false, pending: null, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   const assembleInput = (direction?: string, model?: string): AssembleInput | null => {
     const { session, path, bundle, dropped } = get();
     if (!session) return null;
@@ -145,7 +197,7 @@ export const useSession = create<SessionState>((set, get) => {
   };
 
   return {
-    db: null, session: null, beats: [], index: emptyIndex, path: [], bundle: emptyBundle, streaming: null, drafts: [], illustrations: [], suggestions: [], sceneProposal: null, refusal: null, imagePrompt: null, diagnoseOnStop: false, error: null, notice: null, dropped: new Set(), lastLog: [], abort: null,
+    db: null, session: null, beats: [], index: emptyIndex, path: [], bundle: emptyBundle, streaming: null, drafts: [], illustrations: [], suggestions: [], sceneProposal: null, refusal: null, clinic: null, imagePrompt: null, diagnoseOnStop: false, error: null, notice: null, dropped: new Set(), lastLog: [], abort: null,
 
     async open(db, id) {
       const session = await getSession(db, id);
@@ -155,7 +207,7 @@ export const useSession = create<SessionState>((set, get) => {
       }
       const [beats, bundle, illustrations] = await Promise.all([listBeats(db, id), loadBundle(db, session), listIllustrations(db, id)]);
       const fresh = get().session?.id !== id;
-      set({ db, session, bundle, illustrations, error: null, dropped: fresh ? new Set() : get().dropped, ...(fresh ? { suggestions: [], sceneProposal: null, drafts: [], refusal: null } : {}), ...recompute(beats, session) });
+      set({ db, session, bundle, illustrations, error: null, dropped: fresh ? new Set() : get().dropped, ...(fresh ? { suggestions: [], sceneProposal: null, drafts: [], refusal: null, clinic: null } : {}), ...recompute(beats, session) });
     },
     async reload() {
       const { db, session } = get();
@@ -423,7 +475,7 @@ export const useSession = create<SessionState>((set, get) => {
         for (const a of attempts) if (!a.skipped && !a.error) void recordAttempt(db, a.model, a.refused);
         const recordRefusal = (att: (typeof attempts)[number], auto: boolean) => {
           const refusedText = att.stripPrefix && att.text.startsWith(att.stripPrefix) ? att.text.slice(att.stripPrefix.length) : att.text;
-          set({ refusal: { text: refusedText.trim(), model: att.model, transcript: transcriptOf(ctx.messages), instruction: lastBeat?.role === 'instruction' ? lastBeat.text : '', instructionBeatId: lastBeat?.role === 'instruction' ? lastBeat.id : null, parentId, regenerateId: o.regenerateId, direction: o.direction, heat: sess.explicit ? renderHeat(sess.heat) : null, auto } });
+          set({ clinic: null, refusal: { text: refusedText.trim(), model: att.model, transcript: transcriptOf(ctx.messages), instruction: lastBeat?.role === 'instruction' ? lastBeat.text : '', instructionBeatId: lastBeat?.role === 'instruction' ? lastBeat.id : null, parentId, regenerateId: o.regenerateId, direction: o.direction, heat: sess.explicit ? renderHeat(sess.heat) : null, auto } });
         };
         if (abort.signal.aborted) {
           await Promise.all(draftJobs);
@@ -618,7 +670,35 @@ export const useSession = create<SessionState>((set, get) => {
         set({ streaming: null, abort: null });
       }
     },
-    clearRefusal: () => set({ refusal: null }),
+    clearRefusal: () => set({ refusal: null, clinic: null }),
+    ackClinic: () => set((st) => (st.refusal ? { refusal: { ...st.refusal, auto: false } } : {})),
+    async clinicStart() {
+      const { db, session, refusal, bundle, clinic } = get();
+      if (!db || !session || !refusal || clinic || clinicStarting) return;
+      clinicStarting = true;
+      try {
+        const ledger = await listModelStats(db);
+        const opening: ChatMessage[] = [clinicSystem(), clinicOpening({ model: refusal.model, refusal: refusal.text, transcript: refusal.transcript, instruction: refusal.instruction, voiceSystem: bundle.style?.system ?? '', postHistory: bundle.style?.postHistory ?? '', brief: session.brief, heat: refusal.heat, ledger })];
+        set({ clinic: { turns: [], convo: opening, busy: false, pending: null, error: null } });
+      } finally {
+        clinicStarting = false;
+      }
+      await clinicAsk(get().clinic!.convo);
+    },
+    async clinicRetry() {
+      const c = get().clinic;
+      if (!c || c.busy) return;
+      await clinicAsk(c.convo);
+    },
+    async clinicSend(text) {
+      const c = get().clinic;
+      const v = text.trim();
+      if (!c || c.busy || !v) return;
+      const convo = [...c.convo, { role: 'user' as const, content: v }];
+      set({ clinic: { ...c, turns: [...c.turns, { role: 'user', text: v, edits: [], applied: [] }], convo } });
+      await clinicAsk(convo);
+    },
+    clinicMarkApplied: (turn, edit) => set((st) => (st.clinic ? { clinic: { ...st.clinic, turns: st.clinic.turns.map((t, i) => (i === turn ? { ...t, applied: [...t.applied, edit] } : t)) } } : {})),
     diagnoseNow() {
       if (!get().streaming || get().streaming?.phase !== 'writing') return;
       set({ diagnoseOnStop: true });

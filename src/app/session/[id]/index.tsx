@@ -95,9 +95,13 @@ export default function Manuscript() {
   };
   // A Diagnose step in the chain opens the clinic without asking.
   const refusalAuto = s.refusal?.auto;
+  const sessionId = session?.id;
   useEffect(() => {
-    if (refusalAuto && session) router.push(`/session/${session.id}/clinic`);
-  }, [refusalAuto, session]);
+    if (refusalAuto && sessionId) {
+      useSession.getState().ackClinic();
+      router.push(`/session/${sessionId}/clinic`);
+    }
+  }, [refusalAuto, sessionId]);
 
   const streaming = s.streaming;
   const canSend = mode === 'scene' ? !streaming : !!text.trim() && !streaming;
@@ -238,7 +242,7 @@ export default function Manuscript() {
       {s.notice ? <View style={{ padding: space.md }}><Banner text={s.notice} tone="info" onClose={() => s.setNotice(null)} /></View> : null}
       {s.refusal && !streaming ? (
         <View style={{ marginHorizontal: space.md, marginBottom: space.sm, padding: space.md, borderRadius: radius.lg, backgroundColor: t.surface, gap: 8 }}>
-          <T v="dim">{shortModel(s.refusal.model)} refused{s.refusal.auto ? '; the chain stopped for diagnosis' : ''}.</T>
+          <T v="dim">{shortModel(s.refusal.model)} refused.{s.clinic ? ' The clinic has its diagnosis open.' : ''}</T>
           <Row style={{ flexWrap: 'wrap' }}>
             <Button small icon="medkit-outline" title="Open the clinic" onPress={() => router.push(`/session/${session.id}/clinic`)} />
             <Button small kind="outline" icon="refresh-outline" title="Retry" onPress={() => { void s.retryRefusal(); }} />
