@@ -74,9 +74,11 @@ interface SessionState {
   suggestions: string[];
   sceneProposal: string | null;
   refusal: Refusal | null;
-  /** An image prompt written for a passage, waiting to be copied into an outside generator. */
-  imagePrompt: { beatId: Id; prompt: string } | null;
+  /** An image prompt written for a passage: to copy out, or to review and then paint. */
+  imagePrompt: { beatId: Id; prompt: string; canPaint: boolean } | null;
   clearImagePrompt(): void;
+  /** Paint a prompt the writer has seen (and maybe edited) with the configured backend. */
+  paint(beatId: Id, prompt: string): Promise<void>;
   /** Set by diagnoseNow: the running chain stops and the last refusal opens the clinic. */
   diagnoseOnStop: boolean;
   error: string | null;
@@ -556,6 +558,7 @@ export const useSession = create<SessionState>((set, get) => {
       try {
         await runInForeground(promptOnly ? 'Describing the picture' : 'Illustrating the passage', async () => {
           let prompt = '';
+          const canPaint = backend.kind !== 'prompt';
           for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: imagePromptPrompt({ passage: beat.text, characters: bundle.characters, universe: bundle.universe, style: bundle.style, brief: session.brief }), params: { temperature: 0.7, topP: 0.95, maxTokens: 300, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
             if (ev.type === 'text') {
               prompt += ev.text ?? '';
@@ -565,22 +568,52 @@ export const useSession = create<SessionState>((set, get) => {
           }
           prompt = prompt.trim();
           if (!prompt) throw new Error('The helper produced no image prompt.');
-          if (promptOnly) {
-            set({ imagePrompt: { beatId, prompt } });
+          if (promptOnly || defaults.reviewImagePrompt) {
+            set({ imagePrompt: { beatId, prompt, canPaint } });
             return;
           }
-          set((st) => (st.streaming ? { streaming: { ...st.streaming, model: backend.kind === 'openrouter' ? defaults.imageModel : backend.model || backend.kind } } : {}));
+          await paintWith(prompt);
+        });
+      } catch (e) {
+        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
+      } finally {
+        set({ streaming: null, abort: null });
+      }
+
+      async function paintWith(prompt: string) {
+        set((st) => (st.streaming ? { streaming: { ...st.streaming, model: backend.kind === 'openrouter' ? defaults.imageModel : backend.model || backend.kind, text: prompt } } : {}));
+        const img = backend.kind === 'openrouter'
+          ? await client.generateImage({ apiKey, model: defaults.imageModel, prompt, zdr: session!.zdr, signal: abort.signal })
+          : await generateViaBackend(backend, imageKey, prompt, abort.signal);
+        const id = newId();
+        const uri = await saveImage(id, img.dataUrl);
+        const ill = { id, sessionId: session!.id, beatId, prompt, uri, model: img.model, createdAt: now() };
+        await saveIllustration(db!, ill);
+        set({ illustrations: [...get().illustrations, ill] });
+      }
+    },
+    async paint(beatId, prompt) {
+      const { db, session, index } = get();
+      const { apiKey, imageKey, defaults } = useSettings.getState();
+      const backend = defaults.imageBackend;
+      const beat = index.byId.get(beatId);
+      if (!db || !session || !beat || get().streaming || !prompt.trim() || backend.kind === 'prompt') return;
+      const abort = new AbortController();
+      set({ abort, error: null, imagePrompt: null, streaming: { text: prompt, reasoning: '', attempt: 0, step: null, model: backend.kind === 'openrouter' ? defaults.imageModel : backend.model || backend.kind, phase: 'illustrating', startedAt: now(), parentId: beat.parentId } });
+      try {
+        await runInForeground('Painting the picture', async () => {
           const img = backend.kind === 'openrouter'
-            ? await client.generateImage({ apiKey, model: defaults.imageModel, prompt, zdr: session.zdr, signal: abort.signal })
-            : await generateViaBackend(backend, imageKey, prompt, abort.signal);
+            ? await client.generateImage({ apiKey, model: defaults.imageModel, prompt: prompt.trim(), zdr: session.zdr, signal: abort.signal })
+            : await generateViaBackend(backend, imageKey, prompt.trim(), abort.signal);
           const id = newId();
           const uri = await saveImage(id, img.dataUrl);
-          const ill = { id, sessionId: session.id, beatId, prompt, uri, model: img.model, createdAt: now() };
+          const ill = { id, sessionId: session.id, beatId, prompt: prompt.trim(), uri, model: img.model, createdAt: now() };
           await saveIllustration(db, ill);
           set({ illustrations: [...get().illustrations, ill] });
         });
       } catch (e) {
-        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
+        // Keep the prompt on screen so it can be edited and tried again.
+        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e), imagePrompt: { beatId, prompt, canPaint: true } });
       } finally {
         set({ streaming: null, abort: null });
       }

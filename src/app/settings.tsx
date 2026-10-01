@@ -102,6 +102,7 @@ export default function Settings() {
             <Field label="API key, if the server asks for one" value={imgKey ?? s.imageKey} onChangeText={setImgKey} onBlur={() => { if (imgKey != null) void s.setImageKey(imgKey); setImgKey(null); }} secureTextEntry autoCapitalize="none" autoCorrect={false} />
           </>
         )}
+        {ib.kind !== 'prompt' ? <SwitchRow label="Show the prompt before painting" hint="Illustrate stops at the helper's description so you can read it, change it, then paint. Useful when a painter keeps refusing: cut what it objects to and try again, without touching the story." value={s.defaults.reviewImagePrompt} onChange={(v) => s.setDefaults(db, { reviewImagePrompt: v })} /> : null}
         {ib.kind !== 'openrouter' ? <Row between><T>Image size</T><Stepper value={ib.size} min={512} max={1536} step={128} onChange={(v) => setIb({ size: v })} /></Row> : null}
         <T v="faint">Painting with: {describeBackend(ib)}</T>
       </Section>

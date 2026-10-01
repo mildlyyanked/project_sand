@@ -14,6 +14,8 @@ export interface Defaults {
   imageModel: string;
   /** Where illustrations are generated when not through OpenRouter. */
   imageBackend: ImageBackend;
+  /** Show the image prompt, editable, before it goes to the painter. */
+  reviewImagePrompt: boolean;
   zdr: boolean;
   fontSize: number;
   styleId: string | null;
@@ -25,6 +27,7 @@ const DEFAULTS: Defaults = {
   editorModel: '',
   imageModel: 'google/gemini-2.5-flash-image',
   imageBackend: DEFAULT_IMAGE_BACKEND,
+  reviewImagePrompt: false,
   zdr: false,
   fontSize: 17,
   styleId: null,

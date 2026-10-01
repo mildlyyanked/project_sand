@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createSseParser } from '../openrouter/sse';
 import { buildRequestBody } from '../openrouter/request';
-import { createClient, type FetchLike } from '../openrouter/client';
+import { createClient, extractImage, type FetchLike } from '../openrouter/client';
 import { generateWithChain } from '../openrouter/generate';
 import { looksLikeRefusal } from '../refusal';
 import { DEFAULT_PARAMS } from '../types';
@@ -116,5 +116,22 @@ describe('repetition penalties', () => {
     expect(some.repetition_penalty).toBe(1.1);
     const neutral = buildRequestBody({ model: 'm', messages: [], params: { ...DEFAULT_PARAMS, repetitionPenalty: 1 }, zdr: false, stream: true }) as Record<string, unknown>;
     expect(neutral.repetition_penalty).toBeUndefined();
+  });
+});
+
+describe('extractImage', () => {
+  it('finds the image on message.images, in content parts, or as a data URL', () => {
+    expect(extractImage({ choices: [{ message: { images: [{ image_url: { url: 'data:image/png;base64,AAA' } }] } }] }).url).toBe('data:image/png;base64,AAA');
+    expect(extractImage({ choices: [{ message: { content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,BBB' } }] } }] }).url).toBe('data:image/png;base64,BBB');
+    expect(extractImage({ choices: [{ message: { content: 'data:image/jpeg;base64,CCC' } }] }).url).toBe('data:image/jpeg;base64,CCC');
+  });
+  it('names a safety block and quotes a text-only answer', () => {
+    const blocked = extractImage({ choices: [{ finish_reason: 'content_filter', native_finish_reason: 'IMAGE_SAFETY', message: { content: '' } }] });
+    expect(blocked.url).toBeNull();
+    expect(blocked.reason).toMatch(/blocked this picture \(IMAGE_SAFETY \/ content_filter\)/);
+    const texty = extractImage({ choices: [{ finish_reason: 'stop', message: { content: 'I cannot draw that.' } }] });
+    expect(texty.reason).toMatch(/answered with text.*I cannot draw that/);
+    expect(extractImage({ choices: [{ finish_reason: 'stop', message: { content: '' } }] }).reason).toMatch(/empty reply \(stop\)/);
+    expect(extractImage({}).reason).toMatch(/no choices/);
   });
 });

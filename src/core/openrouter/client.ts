@@ -136,10 +136,9 @@ export function createClient(fetchImpl: FetchLike) {
     }
     const j = JSON.parse(text) as ImageCompletionJson;
     if (j.error) throw new OpenRouterError(j.error.message ?? 'Image generation failed', res.status);
-    const msg = j.choices?.[0]?.message;
-    const url = msg?.images?.[0]?.image_url?.url;
-    if (!url) throw new OpenRouterError(msg?.content?.trim() ? `The model answered with text instead of an image: ${msg.content.trim().slice(0, 200)}` : 'The model returned no image. Pick a model that lists image output.', res.status);
-    return { dataUrl: url, model: j.model ?? o.model };
+    const found = extractImage(j);
+    if (!found.url) throw new OpenRouterError(found.reason, res.status);
+    return { dataUrl: found.url, model: j.model ?? o.model };
   }
 
   return { stream, listModels, listZdrModelIds, keyInfo, generateImage };
@@ -163,7 +162,38 @@ function usageFrom(j: CompletionJson): Usage | null {
 interface ImageCompletionJson {
   model?: string;
   error?: { message?: string };
-  choices?: { message?: { content?: string; images?: { image_url?: { url?: string } }[] } }[];
+  choices?: {
+    finish_reason?: string | null;
+    native_finish_reason?: string | null;
+    message?: {
+      content?: string | { type?: string; text?: string; image_url?: { url?: string } }[] | null;
+      images?: { image_url?: { url?: string } }[];
+    };
+  }[];
+}
+
+/**
+ * The image from an image-output completion, or the most useful reason there
+ * is none. OpenRouter puts images on `message.images`; some providers return
+ * content parts instead; a safety block leaves an empty message with a
+ * telling finish reason.
+ */
+export function extractImage(j: ImageCompletionJson): { url: string | null; reason: string } {
+  const c = j.choices?.[0];
+  const msg = c?.message;
+  const fromImages = msg?.images?.find((i) => i.image_url?.url)?.image_url?.url;
+  if (fromImages) return { url: fromImages, reason: '' };
+  const parts = Array.isArray(msg?.content) ? msg.content : [];
+  const fromParts = parts.find((p) => p.image_url?.url)?.image_url?.url;
+  if (fromParts) return { url: fromParts, reason: '' };
+  const textContent = typeof msg?.content === 'string' ? msg.content.trim() : parts.map((p) => p.text ?? '').join(' ').trim();
+  if (/^data:image\//.test(textContent)) return { url: textContent, reason: '' };
+  const finish = [c?.native_finish_reason, c?.finish_reason].filter(Boolean).join(' / ');
+  const filtered = /safety|filter|block|prohibited|recitation|moderat/i.test(finish);
+  if (filtered) return { url: null, reason: `The provider blocked this picture (${finish}). OpenRouter's image models carry their providers' filters; edit the prompt before painting, paint with your own host (Settings → Illustrations), or use Prompt only and paste it into a generator.` };
+  if (textContent) return { url: null, reason: `The model answered with text instead of an image: ${textContent.slice(0, 240)}` };
+  if (!c) return { url: null, reason: 'OpenRouter returned no choices for the image request. Try again, or pick another image model.' };
+  return { url: null, reason: `The model returned an empty reply${finish ? ` (${finish})` : ''}. On an explicit scene that is usually the provider's filter; otherwise pick a model that lists image output.` };
 }
 
 interface RawModel {

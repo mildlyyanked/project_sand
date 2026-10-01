@@ -54,6 +54,7 @@ export default function Manuscript() {
   const [draftsOpen, setDraftsOpen] = useState(false);
   const [draftPicker, setDraftPicker] = useState(false);
   const [viewing, setViewing] = useState<Illustration | null>(null);
+  const [promptDraft, setPromptDraft] = useState<string | null>(null);
   const listRef = useRef<FlatList<Beat>>(null);
   const atBottom = useRef(true);
   /** False once the reader scrolls up; auto-scroll pauses until they return to the end or tap the button. */
@@ -442,13 +443,14 @@ export default function Manuscript() {
       <ModelPicker open={draftPicker} onClose={() => setDraftPicker(false)} onSelect={(m) => toggleDraft(m)} pinned={usedModels} title="Extra draft model" />
 
       {/* Image prompt to take elsewhere */}
-      <Sheet open={!!s.imagePrompt} onClose={s.clearImagePrompt} title="Picture prompt">
-        <T selectable style={{ fontFamily: serif, fontSize: 16, lineHeight: 24 }}>{s.imagePrompt?.prompt}</T>
-        <T v="faint">Paste it into Perchance, Civitai, a local web UI or any other generator. Nothing was sent anywhere; this is just the description.</T>
+      <Sheet open={!!s.imagePrompt} onClose={() => { s.clearImagePrompt(); setPromptDraft(null); }} title="Picture prompt" full>
+        <Field multiline value={promptDraft ?? s.imagePrompt?.prompt ?? ''} onChangeText={setPromptDraft} style={{ fontFamily: serif, fontSize: 16, minHeight: 160 }} />
+        <T v="faint">{s.imagePrompt?.canPaint ? 'Edit freely, then paint it here or take it to another generator. If the painter refuses, cut what it objects to and paint again; the story is untouched.' : 'Paste it into Perchance, Civitai, a local web UI or any other generator. Nothing was sent anywhere; this is just the description.'}</T>
         <Row style={{ flexWrap: 'wrap' }}>
-          <Button icon="copy-outline" title="Copy" onPress={async () => { if (s.imagePrompt) { await Clipboard.setStringAsync(s.imagePrompt.prompt); s.clearImagePrompt(); s.setNotice('Prompt copied.'); } }} />
-          <Button kind="outline" icon="share-outline" title="Share" onPress={async () => { if (s.imagePrompt) { const p = s.imagePrompt.prompt; s.clearImagePrompt(); await Share.share({ message: p }); } }} />
-          <Button kind="ghost" icon="refresh-outline" title="Another" onPress={() => { const b = s.imagePrompt?.beatId; s.clearImagePrompt(); if (b) void s.illustrate(b, { promptOnly: true }); }} />
+          {s.imagePrompt?.canPaint ? <Button icon="color-palette-outline" title="Paint" onPress={() => { const ip = s.imagePrompt; const p = (promptDraft ?? ip?.prompt ?? '').trim(); setPromptDraft(null); if (ip && p) { void askNotificationPermission(); void s.paint(ip.beatId, p); } }} /> : null}
+          <Button kind={s.imagePrompt?.canPaint ? 'outline' : 'primary'} icon="copy-outline" title="Copy" onPress={async () => { const p = (promptDraft ?? s.imagePrompt?.prompt ?? '').trim(); if (p) { await Clipboard.setStringAsync(p); s.clearImagePrompt(); setPromptDraft(null); s.setNotice('Prompt copied.'); } }} />
+          <Button kind="outline" icon="share-outline" title="Share" onPress={async () => { const p = (promptDraft ?? s.imagePrompt?.prompt ?? '').trim(); if (p) { s.clearImagePrompt(); setPromptDraft(null); await Share.share({ message: p }); } }} />
+          <Button kind="ghost" icon="refresh-outline" title="Another" onPress={() => { const b = s.imagePrompt?.beatId; s.clearImagePrompt(); setPromptDraft(null); if (b) void s.illustrate(b, { promptOnly: true }); }} />
         </Row>
       </Sheet>
 
