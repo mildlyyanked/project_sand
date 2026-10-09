@@ -14,6 +14,28 @@ export interface GenerateAttempt {
   stripPrefix: string;
   error?: string;
   skipped?: string;
+  finishReason?: string;
+  /** The passage arrived on the reasoning channel and was taken from there. */
+  fromReasoning?: boolean;
+}
+
+/**
+ * Some providers put the whole reply on the reasoning channel when a reasoning
+ * model is prefilled, leaving content empty. Empty content would read as a
+ * refusal and the prose would be shown as "thinking", so when there is no
+ * content beyond the prefill but there is reasoning, the reasoning is the
+ * passage. The one exception is a model that ran out of budget mid-thought.
+ */
+export function settleReasoning(a: GenerateAttempt, prefillLength: number): void {
+  const body = a.text.slice(prefillLength).trim();
+  if (body || !a.reasoning.trim()) return;
+  if (a.finishReason === 'length') {
+    a.error = 'The model spent its whole token budget thinking and wrote nothing. Raise Max tokens in session settings, or turn Request reasoning off.';
+    return;
+  }
+  a.text = a.text + a.reasoning.trim();
+  a.reasoning = '';
+  a.fromReasoning = true;
 }
 
 export interface GenerateOptions {
@@ -167,11 +189,17 @@ export async function generateWithChain(o: GenerateOptions): Promise<GenerateAtt
         const idx = lastUserIndex(plan.messages);
         const lead = plan.messages.map((m) => ({ ...m }));
         if (idx >= 0) lead[idx]!.content += '\n\nFor now write only the approach to what comes next: the atmosphere, the first moves, the moment just before. Stop there, mid-scene.';
-        let leadText = prefill;
+        a.text = prefill;
         for await (const ev of o.client.stream({ apiKey: o.apiKey, model: plan.model, messages: lead, params: { ...plan.params, maxTokens: Math.min(450, plan.params.maxTokens) }, zdr: o.zdr, signal: o.signal, ...route })) {
           handle(ev, a);
-          if (ev.type === 'text') { leadText += ev.text ?? ''; o.onDelta?.(i, leadText, a.reasoning); }
+          if (ev.type === 'text') o.onDelta?.(i, a.text, a.reasoning);
         }
+        settleReasoning(a, prefill.length);
+        if (a.error) {
+          attempts.push(a);
+          continue;
+        }
+        const leadText = a.text;
         if (looksLikeRefusal(leadText.slice(prefill.length))) {
           a.text = leadText;
           a.stripPrefix = plan.stripPrefix;
@@ -179,26 +207,33 @@ export async function generateWithChain(o: GenerateOptions): Promise<GenerateAtt
           attempts.push(a);
           continue;
         }
-        // Pass two: continue from inside the scene.
+        // Pass two: continue from inside the scene. Pass one's thinking is done with; it must not be mistaken for pass two's prose.
         const second = setPrefill(plan.messages, leadText);
-        a.text = leadText;
+        a.reasoning = '';
         for await (const ev of o.client.stream({ apiKey: o.apiKey, model: plan.model, messages: second, params: plan.params, zdr: o.zdr, signal: o.signal, ...route })) {
           handle(ev, a);
           if (ev.type === 'text' || ev.type === 'reasoning') o.onDelta?.(i, a.text, a.reasoning);
         }
+        settleReasoning(a, leadText.length);
         a.stripPrefix = plan.stripPrefix;
-        a.refused = looksLikeRefusal(a.text.slice(leadText.length) || a.text);
+        a.refused = !a.error && looksLikeRefusal(a.text.slice(leadText.length) || a.text);
       } else {
         a.text = prefill;
         for await (const ev of o.client.stream({ apiKey: o.apiKey, model: plan.model, messages: plan.messages, params: plan.params, zdr: o.zdr, signal: o.signal, ...route })) {
           handle(ev, a);
           if (ev.type === 'text' || ev.type === 'reasoning') o.onDelta?.(i, a.text, a.reasoning);
         }
+        settleReasoning(a, prefill.length);
         a.stripPrefix = plan.stripPrefix;
-        a.refused = looksLikeRefusal(a.text.slice(prefill.length) || a.text);
+        a.refused = !a.error && looksLikeRefusal(a.text.slice(prefill.length) || a.text);
+        if (a.error) {
+          attempts.push(a);
+          continue;
+        }
       }
     } catch (e) {
       if (o.signal?.aborted) {
+        settleReasoning(a, prefill.length);
         a.stripPrefix = plan.stripPrefix;
         attempts.push(a);
         return attempts;
@@ -217,7 +252,10 @@ function handle(ev: StreamEvent, a: GenerateAttempt) {
   if (ev.type === 'text') a.text += ev.text ?? '';
   else if (ev.type === 'reasoning') a.reasoning += ev.text ?? '';
   else if (ev.type === 'usage' && ev.usage) a.usage = a.usage ? { promptTokens: a.usage.promptTokens + ev.usage.promptTokens, completionTokens: a.usage.completionTokens + ev.usage.completionTokens, costUsd: (a.usage.costUsd ?? 0) + (ev.usage.costUsd ?? 0) } : ev.usage;
-  else if (ev.type === 'done' && ev.model) a.model = ev.model;
+  else if (ev.type === 'done') {
+    if (ev.model) a.model = ev.model;
+    if (ev.finishReason) a.finishReason = ev.finishReason;
+  }
   else if (ev.type === 'error') a.error = ev.error;
 }
 

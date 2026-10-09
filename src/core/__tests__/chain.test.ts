@@ -115,3 +115,34 @@ describe('diagnose step', () => {
     expect(attempts.some((a) => a.step?.kind === 'diagnose')).toBe(false);
   });
 });
+
+/** Scripted fetch that answers on the reasoning channel only, with a finish reason. */
+function scriptedReasoning(text: string, finish: string) {
+  const fetchImpl: FetchLike = async (_url, init) => {
+    const body = JSON.parse(init.body!) as { model: string };
+    const enc = new TextEncoder();
+    const chunk = `data: ${JSON.stringify({ model: body.model, choices: [{ delta: { reasoning: text }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ model: body.model, choices: [{ delta: {}, finish_reason: finish }] })}\n\ndata: [DONE]\n\n`;
+    const stream = new ReadableStream<Uint8Array>({ start(c) { c.enqueue(enc.encode(chunk)); c.close(); } });
+    return { ok: true, status: 200, body: stream, text: async () => '', json: async () => ({}) };
+  };
+  return createClient(fetchImpl);
+}
+
+describe('prose on the reasoning channel', () => {
+  it('is taken as the passage, not a refusal, and the momentum prefix is still stripped', async () => {
+    const client = scriptedReasoning(PROSE, 'stop');
+    const attempts = await generateWithChain({ ...base, client, messages, refusalChain: [{ kind: 'momentum' }], momentumText: 'Then the lights went out.' });
+    expect(attempts.length).toBe(1);
+    const a = attempts[0]!;
+    expect(a.refused).toBe(false);
+    expect(a.fromReasoning).toBe(true);
+    expect(a.text).toBe(PROSE);
+    expect(a.reasoning).toBe('');
+  });
+  it('is an error, not a refusal, when the model ran out of budget thinking', async () => {
+    const client = scriptedReasoning('I need to think about how the scene', 'length');
+    const attempts = await generateWithChain({ ...base, client, messages, refusalChain: [{ kind: 'heat' }] });
+    expect(attempts[0]!.refused).toBe(false);
+    expect(attempts[0]!.error).toMatch(/token budget/);
+  });
+});

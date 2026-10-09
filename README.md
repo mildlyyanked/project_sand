@@ -101,6 +101,8 @@ Home is three tabs: **Stories**, **Library** (people, voices, worlds) and **Usag
 
 While a passage streams, the manuscript follows the writing only until you scroll up; then it stays put and a **Follow the writing** button brings you back to the end.
 
+Reasoning models sometimes put the whole passage on the reasoning channel when prefilled, leaving the content empty. Empty content would count as a refusal and the prose would show as "thinking", so when a reply has no content beyond the prefill but has reasoning, the reasoning is taken as the passage. A model that spent its whole budget thinking (finish reason `length`) is reported as such instead.
+
 ## Background generation
 
 On Android the app runs a foreground service while anything is generating, with a small "Sand" notification, so switching apps does not freeze the process and drop the stream. If a connection still drops mid-reply, the client resumes from the text already received. Allow notifications when asked; the service still works without them, only silently.

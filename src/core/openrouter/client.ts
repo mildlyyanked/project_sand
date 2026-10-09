@@ -16,6 +16,8 @@ export interface StreamEvent {
   usage?: Usage;
   error?: string;
   model?: string;
+  /** On 'done': why the model stopped ('stop', 'length', 'content_filter'…), when the provider said. */
+  finishReason?: string;
 }
 
 export interface StreamRequest {
@@ -53,17 +55,19 @@ export function createClient(fetchImpl: FetchLike) {
       // Non-streaming fallback (e.g. environments without body streams).
       const j = JSON.parse(await res.text()) as CompletionJson;
       const c = j.choices?.[0];
-      if (c?.message?.reasoning) yield { type: 'reasoning', text: c.message.reasoning };
+      const r = c?.message?.reasoning ?? c?.message?.reasoning_content;
+      if (r) yield { type: 'reasoning', text: r };
       if (c?.message?.content) yield { type: 'text', text: c.message.content };
       const u = usageFrom(j);
       if (u) yield { type: 'usage', usage: u };
-      yield { type: 'done', model: j.model };
+      yield { type: 'done', model: j.model, finishReason: c?.finish_reason ?? undefined };
       return;
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     const parser = createSseParser();
     let model: string | undefined;
+    let finishReason: string | undefined;
     try {
       for (;;) {
         const { value, done } = await reader.read();
@@ -81,8 +85,11 @@ export function createClient(fetchImpl: FetchLike) {
             continue;
           }
           model = j.model ?? model;
-          const d = j.choices?.[0]?.delta;
-          if (d?.reasoning) yield { type: 'reasoning', text: d.reasoning };
+          const choice = j.choices?.[0];
+          if (choice?.finish_reason) finishReason = choice.finish_reason;
+          const d = choice?.delta;
+          const r = d?.reasoning ?? d?.reasoning_content;
+          if (r) yield { type: 'reasoning', text: r };
           if (d?.content) yield { type: 'text', text: d.content };
           const u = usageFrom(j);
           if (u) yield { type: 'usage', usage: u };
@@ -92,7 +99,7 @@ export function createClient(fetchImpl: FetchLike) {
     } finally {
       reader.releaseLock?.();
     }
-    yield { type: 'done', model };
+    yield { type: 'done', model, finishReason };
   }
 
   async function listModels(apiKey: string): Promise<ModelInfo[]> {
@@ -150,7 +157,7 @@ interface CompletionJson {
   id?: string;
   model?: string;
   error?: { message?: string; code?: number };
-  choices?: { delta?: { content?: string; reasoning?: string }; message?: { content?: string; reasoning?: string } }[];
+  choices?: { finish_reason?: string | null; delta?: { content?: string; reasoning?: string; reasoning_content?: string }; message?: { content?: string; reasoning?: string; reasoning_content?: string } }[];
   usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number; total_cost?: number };
 }
 
