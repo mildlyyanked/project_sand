@@ -14,7 +14,7 @@ import { runInForeground } from './foreground';
 import { removeImage, saveImage } from './images';
 import { generateViaBackend } from './imageBackend';
 import { useSettings } from './settings';
-import { deleteBeats, getSession, insertBeat, listBeats, makeBeat, patchSession, updateBeatText } from '@/db/repo/sessions';
+import { deleteBeats, getSession, insertBeat, listBeats, makeBeat, patchSession, updateBeatText, upsertSession } from '@/db/repo/sessions';
 import { deleteIllustration, getCharacters, getStyle, getUniverse, listIllustrations, listLore, listModelStats, listSpecies, recordAttempt, saveIllustration } from '@/db/repo/library';
 
 export interface Streaming {
@@ -163,6 +163,8 @@ export const useSession = create<SessionState>((set, get) => {
   }
 
   let clinicStarting = false;
+  /** Patches in flight; a reload during one keeps the in-memory session. */
+  let patching = 0;
 
   /** One round of the clinic. Runs to completion even if the screen is left; the result lands in the store. */
   async function clinicAsk(history: ChatMessage[]): Promise<void> {
@@ -200,13 +202,16 @@ export const useSession = create<SessionState>((set, get) => {
     db: null, session: null, beats: [], index: emptyIndex, path: [], bundle: emptyBundle, streaming: null, drafts: [], illustrations: [], suggestions: [], sceneProposal: null, refusal: null, clinic: null, imagePrompt: null, diagnoseOnStop: false, error: null, notice: null, dropped: new Set(), lastLog: [], abort: null,
 
     async open(db, id) {
-      const session = await getSession(db, id);
-      if (!session) {
+      const row = await getSession(db, id);
+      if (!row) {
         set({ db, session: null, beats: [], index: emptyIndex, path: [], error: 'Session not found' });
         return;
       }
-      const [beats, bundle, illustrations] = await Promise.all([listBeats(db, id), loadBundle(db, session), listIllustrations(db, id)]);
       const fresh = get().session?.id !== id;
+      // A reload must never undo a change that is newer in memory than in the row it just read.
+      const inMemory = get().session;
+      const session = !fresh && inMemory && (patching > 0 || inMemory.updatedAt > row.updatedAt) ? inMemory : row;
+      const [beats, bundle, illustrations] = await Promise.all([listBeats(db, id), loadBundle(db, session), listIllustrations(db, id)]);
       set({ db, session, bundle, illustrations, error: null, dropped: fresh ? new Set() : get().dropped, ...(fresh ? { suggestions: [], sceneProposal: null, drafts: [], refusal: null, clinic: null } : {}), ...recompute(beats, session) });
     },
     async reload() {
@@ -216,11 +221,17 @@ export const useSession = create<SessionState>((set, get) => {
     async patch(p) {
       const { db, session } = get();
       if (!db || !session) return;
-      const next = await patchSession(db, session.id, p);
-      if (!next) return;
-      const needBundle = 'styleId' in p || 'characterIds' in p || 'universeId' in p;
-      const bundle = needBundle ? await loadBundle(db, next) : get().bundle;
-      set({ session: next, bundle, ...recompute(get().beats, next) });
+      // Build on what is in memory, not on a fresh read of the row: two quick changes must both survive.
+      const next: Session = { ...session, ...p, updatedAt: now() };
+      patching++;
+      try {
+        set({ session: next, ...recompute(get().beats, next) });
+        await upsertSession(db, next);
+        const needBundle = 'styleId' in p || 'characterIds' in p || 'universeId' in p;
+        if (needBundle) set({ bundle: await loadBundle(db, next) });
+      } finally {
+        patching--;
+      }
     },
     async setCurrent(id) {
       await get().patch({ currentBeatId: id });

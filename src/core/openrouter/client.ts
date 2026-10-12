@@ -46,8 +46,7 @@ export function createClient(fetchImpl: FetchLike) {
       const text = await res.text().catch(() => '');
       let msg = text;
       try {
-        const j = JSON.parse(text) as { error?: { message?: string } };
-        msg = j.error?.message ?? text;
+        msg = describeError((JSON.parse(text) as { error?: ApiError }).error) || text;
       } catch {}
       throw new OpenRouterError(msg || `HTTP ${res.status}`, res.status);
     }
@@ -81,7 +80,7 @@ export function createClient(fetchImpl: FetchLike) {
             continue;
           }
           if (j.error) {
-            yield { type: 'error', error: j.error.message ?? 'Unknown error' };
+            yield { type: 'error', error: describeError(j.error) || 'Unknown error' };
             continue;
           }
           model = j.model ?? model;
@@ -153,10 +152,31 @@ export function createClient(fetchImpl: FetchLike) {
 
 export type OpenRouterClient = ReturnType<typeof createClient>;
 
+interface ApiError {
+  message?: string;
+  code?: number | string;
+  metadata?: { provider_name?: string; raw?: unknown; reasons?: string[] };
+}
+
+/** OpenRouter's error with the upstream provider's name and words, which is what tells you what to do about it. */
+export function describeError(e: ApiError | undefined): string {
+  if (!e) return '';
+  const raw = e.metadata?.raw;
+  let detail = typeof raw === 'string' ? raw : raw && typeof raw === 'object' ? (raw as { error?: { message?: string }; message?: string }).error?.message ?? (raw as { message?: string }).message ?? '' : '';
+  detail = detail.trim().slice(0, 240);
+  const provider = e.metadata?.provider_name;
+  const base = e.message?.trim() || (e.code != null ? `Error ${e.code}` : '');
+  const reasons = e.metadata?.reasons?.length ? ` [${e.metadata.reasons.join(', ')}]` : '';
+  if (!provider && !detail) return `${base}${reasons}`;
+  const upstream = [provider, detail && detail !== base ? detail : ''].filter(Boolean).join(': ');
+  const hint = /provider returned error/i.test(base) ? ' Usually the upstream provider, not your request: try again, or avoid that provider under the voice’s Delivery settings.' : '';
+  return `${base}${upstream ? ` (${upstream})` : ''}${reasons}${hint}`;
+}
+
 interface CompletionJson {
   id?: string;
   model?: string;
-  error?: { message?: string; code?: number };
+  error?: ApiError;
   choices?: { finish_reason?: string | null; delta?: { content?: string; reasoning?: string; reasoning_content?: string }; message?: { content?: string; reasoning?: string; reasoning_content?: string } }[];
   usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number; total_cost?: number };
 }

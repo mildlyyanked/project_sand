@@ -10,7 +10,8 @@ import { kTokens, relTime, shortModel } from '../format';
 interface Props {
   open: boolean;
   onClose: () => void;
-  onSelect: (id: string) => void;
+  /** May be async: the sheet closes only once the choice is saved, so the screen behind never reloads a stale row. */
+  onSelect: (id: string) => void | Promise<void>;
   current?: string | null;
   title?: string;
   /** Ids to show first, e.g. models already used in the story. */
@@ -54,7 +55,7 @@ export function ModelPicker({ open, onClose, onSelect, current, title = 'Choose 
     const isZ = zdr.has(m.id);
     const sel = m.id === current;
     return (
-      <Pressable onPress={() => { onSelect(m.id); onClose(); }} style={({ pressed }) => ({ paddingVertical: 10, paddingHorizontal: 4, gap: 2, borderRadius: 10, backgroundColor: sel ? t.surface2 : 'transparent', opacity: pressed ? 0.6 : 1 })}>
+      <Pressable onPress={async () => { try { await onSelect(m.id); } finally { onClose(); } }} style={({ pressed }) => ({ paddingVertical: 10, paddingHorizontal: 4, gap: 2, borderRadius: 10, backgroundColor: sel ? t.surface2 : 'transparent', opacity: pressed ? 0.6 : 1 })}>
         <Row between>
           <T v="h" numberOfLines={1} style={{ flex: 1 }}>{m.name}</T>
           {statOf.get(m.id) ? <Badge label={`${statOf.get(m.id)!.refusals} refusal${statOf.get(m.id)!.refusals === 1 ? '' : 's'} / ${statOf.get(m.id)!.attempts}`} tone={proven(m.id) ? 'ok' : statOf.get(m.id)!.refusals / statOf.get(m.id)!.attempts > 0.34 ? 'warn' : 'dim'} /> : pinned.includes(m.id) && !sel ? <Badge label="used" tone="accent" /> : null}

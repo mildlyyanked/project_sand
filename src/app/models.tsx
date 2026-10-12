@@ -35,7 +35,7 @@ export default function Models() {
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
-      <ModelPicker open onClose={() => router.back()} onSelect={(id) => void choose(id)} current={current ?? null} only={target === 'default:imageModel' ? 'image' : undefined} title={target === 'default:imageModel' ? 'Image model' : 'Choose model'} />
+      <ModelPicker open onClose={() => router.back()} onSelect={(id) => choose(id)} current={current ?? null} only={target === 'default:imageModel' ? 'image' : undefined} title={target === 'default:imageModel' ? 'Image model' : 'Choose model'} />
     </>
   );
 }

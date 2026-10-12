@@ -61,14 +61,20 @@ function ForgeBody({ onClose, kind, universeId, onSaved }: { onClose: () => void
       const [species, lore, chars] = uId ? await Promise.all([listSpecies(db, uId), listLore(db, uId), listCharacters(db)]) : [[], [], await listCharacters(db)];
       const ctx: ForgeContext = { universe, species: species.map((s) => ({ name: s.name, adulthood: s.adulthood })), lore: lore.map((l) => ({ title: l.title, keys: l.keys })), characters: chars.filter((c) => !uId || c.universeId === uId).map((c) => ({ name: c.name, summary: c.summary })) };
       let text = '';
+      let reasoning = '';
       await runInForeground('Forging library entries', async () => {
-        for await (const ev of client.stream({ apiKey, model, messages: forgePrompt(kind, { wish, count, ctx }), params: { temperature: 0.9, topP: 0.95, maxTokens: kind === 'world' ? 2200 : 500 + 450 * count, reasoning: false }, zdr: defaults.zdr })) {
+        for await (const ev of client.stream({ apiKey, model, messages: forgePrompt(kind, { wish, count, ctx }), params: { temperature: 0.9, topP: 0.95, maxTokens: kind === 'world' ? 3000 : 600 + 500 * count, reasoning: false }, zdr: defaults.zdr })) {
           if (ev.type === 'text') { text += ev.text ?? ''; setProgress(text.length); }
+          if (ev.type === 'reasoning') reasoning += ev.text ?? '';
           if (ev.type === 'error') throw new Error(ev.error);
         }
       });
-      const r = parseForge(kind, text);
-      if (!r) throw new Error('The model did not return usable entries. Try again, a clearer wish, or another model.');
+      // Some providers answer on the reasoning channel when a model thinks first; the JSON is there then.
+      const r = parseForge(kind, text) ?? (text.trim() ? null : parseForge(kind, reasoning));
+      if (!r) {
+        const peek = (text || reasoning).trim().replace(/\s+/g, ' ').slice(0, 160);
+        throw new Error(peek ? `The model did not answer with the expected JSON. It began: “${peek}…” Try again, a clearer wish, or another model.` : 'The model returned nothing. Try again or another model.');
+      }
       setResult(r);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));

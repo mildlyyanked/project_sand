@@ -1,6 +1,7 @@
 import type { Character, ChatMessage, Style, Universe } from './types';
 import { renderCharacter, renderStyle } from './context/cards';
 import { DEFAULT_TEMPLATES, type PromptTemplates } from './prompts';
+import { lenientJson } from './json';
 
 /** Prompts for the helper model: scene generator, style analysis, reweave, wizard. */
 
@@ -102,12 +103,9 @@ export function briefPrompt(transcript: ChatMessage[], chosenPremise: string | n
 }
 
 export function parseBrief(text: string): Brief | null {
-  const raw = text.replace(/^[\s\S]*?```(?:json)?/m, '').replace(/```[\s\S]*$/m, '').trim() || text.trim();
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start < 0 || end < 0) return null;
+  const j = lenientJson<Partial<Brief>>(text);
+  if (!j) return null;
   try {
-    const j = JSON.parse(raw.slice(start, end + 1)) as Partial<Brief>;
     const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
     const reg = (v: unknown): Brief['style'] extends infer S ? (S extends { register: infer R } ? R : never) : never => (v === 'clinical' || v === 'euphemistic' ? v : 'blunt');
     return {
@@ -203,12 +201,9 @@ export interface LabResult {
 }
 
 export function parseLabResult(text: string): LabResult | null {
-  const raw = text.replace(/^[\s\S]*?```(?:json)?/m, '').replace(/```[\s\S]*$/m, '').trim() || text.trim();
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start < 0 || end < 0) return null;
+  const j = lenientJson<Partial<LabResult>>(text);
+  if (!j) return null;
   try {
-    const j = JSON.parse(raw.slice(start, end + 1)) as Partial<LabResult>;
     if (j.revised == null) return null;
     return { revised: typeof j.revised === 'string' ? j.revised : (j.revised as Record<string, unknown>), rationale: typeof j.rationale === 'string' ? j.rationale : '', changes: Array.isArray(j.changes) ? j.changes.map(String) : [] };
   } catch {
@@ -315,7 +310,7 @@ export function parseClinicReply(text: string): { prose: string; edits: ClinicEd
   if (!m) return { prose: text.trim(), edits: [] };
   let edits: ClinicEdit[] = [];
   try {
-    const j = JSON.parse(m[1]!) as { edits?: unknown };
+    const j = lenientJson<{ edits?: unknown }>(m[1]!) ?? {};
     if (Array.isArray(j.edits)) {
       edits = j.edits
         .map((e) => (e && typeof e === 'object' ? (e as Partial<ClinicEdit>) : null))
@@ -378,16 +373,8 @@ export function forgePrompt(kind: ForgeKind, o: { wish: string; count: number; c
 }
 
 export function parseForge(kind: ForgeKind, text: string): ForgeResult | null {
-  const raw = text.replace(/^[\s\S]*?```(?:json)?/m, '').replace(/```[\s\S]*$/m, '').trim() || text.trim();
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start < 0 || end < 0) return null;
-  let j: Record<string, unknown>;
-  try {
-    j = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+  const j = lenientJson<Record<string, unknown>>(text);
+  if (!j) return null;
   const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
   const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object') : []);
   const keys = (v: unknown) => (Array.isArray(v) ? v.map(str).map((k) => k.toLowerCase()).filter(Boolean) : str(v).split(',').map((k) => k.trim().toLowerCase()).filter(Boolean));

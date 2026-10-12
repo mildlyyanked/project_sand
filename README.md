@@ -93,7 +93,7 @@ OpenRouter's image models come with their providers' filters. **Settings → Ill
 
 ## Forge
 
-The writer model can invent library entries from a wish. **Forge** on the People and Worlds tabs, and on a world's page for its species, lore and people, asks for what you want and how many, shows the model what the world already holds so new entries fit and avoid repeats, then previews the result for you to prune before saving. A forged world arrives with a description and, where it calls for them, first species and lore. Characters come with a life stage and an adult flag by their species' definition, shown in the preview; everything is editable afterwards.
+The writer model can invent library entries from a wish. **Forge** on the People and Worlds tabs, and on a world's page for its species, lore and people, asks for what you want and how many, shows the model what the world already holds so new entries fit and avoid repeats, then previews the result for you to prune before saving. A forged world arrives with a description and, where it calls for them, first species and lore. Characters come with a life stage and an adult flag by their species' definition, shown in the preview; everything is editable afterwards. Replies are read leniently (fenced, prefaced, literal newlines inside strings, trailing commas), and when a model answers on its reasoning channel the JSON is taken from there; a reply that still cannot be read is quoted in the error.
 
 ## Home
 

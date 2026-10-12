@@ -195,7 +195,7 @@ export async function generateWithChain(o: GenerateOptions): Promise<GenerateAtt
           if (ev.type === 'text') o.onDelta?.(i, a.text, a.reasoning);
         }
         settleReasoning(a, prefill.length);
-        if (a.error) {
+        if (a.error && !a.text.slice(prefill.length).trim()) {
           attempts.push(a);
           continue;
         }
@@ -226,7 +226,7 @@ export async function generateWithChain(o: GenerateOptions): Promise<GenerateAtt
         settleReasoning(a, prefill.length);
         a.stripPrefix = plan.stripPrefix;
         a.refused = !a.error && looksLikeRefusal(a.text.slice(prefill.length) || a.text);
-        if (a.error) {
+        if (a.error && !a.text.slice(prefill.length).trim()) {
           attempts.push(a);
           continue;
         }
