@@ -201,8 +201,11 @@ export interface Session {
   instanceId: Id | null;
   /** Free writing, or playing one character inside the world. */
   mode: 'writer' | 'pov';
-  /** Share the instance's timeline and other stories (continuity) and record this story's events (chronicle). */
-  world: { continuity: boolean; chronicle: boolean };
+  /**
+   * continuity: read the instance timeline and sibling stories. chronicle: a helper call per passage.
+   * newcomers: names the story brought in that the library lacks, waiting to be canonized or dismissed.
+   */
+  world: { continuity: boolean; chronicle: boolean; newcomers?: import('./world/forge').Newcomer[]; dismissed?: string[] };
   /** In-world time when the story opens, minutes since the calendar start. */
   clockStart: number;
   /** POV mode settings; the live sheet is on the beats. */

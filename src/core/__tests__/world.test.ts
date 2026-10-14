@@ -26,6 +26,8 @@ describe('calendar', () => {
   it('parses the durations models write', () => {
     expect(parseDuration(25)).toBe(25);
     expect(parseDuration('20 minutes')).toBe(20);
+    expect(parseDuration('3 days 4 hours')).toBe(3 * 1440 + 240);
+    expect(parseDuration('2 weeks')).toBe(20160);
     expect(parseDuration('3 hours')).toBe(180);
     expect(parseDuration('an hour and a half')).toBe(90);
     expect(parseDuration('2 days')).toBe(2880);

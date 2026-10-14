@@ -2,7 +2,7 @@
  * What every world element can carry. The editors and the context renderer
  * both read this, so adding a field here adds it everywhere.
  */
-export type FieldType = 'text' | 'long' | 'select' | 'number' | 'ref' | 'effects' | 'lines';
+export type FieldType = 'text' | 'long' | 'select' | 'number' | 'ref' | 'effects' | 'lines' | 'bool' | 'keys';
 
 export interface FieldDef {
   key: string;
@@ -11,7 +11,7 @@ export interface FieldDef {
   hint?: string;
   options?: string[];
   /** For 'ref': which kind of element it points at. */
-  ref?: 'location' | 'organization' | 'item' | 'character';
+  ref?: 'location' | 'organization' | 'item' | 'character' | 'species';
   /** Sent to the writer when the element comes up. Off for bookkeeping fields. */
   inContext?: boolean;
   /** Only shown, and only sent, in POV play. */
@@ -84,6 +84,7 @@ export const SPECIES_FIELDS: FieldDef[] = [
 
 export const CHARACTER_FIELDS: FieldDef[] = [
   { key: 'occupation', label: 'Occupation', type: 'text', inContext: true },
+  { key: 'lookalike', label: 'Looks like', type: 'text', hint: 'A real person or a fictional character whose look inspires this one. Forge writes the appearance from it in its own words; it is never sent to the writer or an image model.' },
   { key: 'appearance', label: 'Appearance', type: 'long', inContext: true },
   { key: 'personality', label: 'Personality', type: 'long', inContext: true },
   { key: 'backstory', label: 'Backstory', type: 'long', inContext: true },

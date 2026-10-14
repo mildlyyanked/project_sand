@@ -15,6 +15,11 @@ import { ATTRIBUTE_INFO, OUTCOME_LABEL } from '@/core/world/dice';
 import { childrenOf } from '@/core/world/scan';
 import { chronicleOn } from '@/state/world';
 import { Bar, TimeEditor } from '@/ui/components/World';
+import { Avatar } from '@/ui/components/EntryImage';
+import { ForgeSheet } from '@/ui/components/Forge';
+import { imageOf, namedIn } from '@/core/world/portraits';
+import { excerptsFor, type Newcomer } from '@/core/world/forge';
+import { KIND_NOUN } from '@/core/world/drafts';
 import { HEAT_LABELS } from '@/core/types';
 import { leafOf, siblingPosition, siblings } from '@/core/beatTree';
 import { voiceDrift } from '@/core/voiceDrift';
@@ -59,6 +64,8 @@ export default function Manuscript() {
   const [sheetTab, setSheetTab] = useState<'status' | 'inventory' | 'aims' | 'people'>('status');
   const [clockOpen, setClockOpen] = useState(false);
   const [travelOpen, setTravelOpen] = useState(false);
+  const [canonOpen, setCanonOpen] = useState(false);
+  const [canonize, setCanonize] = useState<Newcomer | null>(null);
   const [menu, setMenu] = useState(false);
   const [beatMenu, setBeatMenu] = useState<Beat | null>(null);
   const [edit, setEdit] = useState<{ beat: Beat; text: string } | null>(null);
@@ -103,6 +110,8 @@ export default function Manuscript() {
   }, [lastProse, path, s.bundle.style]);
   const hasRedo = !!session && (s.index.children.get(session.currentBeatId)?.length ?? 0) > 0;
   const usedModels = useMemo(() => Array.from(new Set(s.beats.map((b) => b.model).filter((m): m is string => !!m))), [s.beats]);
+  /** Everyone in the story or its world who has a portrait: shown beside the passages that name them. */
+  const portraitPeople = useMemo(() => [...s.bundle.characters, ...s.wb.people, ...(s.wb.player ? [s.wb.player] : [])].filter((c, i, a) => a.findIndex((x) => x.id === c.id) === i && imageOf(c.data as Record<string, unknown>)), [s.bundle.characters, s.wb.people, s.wb.player]);
   const illustrationsByBeat = useMemo(() => {
     const m = new Map<string, Illustration[]>();
     for (const i of s.illustrations) if (i.beatId) m.set(i.beatId, [...(m.get(i.beatId) ?? []), i]);
@@ -207,7 +216,8 @@ export default function Manuscript() {
     const pos = siblingPosition(s.index, b.id);
     const sibs = pos.of > 1 ? siblings(s.index, b.id) : [];
     const multiModel = sibs.length > 1 && new Set(sibs.map((x) => x.model)).size > 1;
-    const meta = b.role === 'prose' && (pos.of > 1 || b.model);
+    const faces = b.role === 'prose' ? portraitPeople.filter((c) => namedIn(b.text, c.name)).slice(0, 5) : [];
+    const meta = b.role === 'prose' && (pos.of > 1 || b.model || faces.length);
     const pics = illustrationsByBeat.get(b.id) ?? [];
     return (
       <Pressable onPress={() => setBeatMenu(b)} style={({ pressed }) => ({ paddingHorizontal: space.lg, paddingVertical: 8, opacity: pressed ? 0.7 : 1 })}>
@@ -232,6 +242,11 @@ export default function Manuscript() {
         ) : null}
         {meta ? (
           <Row style={{ marginTop: 6, flexWrap: 'wrap' }} gap={10}>
+            {faces.length ? (
+              <Row gap={4}>
+                {faces.map((c) => <Pressable key={c.id} onPress={() => router.push(`/library/character/${c.id}`)} hitSlop={4}><Avatar data={c.data as Record<string, unknown>} name={c.name} size={22} /></Pressable>)}
+              </Row>
+            ) : null}
             {pos.of > 1 ? (
               <Row gap={2}>
                 <IconButton name="chevron-back" size={16} color={t.dim} onPress={() => s.swipe(b.id, -1)} style={{ padding: 2 }} />
@@ -352,6 +367,7 @@ export default function Manuscript() {
         {world && (clockShown || playing) ? (
           <Pressable onPress={() => (playing ? setSheetOpen(true) : setClockOpen(true))} style={{ gap: 6 }}>
             <Row gap={8}>
+              {playing && s.wb.player && imageOf(s.wb.player.data as Record<string, unknown>) ? <Avatar data={s.wb.player.data as Record<string, unknown>} name={s.wb.player.name} size={22} /> : null}
               <Ionicons name="time-outline" size={13} color={t.dim} />
               <T v="small">{formatShort(calendar, world.now)}</T>
               {world.scene.locationName ? <><Ionicons name="location-outline" size={13} color={t.dim} /><T v="small" numberOfLines={1} style={{ flex: 1 }}>{world.scene.locationName}</T></> : <View style={{ flex: 1 }} />}
@@ -373,6 +389,13 @@ export default function Manuscript() {
             <Chip small label="Wait an hour" onPress={() => quick('You wait for an hour, watching what happens around you.')} />
             <Chip small label="Inventory" onPress={() => { setSheetTab('inventory'); setSheetOpen(true); }} />
           </ScrollView>
+        ) : null}
+        {session.world.newcomers?.length && !streaming ? (
+          <Pressable onPress={() => setCanonOpen(true)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 8, opacity: pressed ? 0.7 : 1 })}>
+            <Ionicons name="person-add-outline" size={14} color={t.accent} />
+            <T v="small" numberOfLines={1} style={{ flex: 1 }}>New in the story: {session.world.newcomers.map((n) => n.name).join(', ')}</T>
+            <T v="small" style={{ color: t.accent }}>Canonize</T>
+          </Pressable>
         ) : null}
         {s.suggestions.length ? (
           <Row style={{ flexWrap: 'wrap' }} gap={6}>
@@ -451,6 +474,7 @@ export default function Manuscript() {
             {beatMenu.role === 'prose' && beatMenu.model ? <MenuItem icon="glasses-outline" label="Critique and redo" hint="The helper marks up this passage; the writer rewrites it against the notes" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.critiqueAndRedo(b.id); }} /> : null}
             {beatMenu.role === 'prose' && imageBackend.kind !== 'prompt' ? <MenuItem icon="image-outline" label="Illustrate" hint="The helper describes the strongest moment; the image model paints it" onPress={() => { const b = beatMenu; setBeatMenu(null); void askNotificationPermission(); void s.illustrate(b.id); }} /> : null}
             {beatMenu.role === 'prose' ? <MenuItem icon="color-palette-outline" label="Picture prompt" hint="Only the image prompt, to paste into Perchance or any generator" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.illustrate(b.id, { promptOnly: true }); }} /> : null}
+            {beatMenu.role === 'prose' ? <MenuItem icon="person-add-outline" label="Find new names" hint="People, places, factions and things in this passage that the library lacks, to canonize" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.findNewcomers(b.id); }} /> : null}
             {beatMenu.plan ? <MenuItem icon="map-outline" label="Show the plan it followed" onPress={() => { const b = beatMenu; setBeatMenu(null); s.setNotice(`Plan: ${b.plan}`); }} /> : null}
             {beatMenu.id !== session.currentBeatId ? <MenuItem icon="cut-outline" label="Continue from here" hint="Later beats stay on their branch" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.setCurrent(b.id); }} /> : null}
             <MenuItem icon="copy-outline" label="Copy text" onPress={async () => { await Clipboard.setStringAsync(beatMenu.text); setBeatMenu(null); }} />
@@ -504,6 +528,36 @@ export default function Manuscript() {
       <ModelPicker open={draftPicker} onClose={() => setDraftPicker(false)} onSelect={(m) => toggleDraft(m)} pinned={usedModels} title="Extra draft model" />
 
       {/* Image prompt to take elsewhere */}
+      <Sheet open={canonOpen} onClose={() => setCanonOpen(false)} title="New in the story">
+        <T v="faint">Names this story brought in that {s.bundle.universe?.isDefault ? 'your library' : s.bundle.universe?.name ?? 'the world'} does not have yet. Canonize one to forge its entry from what the story says, then edit or reforge any field before saving. New characters join this story’s cast.</T>
+        {(session.world.newcomers ?? []).map((n) => (
+          <View key={n.name} style={{ gap: 4, paddingVertical: 6 }}>
+            <Row between>
+              <T v="h" style={{ flex: 1 }}>{n.name}</T>
+              <T v="small">{KIND_NOUN[n.kind].toLowerCase()}</T>
+            </Row>
+            {n.note ? <T v="dim">{n.note}</T> : null}
+            <Row>
+              <Button small icon="sparkles-outline" title="Canonize" onPress={() => { setCanonOpen(false); setCanonize(n); }} />
+              <Button small kind="ghost" title="Not now" onPress={() => s.dismissNewcomer(n.name)} />
+            </Row>
+          </View>
+        ))}
+        {!session.world.newcomers?.length ? <T v="faint">Nothing waiting. With the chronicle on, new names are noticed after each passage; any passage’s menu has Find new names.</T> : null}
+      </Sheet>
+      <ForgeSheet
+        open={!!canonize}
+        onClose={() => setCanonize(null)}
+        kind={canonize?.kind ?? 'character'}
+        universeId={session.universeId}
+        canon={canonize ? { name: canonize.name, kind: canonize.kind, excerpts: excerptsFor(canonize.name, path.filter((b) => b.role === 'prose').map((b) => b.text)) } : null}
+        onSaved={(plan, drafts) => {
+          const name = canonize?.name;
+          if (!name) return;
+          const ids = drafts.filter((d) => d.kind === 'character').map((d) => d.id).filter((id) => { const c = plan.characters.find((x) => x.id === id); return !!c && (!session.explicit || c.adult); });
+          void s.canonized(name, ids);
+        }}
+      />
       <Sheet open={!!s.imagePrompt} onClose={() => { s.clearImagePrompt(); setPromptDraft(null); }} title="Picture prompt" full>
         <Field multiline value={promptDraft ?? s.imagePrompt?.prompt ?? ''} onChangeText={setPromptDraft} style={{ fontFamily: serif, fontSize: 16, minHeight: 160 }} />
         <T v="faint">{s.imagePrompt?.canPaint ? 'Edit freely, then paint it here or take it to another generator. If the painter refuses, cut what it objects to and paint again; the story is untouched.' : 'Paste it into Perchance, Civitai, a local web UI or any other generator. Nothing was sent anywhere; this is just the description.'}</T>
@@ -578,7 +632,7 @@ export default function Manuscript() {
               </>
             ) : (
               <>
-                {Object.keys(sheet.relations).length ? Object.entries(sheet.relations).map(([n, r]) => <Row key={n} between><T>{n}</T><T v="dim">{r.attitude > 0 ? `+${r.attitude}` : r.attitude}{r.note ? ` · ${r.note}` : ''}</T></Row>) : <T v="faint">Nobody has an opinion of you yet.</T>}
+                {Object.keys(sheet.relations).length ? Object.entries(sheet.relations).map(([n, r]) => { const who = [...s.wb.people, ...s.bundle.characters].find((c) => c.name.toLowerCase() === n.toLowerCase()); return <Row key={n} between><Row gap={8}>{who ? <Avatar data={who.data as Record<string, unknown>} name={who.name} size={24} /> : null}<T>{n}</T></Row><T v="dim">{r.attitude > 0 ? `+${r.attitude}` : r.attitude}{r.note ? ` · ${r.note}` : ''}</T></Row>; }) : <T v="faint">Nobody has an opinion of you yet.</T>}
               </>
             )}
           </>

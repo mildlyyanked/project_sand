@@ -103,6 +103,7 @@ export default function Settings() {
           </>
         )}
         {ib.kind !== 'prompt' ? <SwitchRow label="Show the prompt before painting" hint="Illustrate stops at the helper's description so you can read it, change it, then paint. Useful when a painter keeps refusing: cut what it objects to and try again, without touching the story." value={s.defaults.reviewImagePrompt} onChange={(v) => s.setDefaults(db, { reviewImagePrompt: v })} /> : null}
+        {ib.kind === 'openrouter' ? <SwitchRow label="Use portraits as references" hint="When a passage names characters who have portraits, the portraits go with the illustration request so they look like themselves. For image models that take images in; others ignore them." value={s.defaults.portraitReferences} onChange={(v) => s.setDefaults(db, { portraitReferences: v })} /> : null}
         {ib.kind !== 'openrouter' ? <Row between><T>Image size</T><Stepper value={ib.size} min={512} max={1536} step={128} onChange={(v) => setIb({ size: v })} /></Row> : null}
         <T v="faint">Painting with: {describeBackend(ib)}</T>
       </Section>

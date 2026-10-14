@@ -18,3 +18,17 @@ export async function removeImage(uri: string): Promise<void> {
     if (f.exists) f.delete();
   } catch {}
 }
+
+/** A saved image as a data URL, to send to an image model as a reference. */
+export async function imageDataUrl(uri: string): Promise<string | null> {
+  if (uri.startsWith('data:')) return uri;
+  try {
+    const f = new File(uri);
+    if (!f.exists) return null;
+    const ext = uri.split('.').pop()?.toLowerCase();
+    const type = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
+    return `data:${type};base64,${await f.base64()}`;
+  } catch {
+    return null;
+  }
+}

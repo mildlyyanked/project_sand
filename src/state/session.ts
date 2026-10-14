@@ -7,6 +7,9 @@ import type { CheckResult, SceneState } from '@/core/world/types';
 import { rollCheck } from '@/core/world/dice';
 import { useItem as spendItem, parseEffects } from '@/core/world/survival';
 import { sceneAt } from '@/core/world/timeline';
+import { newcomersPrompt, parseNewcomers, type Newcomer } from '@/core/world/forge';
+import { normName } from '@/core/world/drafts';
+import { imageOf, namedIn } from '@/core/world/portraits';
 import { buildWorldContext, chronicle, chronicleOn, emptyWorldBundle, initialScene, loadWorldBundle, referee, type WorldBundle } from './world';
 import { clinicOpening, clinicSystem, critiquePrompt, imagePromptPrompt, parseClinicReply, parseSuggestions, planPrompt, scenePrompt, suggestPrompt, transcriptOf, type ClinicEdit } from '@/core/helpers';
 import { renderHeat } from '@/core/context/cards';
@@ -16,7 +19,7 @@ import { applyRepetition, trimDegenerate } from '@/core/repetition';
 import { newId, now } from '@/core/ids';
 import { client } from './client';
 import { runInForeground } from './foreground';
-import { removeImage, saveImage } from './images';
+import { imageDataUrl, removeImage, saveImage } from './images';
 import { generateViaBackend } from './imageBackend';
 import { useSettings } from './settings';
 import { deleteBeats, getSession, insertBeat, listBeats, makeBeat, patchSession, updateBeatText, updateBeatWorld, upsertSession } from '@/db/repo/sessions';
@@ -156,6 +159,13 @@ interface SessionState {
   clearSuggestions(): void;
   /** Passage to image prompt to picture, one tap. With promptOnly, or the prompt-only backend, it stops at the prompt. */
   illustrate(beatId: Id, o?: { promptOnly?: boolean }): Promise<void>;
+  /** Names the story brought in that the library lacks: kept on the session until canonized or dismissed. */
+  addNewcomers(list: Newcomer[]): Promise<void>;
+  /** Ask the helper which names in a passage are new to the library. */
+  findNewcomers(beatId: Id): Promise<void>;
+  dismissNewcomer(name: string): Promise<void>;
+  /** A newcomer became a library entry: drop it from the list, reload the world, and cast a new character. */
+  canonized(name: string, characterIds: Id[]): Promise<void>;
   removeIllustration(id: Id): Promise<void>;
   clearRefusal(): void;
   /** Stop retrying right now and take the refusal seen so far to the clinic. */
@@ -582,6 +592,7 @@ export const useSession = create<SessionState>((set, get) => {
             if (out) {
               const beats = get().beats.map((b) => (b.id === mainBeat.id ? { ...b, at: out.at, state: out.scene } : b));
               set({ survivalNotes: out.notes, ...recompute(beats, get().session!) });
+              if (out.newcomers.length) await get().addNewcomers(out.newcomers);
               if (out.scene.pov?.down && !sceneAt(path, initialScene(sess, wb)).pov?.down) set({ notice: sess.pov?.difficulty === 'hardcore' ? `${wb.player?.name ?? 'Your character'} has fallen. Undo to try again from an earlier moment, or play out the end.` : `${wb.player?.name ?? 'Your character'} is down. The story goes on, at a cost.` });
             } else if (check) {
               // Keep the roll on the passage even when the chronicle could not be read.
@@ -686,13 +697,21 @@ export const useSession = create<SessionState>((set, get) => {
       }
       const beat = index.byId.get(beatId);
       if (!beat) return;
+      // People named in the passage, from the cast and the world, with their looks and portraits.
+      const { wb } = get();
+      const people = [...bundle.characters, ...wb.people, ...(wb.player ? [wb.player] : [])].filter((c, i, a) => a.findIndex((x) => x.id === c.id) === i);
+      const named = people.filter((c) => namedIn(beat.text, c.name));
+      const refs = backend.kind === 'openrouter' && defaults.portraitReferences ? named.filter((c) => imageOf(c.data as Record<string, unknown>)).slice(0, 3) : [];
+      const scene = beat.state ?? sceneAt(get().path, initialScene(session, wb));
+      const placeEnt = scene.locationId ? wb.entities.find((e) => e.id === scene.locationId) : undefined;
+      const place = placeEnt ? [placeEnt.name, placeEnt.summary, typeof placeEnt.data.description === 'string' ? placeEnt.data.description : ''].filter(Boolean).join('. ').slice(0, 400) : scene.locationName || undefined;
       const abort = new AbortController();
       set({ abort, error: null, imagePrompt: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'illustrating', startedAt: now(), parentId: beat.parentId } });
       try {
         await runInForeground(promptOnly ? 'Describing the picture' : 'Illustrating the passage', async () => {
           let prompt = '';
           const canPaint = backend.kind !== 'prompt';
-          for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: imagePromptPrompt({ passage: beat.text, characters: bundle.characters, universe: bundle.universe, style: bundle.style, brief: session.brief }), params: { temperature: 0.7, topP: 0.95, maxTokens: 300, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
+          for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: imagePromptPrompt({ passage: beat.text, characters: named.length ? named : bundle.characters, universe: bundle.universe, style: bundle.style, brief: session.brief, place, references: refs.length }), params: { temperature: 0.7, topP: 0.95, maxTokens: 300, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
             if (ev.type === 'text') {
               prompt += ev.text ?? '';
               set((st) => (st.streaming ? { streaming: { ...st.streaming, text: prompt } } : {}));
@@ -715,8 +734,9 @@ export const useSession = create<SessionState>((set, get) => {
 
       async function paintWith(prompt: string) {
         set((st) => (st.streaming ? { streaming: { ...st.streaming, model: backend.kind === 'openrouter' ? defaults.imageModel : backend.model || backend.kind, text: prompt } } : {}));
+        const references = (await Promise.all(refs.map((c) => imageDataUrl(imageOf(c.data as Record<string, unknown>)!.uri)))).filter((x): x is string => !!x);
         const img = backend.kind === 'openrouter'
-          ? await client.generateImage({ apiKey, model: defaults.imageModel, prompt, zdr: session!.zdr, signal: abort.signal })
+          ? await client.generateImage({ apiKey, model: defaults.imageModel, prompt, zdr: session!.zdr, signal: abort.signal, references })
           : await generateViaBackend(backend, imageKey, prompt, abort.signal);
         const id = newId();
         const uri = await saveImage(id, img.dataUrl);
@@ -735,8 +755,12 @@ export const useSession = create<SessionState>((set, get) => {
       set({ abort, error: null, imagePrompt: null, streaming: { text: prompt, reasoning: '', attempt: 0, step: null, model: backend.kind === 'openrouter' ? defaults.imageModel : backend.model || backend.kind, phase: 'illustrating', startedAt: now(), parentId: beat.parentId } });
       try {
         await runInForeground('Painting the picture', async () => {
+          const { wb, bundle } = get();
+          const people = [...bundle.characters, ...wb.people, ...(wb.player ? [wb.player] : [])];
+          const refs = backend.kind === 'openrouter' && defaults.portraitReferences ? people.filter((c, i, a) => a.findIndex((x) => x.id === c.id) === i && namedIn(beat.text, c.name) && imageOf(c.data as Record<string, unknown>)).slice(0, 3) : [];
+          const references = (await Promise.all(refs.map((c) => imageDataUrl(imageOf(c.data as Record<string, unknown>)!.uri)))).filter((x): x is string => !!x);
           const img = backend.kind === 'openrouter'
-            ? await client.generateImage({ apiKey, model: defaults.imageModel, prompt: prompt.trim(), zdr: session.zdr, signal: abort.signal })
+            ? await client.generateImage({ apiKey, model: defaults.imageModel, prompt: prompt.trim(), zdr: session.zdr, signal: abort.signal, references })
             : await generateViaBackend(backend, imageKey, prompt.trim(), abort.signal);
           const id = newId();
           const uri = await saveImage(id, img.dataUrl);
@@ -750,6 +774,57 @@ export const useSession = create<SessionState>((set, get) => {
       } finally {
         set({ streaming: null, abort: null });
       }
+    },
+    async addNewcomers(list) {
+      const { session } = get();
+      if (!session || !list.length) return;
+      const dismissed = new Set((session.world.dismissed ?? []).map(normName));
+      const have = session.world.newcomers ?? [];
+      const seen = new Set(have.map((n) => normName(n.name)));
+      const add = list.filter((n) => { const k = normName(n.name); if (dismissed.has(k) || seen.has(k)) return false; seen.add(k); return true; });
+      if (!add.length) return;
+      await get().patch({ world: { ...session.world, newcomers: [...have, ...add].slice(-20) } });
+    },
+    async findNewcomers(beatId) {
+      const { session, index, wb, bundle } = get();
+      const { apiKey } = useSettings.getState();
+      const beat = index.byId.get(beatId);
+      if (!session || !beat || get().streaming) return;
+      if (!apiKey) return set({ error: 'Add your OpenRouter key in Settings first.' });
+      const known = [...wb.people, ...bundle.characters].map((c) => c.name).concat(wb.entities.map((e) => e.name), bundle.species.map((x) => x.name), wb.player ? [wb.player.name] : []);
+      const abort = new AbortController();
+      set({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'chronicling', startedAt: now(), parentId: beat.parentId } });
+      try {
+        let text = '';
+        for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: newcomersPrompt({ passage: beat.text, known }), params: { temperature: 0.2, topP: 0.9, maxTokens: 500, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
+          if (ev.type === 'text') text += ev.text ?? '';
+          if (ev.type === 'error') throw new Error(ev.error);
+        }
+        const found = parseNewcomers(text, known).map((n) => ({ ...n, beatId }));
+        const before = get().session?.world.newcomers?.length ?? 0;
+        await get().addNewcomers(found);
+        const added = (get().session?.world.newcomers?.length ?? 0) - before;
+        set({ notice: added ? `Found ${added} new name${added === 1 ? '' : 's'}. Canonize them from the bar above the composer.` : 'No names in this passage that the library does not already have.' });
+      } catch (e) {
+        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
+      } finally {
+        set({ streaming: null, abort: null });
+      }
+    },
+    async dismissNewcomer(name) {
+      const { session } = get();
+      if (!session) return;
+      const k = normName(name);
+      await get().patch({ world: { ...session.world, newcomers: (session.world.newcomers ?? []).filter((n) => normName(n.name) !== k), dismissed: [...(session.world.dismissed ?? []), name].slice(-200) } });
+    },
+    async canonized(name, characterIds) {
+      const { session, db } = get();
+      if (!session || !db) return;
+      const k = normName(name);
+      const cast = [...session.characterIds, ...characterIds.filter((id) => !session.characterIds.includes(id) && id !== session.pov?.characterId)];
+      await get().patch({ world: { ...session.world, newcomers: (session.world.newcomers ?? []).filter((n) => normName(n.name) !== k) }, characterIds: cast });
+      set({ wb: await loadWorldBundle(db, get().session!) });
+      await get().refreshWorld();
     },
     async useItem(name) {
       const { session, path, wb } = get();

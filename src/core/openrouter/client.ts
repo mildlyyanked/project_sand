@@ -127,10 +127,12 @@ export function createClient(fetchImpl: FetchLike) {
    * One image from a chat-completions call with image output. OpenRouter returns
    * images on the message as data URLs; the first one is what we keep.
    */
-  async function generateImage(o: { apiKey: string; model: string; prompt: string; zdr: boolean; signal?: AbortSignal }): Promise<{ dataUrl: string; model: string }> {
+  async function generateImage(o: { apiKey: string; model: string; prompt: string; zdr: boolean; signal?: AbortSignal; references?: string[] }): Promise<{ dataUrl: string; model: string }> {
     const provider: Record<string, unknown> = { data_collection: 'deny', allow_fallbacks: true };
     if (o.zdr) provider.zdr = true;
-    const body = { model: o.model, messages: [{ role: 'user', content: o.prompt }], modalities: ['image', 'text'], stream: false, provider };
+    // Reference images (portraits of the people in the picture) ride along as image parts, for models that take them.
+    const content = o.references?.length ? [{ type: 'text', text: o.prompt }, ...o.references.map((url) => ({ type: 'image_url', image_url: { url } }))] : o.prompt;
+    const body = { model: o.model, messages: [{ role: 'user', content }], modalities: ['image', 'text'], stream: false, provider };
     const res = await fetchImpl(`${OPENROUTER_BASE}/chat/completions`, { method: 'POST', headers: headers(o.apiKey), body: JSON.stringify(body), signal: o.signal });
     const text = await res.text();
     if (!res.ok) {

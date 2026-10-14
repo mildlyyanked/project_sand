@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, type PressableProps, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -66,11 +66,31 @@ export function IconButton({ name, onPress, color, size = 22, style, disabled, b
   );
 }
 
-export function Field({ label, hint, style, multiline, ...rest }: { label?: string; hint?: string } & TextInputProps) {
+/** A sparkle beside a field's label: reforge just this field with the writer model. */
+export function ForgeMark({ onPress }: { onPress: () => void }) {
+  const t = useTheme();
+  return (
+    <Pressable onPress={onPress} hitSlop={10} accessibilityLabel="Reforge this field" style={({ pressed }) => ({ opacity: pressed ? 0.5 : 0.85, paddingHorizontal: 2 })}>
+      <Ionicons name="sparkles-outline" size={15} color={t.accent} />
+    </Pressable>
+  );
+}
+
+export function FieldLabel({ label, onForge }: { label: string; onForge?: () => void }) {
+  if (!onForge) return <T v="label">{label}</T>;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+      <T v="label" style={{ flex: 1 }}>{label}</T>
+      <ForgeMark onPress={onForge} />
+    </View>
+  );
+}
+
+export function Field({ label, hint, style, multiline, onForge, ...rest }: { label?: string; hint?: string; onForge?: () => void } & TextInputProps) {
   const t = useTheme();
   return (
     <View style={{ gap: 6 }}>
-      {label ? <T v="label">{label}</T> : null}
+      {label ? <FieldLabel label={label} onForge={onForge} /> : null}
       <TextInput
         placeholderTextColor={t.faint}
         multiline={multiline}
@@ -93,11 +113,12 @@ export function Row({ children, style, gap = space.sm, between }: { children: Re
   return <View style={[{ flexDirection: 'row', alignItems: 'center', gap, justifyContent: between ? 'space-between' : undefined }, style]}>{children}</View>;
 }
 
-export function ListItem({ title, subtitle, right, onPress, onLongPress, icon, chevron = true }: { title: string; subtitle?: string; right?: React.ReactNode; onPress?: () => void; onLongPress?: () => void; icon?: IoniconName; chevron?: boolean }) {
+export function ListItem({ title, subtitle, right, left, onPress, onLongPress, icon, chevron = true }: { title: string; subtitle?: string; right?: React.ReactNode; left?: React.ReactNode; onPress?: () => void; onLongPress?: () => void; icon?: IoniconName; chevron?: boolean }) {
   const t = useTheme();
   return (
     <Pressable onPress={onPress} onLongPress={onLongPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 4, opacity: pressed ? 0.7 : 1, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.border })}>
       {icon ? <Ionicons name={icon} size={20} color={t.dim} /> : null}
+      {left}
       <View style={{ flex: 1, gap: 2 }}>
         <T numberOfLines={1}>{title}</T>
         {subtitle ? <T v="faint" numberOfLines={2}>{subtitle}</T> : null}
@@ -225,14 +246,52 @@ export function Banner({ text, tone = 'danger', onClose }: { text: string; tone?
   );
 }
 
+/**
+ * A number with − and +. Tap the number to type it; hold − or + to run,
+ * faster the longer it is held.
+ */
 export function Stepper({ value, onChange, min = 0, max = 10, step = 1, format }: { value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number; format?: (v: number) => string }) {
   const t = useTheme();
+  const [typing, setTyping] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const acc = useRef(value);
   const clamp = (v: number) => Math.min(max, Math.max(min, Math.round(v / step) * step));
+  const stop = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  useEffect(() => stop, []);
+  const hold = (dir: 1 | -1) => {
+    acc.current = value;
+    let n = 0;
+    const tick = () => {
+      n++;
+      const mult = n > 24 ? 20 : n > 12 ? 5 : 1;
+      acc.current = clamp(acc.current + dir * step * mult);
+      onChange(acc.current);
+      if (acc.current === (dir > 0 ? max : min)) return stop();
+      timer.current = setTimeout(tick, n > 4 ? 60 : 120);
+    };
+    tick();
+  };
+  const commit = () => {
+    if (typing != null) {
+      const v = Number(typing.replace(/[^0-9.-]/g, ''));
+      if (typing.trim() && Number.isFinite(v)) onChange(Math.min(max, Math.max(min, Math.round(v))));
+    }
+    setTyping(null);
+  };
   return (
     <Row gap={0} style={{ borderWidth: 1, borderColor: t.border, borderRadius: radius.md, overflow: 'hidden' }}>
-      <Pressable onPress={() => onChange(clamp(value - step))} style={{ padding: 10 }}><Ionicons name="remove" size={18} color={t.text} /></Pressable>
-      <Text style={{ color: t.text, minWidth: 64, textAlign: 'center', fontVariant: ['tabular-nums'] }}>{format ? format(value) : String(value)}</Text>
-      <Pressable onPress={() => onChange(clamp(value + step))} style={{ padding: 10 }}><Ionicons name="add" size={18} color={t.text} /></Pressable>
+      <Pressable onPress={() => onChange(clamp(value - step))} onLongPress={() => hold(-1)} onPressOut={stop} delayLongPress={300} style={{ padding: 10 }}><Ionicons name="remove" size={18} color={t.text} /></Pressable>
+      {typing != null ? (
+        <TextInput value={typing} onChangeText={setTyping} onBlur={commit} onSubmitEditing={commit} autoFocus selectTextOnFocus keyboardType="numbers-and-punctuation" style={{ color: t.text, minWidth: 64, textAlign: 'center', paddingVertical: 4, fontVariant: ['tabular-nums'] }} />
+      ) : (
+        <Pressable onPress={() => setTyping(String(value))} hitSlop={6}>
+          <Text style={{ color: t.text, minWidth: 64, textAlign: 'center', fontVariant: ['tabular-nums'], textDecorationLine: 'underline', textDecorationStyle: 'dotted', textDecorationColor: t.faint }}>{format ? format(value) : String(value)}</Text>
+        </Pressable>
+      )}
+      <Pressable onPress={() => onChange(clamp(value + step))} onLongPress={() => hold(1)} onPressOut={stop} delayLongPress={300} style={{ padding: 10 }}><Ionicons name="add" size={18} color={t.text} /></Pressable>
     </Row>
   );
 }

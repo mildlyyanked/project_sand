@@ -217,11 +217,15 @@ export function transcriptOf(messages: ChatMessage[]): string {
 }
 
 /** Turn the latest passage into a prompt for an image model. */
-export function imagePromptPrompt(o: { passage: string; characters: Character[]; universe: Universe | null; style: Style | null; brief: string }): ChatMessage[] {
+export function imagePromptPrompt(o: { passage: string; characters: Character[]; universe: Universe | null; style: Style | null; brief: string; place?: string; references?: number }): ChatMessage[] {
+  // Appearance first: the same person should look the same in every picture.
+  const look = (c: Character) => [c.lifeStage, c.data.appearance || c.summary].filter(Boolean).join('. ');
   const ctx = [
     o.universe ? `World: ${o.universe.name}. ${o.universe.description}` : '',
-    o.characters.length ? `People who may appear:\n${o.characters.map((c) => `- ${c.name}: ${[c.lifeStage, c.summary].filter(Boolean).join('. ')}`).join('\n')}` : '',
+    o.characters.length ? `People who may appear, and how they look (keep to it exactly):\n${o.characters.map((c) => `- ${c.name}: ${look(c)}`).join('\n')}` : '',
+    o.place ? `Where the scene is: ${o.place}` : '',
     o.brief ? `Story brief:\n${o.brief}` : '',
+    o.references ? `${o.references} reference portrait${o.references === 1 ? ' is' : 's are'} attached to the image request; describe those people so they can be matched to the portraits (by build, hair, dress).` : '',
   ].filter(Boolean).join('\n\n');
   return [
     { role: 'system', content: 'You write prompts for an image model from a passage of fiction. Pick the single strongest visual moment in the passage and describe it as one illustration: subject and action, setting, light, mood, composition and framing, medium and style (painterly, ink, photographic, etc.), and the era or world it belongs to. Name the people by appearance, never by name. Concrete nouns, no story explanation, no text or lettering in the image. 60 to 120 words, one paragraph, output only the prompt.' },
@@ -320,142 +324,4 @@ export function parseClinicReply(text: string): { prose: string; edits: ClinicEd
     }
   } catch {}
   return { prose: text.trim().slice(0, m.index).trim(), edits };
-}
-
-/**
- * Forge: have the writer model invent library entries from a wish. The
- * existing world and its contents are given so new entries fit what is there.
- */
-export type ForgeKind = 'world' | 'species' | 'lore' | 'character' | 'location' | 'organization' | 'item';
-
-export interface ForgeContext {
-  universe: Universe | null;
-  species: { name: string; adulthood: string }[];
-  lore: { title: string; keys: string[] }[];
-  characters: { name: string; summary: string }[];
-  /** Places, factions and things already in the world, by kind. */
-  elements?: { kind: string; name: string; within?: string }[];
-}
-
-/** A forged place, faction or thing; `within` names its parent (a place inside a place, a branch of a faction). */
-export interface ForgedElement { name: string; within: string; summary: string; keys: string[]; data: Record<string, string | number> }
-export interface ForgedWorld {
-  name: string;
-  description: string;
-  data: Record<string, string>;
-  calendar: { kind: 'custom' | 'gregorian'; yearLabel: string; startYear: number; daysPerYear: number; monthNames: string[]; start: string } | null;
-  species: ForgedSpecies[];
-  lore: ForgedLore[];
-  places: ForgedElement[];
-  factions: ForgedElement[];
-}
-export interface ForgedSpecies { name: string; adulthood: string; notes: string; data: Record<string, string> }
-export interface ForgedLore { title: string; keys: string[]; text: string; alwaysOn: boolean; category: string }
-export interface ForgedCharacter {
-  name: string; species: string; lifeStage: string; adult: boolean; summary: string; voice: string; tells: string; relationships: string; limits: string; preferences: string;
-  data: Record<string, string>;
-  home: string;
-  faction: string;
-  factionRole: string;
-  attributes: Record<string, number>;
-  inventory: string;
-  money: number;
-}
-export type ForgeResult =
-  | { kind: 'world'; world: ForgedWorld }
-  | { kind: 'species'; species: ForgedSpecies[] }
-  | { kind: 'lore'; lore: ForgedLore[] }
-  | { kind: 'character'; characters: ForgedCharacter[] }
-  | { kind: 'location' | 'organization' | 'item'; elements: ForgedElement[] };
-
-const PLACE_SHAPE = '{"name", "type": one of realm|planet|continent|region|nation|province|city|town|village|district|street|building|room|wilderness|route|landmark|ruin|dungeon|station|ship|other, "within": string (name of the place it sits inside, or ""), "summary": string (one line), "description": string (60 to 120 words), "atmosphere": string, "features": string (what a visitor notices, exits), "services": string, "resources": string (food, water, shelter to be found), "dangers": string, "danger": 0-5}';
-const FACTION_SHAPE = '{"name", "type": one of government|empire|federation|kingdom|guild|company|religion|military|order|school|family|gang|cult|rebellion|tribe|other, "within": string (parent faction or ""), "summary": string (one line), "description": string (60 to 100 words), "goals": string, "methods": string, "headquarters": string (a place name, or ""), "symbols": string, "allies": string, "enemies": string, "reputation": string, "secrets": string}';
-const ITEM_SHAPE = '{"name", "type": one of weapon|armor|tool|food|drink|medicine|consumable|artifact|document|key|currency|resource|vehicle|clothing|other, "rarity": one of common|uncommon|rare|legendary|unique, "summary": string (one line), "description": string (40 to 80 words), "properties": string, "origin": string, "value": number, "effects": string (for things that are used up: like "satiety +30, hydration +10" or "health +25"; "" otherwise)}';
-
-const FORGE_SHAPES: Record<ForgeKind, string> = {
-  world: `{"name": string (2 to 4 words), "description": string (one paragraph of 120 to 220 words: place, era, what governs life there, what is strange or particular, the texture a writer needs), "genre": string, "tone": string, "rules": string (how the world works: magic, physics, what is possible and its cost), "technology": string, "society": string (who rules, what people fear, what is taboo), "themes": string, "currency": string (name of the money), "calendar": {"kind": "custom" | "gregorian", "yearLabel": string, "startYear": number, "daysPerYear": number, "monthNames": string[], "start": "YYYY-MM-DDTHH:MM" for gregorian}, "places": [${PLACE_SHAPE}] (4 to 7, nested: at least one place inside another), "factions": [${FACTION_SHAPE}] (2 to 4), "species": [{"name", "adulthood": string, "appearance": string, "lifespan": string, "traits": string, "culture": string}] (0 to 3, only if the world calls for them), "lore": [{"title", "category": one of history|religion|magic|technology|culture|law|geography|economy|other, "keys": string[] (3 to 6 lower-case trigger words), "text": string (60 to 120 words), "alwaysOn": boolean}] (2 to 4)}`,
-  species: '{"species": [{"name", "adulthood": string (when a member counts as adult, in the world\'s own terms), "appearance": string, "lifespan": string, "traits": string, "abilities": string, "weaknesses": string, "needs": string (diet and sleep), "culture": string, "notes": string}]}',
-  lore: '{"lore": [{"title", "category": one of history|religion|magic|technology|culture|law|geography|economy|other, "keys": string[] (3 to 6 lower-case words that should trigger this entry when they appear in the story), "text": string (60 to 140 words a writer can use directly), "alwaysOn": boolean (true only for what every scene needs)}]}',
-  character: '{"characters": [{"name", "species": string (one of the world\'s peoples by name, or "" for human), "lifeStage": string (age or stage, in the world\'s terms), "adult": boolean (by that species\' own definition), "occupation": string, "summary": string (one or two lines the writer always sees), "appearance": string, "personality": string, "backstory": string (2 to 4 lines), "goals": string, "fears": string, "secrets": string, "skills": string, "voice": string (how they talk and think), "tells": string (habits, gestures, verbal tics), "relationships": string, "home": string (a place name from the world, or ""), "faction": string (a faction name from the world, or ""), "factionRole": string, "attributes": {"might": 1-5, "agility": 1-5, "wits": 1-5, "presence": 1-5, "resolve": 1-5} (2 is ordinary; total about 13), "inventory": string (what they carry, one item per line like "2 × waterskin"), "money": number, "limits": string, "preferences": string}]}',
-  location: `{"places": [${PLACE_SHAPE}]}`,
-  organization: `{"factions": [${FACTION_SHAPE}]}`,
-  item: `{"things": [${ITEM_SHAPE}]}`,
-};
-
-const FORGE_NOUN: Record<ForgeKind, string> = { world: 'a world', species: 'peoples', lore: 'lore entries', character: 'characters', location: 'places', organization: 'factions', item: 'things' };
-
-export function forgePrompt(kind: ForgeKind, o: { wish: string; count: number; ctx: ForgeContext }): ChatMessage[] {
-  const { ctx } = o;
-  const els = ctx.elements ?? [];
-  const byKind = (k: string) => els.filter((e) => e.kind === k).map((e) => (e.within ? `${e.name} (in ${e.within})` : e.name));
-  const have = [
-    ctx.universe ? `World: ${ctx.universe.name}\n${ctx.universe.description}` : kind === 'world' ? '' : 'No world is attached; invent what the wish needs and keep it self-contained.',
-    ctx.species.length ? `Peoples already in it:\n${ctx.species.map((s) => `- ${s.name}: ${s.adulthood}`).join('\n')}` : '',
-    byKind('location').length ? `Places already in it: ${byKind('location').join('; ')}` : '',
-    byKind('organization').length ? `Factions already in it: ${byKind('organization').join('; ')}` : '',
-    byKind('item').length ? `Things already in it: ${byKind('item').join('; ')}` : '',
-    ctx.lore.length ? `Lore already written (titles): ${ctx.lore.map((l) => l.title).join('; ')}` : '',
-    ctx.characters.length ? `People already in it:\n${ctx.characters.map((c) => `- ${c.name}: ${c.summary}`).join('\n')}` : '',
-  ].filter(Boolean).join('\n\n');
-  const what = kind === 'world' ? 'a world' : `${o.count} ${FORGE_NOUN[kind]}`;
-  return [
-    { role: 'system', content: [
-      `You invent material for a fiction writer's library: ${what}, as JSON. Everything is invented fiction for an adult author; write with the specificity of a good novelist, not a catalogue. Concrete details over adjectives; one strange, memorable particular per entry; no names or ideas that already exist in the library below.`,
-      kind === 'world' ? 'Make it a place stories can happen in: tensions between factions, places with dangers and resources, a calendar that suits it (real dates for a world like ours, its own reckoning otherwise). Keep each place, faction and people field to a sentence or two so the whole world fits in one reply.' : '',
-      kind === 'character' ? 'Each character must be someone a scene could turn on: a want, a flaw, a way of speaking that is theirs alone. Keep names pronounceable and distinct from each other. Tie them to the world: a home, a faction, what they carry.' : '',
-      kind === 'lore' ? 'Each entry is what a writer needs when its subject comes up: how it works, how it looks, what it costs, who cares. Keywords are the words a passage would use.' : '',
-      kind === 'location' ? 'Places nest: use "within" to put a district in a city or a room in a building, naming an existing place or one you are creating now.' : '',
-      `Output only JSON of this shape: ${FORGE_SHAPES[kind]}. Inside string values quote with single quotes, never bare double quotes. Exactly ${kind === 'world' ? 'one world' : `${o.count} item${o.count === 1 ? '' : 's'}`}.`,
-    ].filter(Boolean).join('\n\n') },
-    { role: 'user', content: [have, `What I want: ${o.wish.trim() || (kind === 'world' ? 'a world worth setting stories in' : 'something that fits and surprises')}`].filter(Boolean).join('\n\n') },
-  ];
-}
-
-export function parseForge(kind: ForgeKind, text: string): ForgeResult | null {
-  const j = lenientJson<Record<string, unknown>>(text);
-  if (!j) return null;
-  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '');
-  const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object') : []);
-  const keys = (v: unknown) => (Array.isArray(v) ? v.map(str).map((k) => k.toLowerCase()).filter(Boolean) : str(v).split(',').map((k) => k.trim().toLowerCase()).filter(Boolean));
-  const pick = (o: Record<string, unknown>, ks: string[]) => Object.fromEntries(ks.map((k) => [k, str(o[k])]).filter(([, v]) => v)) as Record<string, string>;
-  const species = (v: unknown): ForgedSpecies[] => arr(v).map((s) => ({ name: str(s.name), adulthood: str(s.adulthood), notes: str(s.notes), data: pick(s, ['appearance', 'lifespan', 'traits', 'abilities', 'weaknesses', 'needs', 'culture']) })).filter((s) => s.name);
-  const lore = (v: unknown): ForgedLore[] => arr(v).map((l) => ({ title: str(l.title), keys: keys(l.keys), text: str(l.text), alwaysOn: l.alwaysOn === true, category: str(l.category) || 'other' })).filter((l) => l.title && l.text);
-  const element = (fields: string[]) => (v: unknown): ForgedElement[] => arr(v).map((e) => {
-    const data: Record<string, string | number> = pick(e, fields);
-    for (const n of ['danger', 'value']) if (e[n] != null && Number.isFinite(Number(e[n]))) data[n] = Number(e[n]);
-    return { name: str(e.name), within: str(e.within), summary: str(e.summary), keys: keys(e.keys), data };
-  }).filter((e) => e.name);
-  const places = element(['type', 'description', 'atmosphere', 'climate', 'population', 'features', 'services', 'resources', 'dangers', 'travel', 'secrets']);
-  const factions = element(['type', 'description', 'goals', 'methods', 'headquarters', 'size', 'resources', 'ranks', 'symbols', 'allies', 'enemies', 'reputation', 'secrets']);
-  const things = element(['type', 'rarity', 'description', 'properties', 'origin', 'weight', 'effects']);
-  if (kind === 'world') {
-    const name = str(j.name);
-    if (!name) return null;
-    const c = j.calendar && typeof j.calendar === 'object' ? (j.calendar as Record<string, unknown>) : null;
-    const calendar = c ? { kind: (c.kind === 'gregorian' ? 'gregorian' : 'custom') as 'custom' | 'gregorian', yearLabel: str(c.yearLabel), startYear: Math.round(Number(c.startYear) || 1), daysPerYear: Math.max(0, Math.round(Number(c.daysPerYear) || 0)), monthNames: Array.isArray(c.monthNames) ? c.monthNames.map(str).filter(Boolean) : [], start: str(c.start) } : null;
-    return { kind, world: { name, description: str(j.description), data: pick(j, ['genre', 'tone', 'rules', 'technology', 'society', 'themes', 'currency']), calendar, species: species(j.species), lore: lore(j.lore), places: places(j.places), factions: factions(j.factions) } };
-  }
-  if (kind === 'species') {
-    const s = species(j.species ?? (j.name ? [j] : []));
-    return s.length ? { kind, species: s } : null;
-  }
-  if (kind === 'lore') {
-    const l = lore(j.lore ?? (j.title ? [j] : []));
-    return l.length ? { kind, lore: l } : null;
-  }
-  if (kind === 'location' || kind === 'organization' || kind === 'item') {
-    const src = kind === 'location' ? j.places : kind === 'organization' ? j.factions : j.things;
-    const list = (kind === 'location' ? places : kind === 'organization' ? factions : things)(src ?? (j.name ? [j] : []));
-    return list.length ? { kind, elements: list } : null;
-  }
-  const characters = arr(j.characters ?? (j.name ? [j] : [])).map((c) => {
-    const at = c.attributes && typeof c.attributes === 'object' ? (c.attributes as Record<string, unknown>) : {};
-    const attributes = Object.fromEntries(['might', 'agility', 'wits', 'presence', 'resolve'].map((k) => [k, Math.max(1, Math.min(5, Math.round(Number(at[k]) || 2)))]));
-    return {
-      name: str(c.name), species: str(c.species), lifeStage: str(c.lifeStage), adult: c.adult !== false, summary: str(c.summary), voice: str(c.voice), tells: str(c.tells), relationships: str(c.relationships), limits: str(c.limits), preferences: str(c.preferences),
-      data: pick(c, ['occupation', 'appearance', 'personality', 'backstory', 'goals', 'fears', 'secrets', 'skills']),
-      home: str(c.home), faction: str(c.faction), factionRole: str(c.factionRole), attributes, inventory: Array.isArray(c.inventory) ? c.inventory.map(str).join('\n') : str(c.inventory), money: Math.max(0, Math.round(Number(c.money) || 0)),
-    };
-  }).filter((c) => c.name);
-  return characters.length ? { kind, characters } : null;
 }

@@ -93,7 +93,26 @@ OpenRouter's image models come with their providers' filters. **Settings → Ill
 
 ## Forge
 
-The writer model can invent library entries from a wish. **Forge** on the People and Worlds tabs, and on a world's page for its species, lore and people, asks for what you want and how many, shows the model what the world already holds so new entries fit and avoid repeats, then previews the result for you to prune before saving. A forged world arrives with a description and, where it calls for them, first species and lore. Characters come with a life stage and an adult flag by their species' definition, shown in the preview; everything is editable afterwards. Replies are read leniently (fenced, prefaced, literal newlines inside strings, bare quotes inside strings, trailing commas), and a reply cut off by the length limit keeps every entry that arrived whole, with a note saying so, and when a model answers on its reasoning channel the JSON is taken from there; a reply that still cannot be read is quoted in the error.
+The writer model invents library entries. Every Forge call first reads the world: the world card, a roster of every name in it, and in full the entries that bear on the request (linked to it, named in it, sharing its keywords), within a budget. New entries link to existing ones by exact name.
+
+- **Forge** on Library → Characters and Worlds, on each tab of a world, and **Grow the world** on its World tab (any mix of places, factions, characters, things, peoples and lore).
+- **Surprise me**: no wish needed. The world's loose threads (a faction without a leader or headquarters, a city nobody lives in, an enemy never written, someone a character knows who is not in the library) are offered to the model to pull on.
+- **Forge under this** on a place, faction, character, people or lore entry: places inside a place, members or branches of a faction, people and belongings of a character, members of a people, related lore. Each new entry is tied to the one it was forged under.
+- **Looks like** (characters): a real person or fictional character whose look inspires theirs. Forge writes the appearance from it in its own words; the name is kept on the character but never sent to the writer or an image model.
+- **Preview and edit**: tap any forged entry to open it before saving. Every field is editable and has a sparkle to reforge just that field, with an optional instruction.
+- **Links both ways on save**: Baker City forged as the seat of Baker Kingdom becomes the kingdom's headquarters (and is controlled by it); a character whose role in a faction is leader, chief, captain and so on becomes its leader; a thing with an owner goes into their inventory. Older entries whose text already points at a new one get the missing link (a kingdom described as "ruled from Baker City", a character who "lives in Baker City"). What was linked is listed after saving.
+
+Every field of every existing entry (world, place, faction, thing, character, people, lore) has the same sparkle: the model rewrites that field given the entry and what in the world bears on it; reference fields pick from the world's names. Reforged links follow the same two-way rules.
+
+Replies are read leniently (fenced, prefaced, literal newlines inside strings, bare quotes inside strings, trailing commas), and a reply cut off by the length limit keeps every entry that arrived whole, with a note saying so.
+
+## Pictures of the world
+
+Characters get a **portrait**, places a **view**, factions a **sigil**, things and peoples a **picture**: the helper writes an image prompt from the entry (appearance, world, era), and the painter from Settings → Illustrations paints it (or, prompt only, you copy it). Portraits show beside the characters in lists, beside every passage that names them, on the play strip and in the People tab of the character sheet. When a passage is illustrated, the people it names are described by their appearance, the scene's place by its description, and with an OpenRouter image model their portraits go with the request as references so they look like themselves (Settings → Illustrations → Use portraits as references).
+
+## Canonizing what the story invents
+
+Stories bring in new names. With the Chronicle on, each passage's chronicle also lists named people, places, factions and things the library does not have; any passage's menu has **Find new names** for stories without it. They wait in a bar above the composer: **Canonize** forges the entry from what the story said about it (the sentences that mention it are given as fact), opens it for editing and reforging, and saves it into the world, linked like any forged entry; a canonized character joins the story's cast. **Not now** dismisses a name for that story.
 
 ## Worlds
 
@@ -103,7 +122,7 @@ A world (Library → Worlds) is a template with tabs:
 
 - **World**: description, genre, tone, rules (magic, physics, law), technology, society, themes, currency, and a calendar (the real Gregorian one, or your own year label, month names, days per year and hours per day).
 - **Places**: a hierarchy (continent › city › district › room), each with kind, summary, climate, dangers, resources, population, controlling faction, keywords and anything else that fits its kind.
-- **People**: characters with appearance, personality, backstory, goals, fears, secrets, skills, occupation, home place, memberships with roles, attributes, inventory and money, on top of voice, tells, relationships and limits.
+- **Characters**: people with appearance, personality, backstory, goals, fears, secrets, skills, occupation, home place, memberships with roles, attributes, inventory and money, on top of voice, tells, relationships and limits.
 - **Factions**, **Things** (objects, artefacts, goods), **Peoples** (species and races with traits, lifespan, adulthood in their own terms, culture, homeland) and **Lore** by category (history, religion, magic, law, custom...).
 
 Forge works on every tab: the writer model invents places within places, factions with headquarters, people with homes and memberships, fitted to what the world already holds.
@@ -121,7 +140,7 @@ Two switches in a story's settings decide how much of this it uses:
 - **Continuity** (free): the writer reads the instance's timeline up to the story's present and what the other stories in the instance have reached, within the **Continuity** budget. Nothing that happened later in world time leaks in.
 - **Chronicle** (one cheap helper call per passage): records elapsed time, the place, events with importance and the people involved, and changes, so the timeline fills itself.
 
-The Clock sheet in a story shows the time, lets you set it or skip ahead, and lists the story's events.
+The Clock sheet in a story shows the time, lets you type the date and time, shift by an hour or a day, or skip by any duration ("3 days 4 hours"), and lists the story's events. Every number stepper in the app can be tapped to type a value and held to run.
 
 ## Playing a character
 

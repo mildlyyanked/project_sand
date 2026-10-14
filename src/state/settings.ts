@@ -16,6 +16,8 @@ export interface Defaults {
   imageBackend: ImageBackend;
   /** Show the image prompt, editable, before it goes to the painter. */
   reviewImagePrompt: boolean;
+  /** Send the portraits of people in a passage along with the illustration request (OpenRouter image models). */
+  portraitReferences: boolean;
   zdr: boolean;
   fontSize: number;
   styleId: string | null;
@@ -28,6 +30,7 @@ const DEFAULTS: Defaults = {
   imageModel: 'google/gemini-2.5-flash-image',
   imageBackend: DEFAULT_IMAGE_BACKEND,
   reviewImagePrompt: false,
+  portraitReferences: true,
   zdr: false,
   fontSize: 17,
   styleId: null,

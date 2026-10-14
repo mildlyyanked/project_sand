@@ -25,14 +25,19 @@ Mobile-first story writing app on top of OpenRouter. Single user, everything on 
 - **Universe** (world template): name, description, `isDefault` (the real world), data {genre, tone, rules, technology, society, themes, currency, calendar}. Empty default world contributes nothing to the prompt.
 - **World entity**: universe, kind (location / organization / item), parent (locations nest), name, summary, keys[], data per kind (see `src/core/world/schema.ts`).
 - **Species**: name, adulthood description (free text), notes, data (traits, lifespan, culture, homeland...).
-- **Character**: universe?, name, species?, age or life stage (free text), `adult` flag, voice, tells, relationships, limits, preferences, summary for prompt, data {appearance, personality, backstory, goals, fears, secrets, skills, occupation, home, memberships, attributes, inventory, money}.
+- **Character**: universe?, name, species?, age or life stage (free text), `adult` flag, voice, tells, relationships, limits, preferences, summary for prompt, data {appearance, lookalike (never sent to the writer or a painter), personality, backstory, goals, fears, secrets, skills, occupation, home, memberships, attributes, inventory, money, image}.
+- **Entry picture**: `data.image` {uri, prompt, model, at} on characters, places, factions, things and peoples.
 - **Lore entry**: universe, category, keys[], text, always-on flag, priority.
 - **Instance**: universe, name, notes (how it differs), isPrime, forkedFrom?, forkAt?.
 - **World event**: instance, session?, beat?, at (minutes from the calendar start), title, text, kind, importance 1-3, refs to entities/characters. Canon = manual events + events on each story's current branch.
 - **Style** (voice): point of view, tense, prose density, dialogue ratio, register (clinical / euphemistic / blunt), vocabulary rules, banned phrases, sample passages; plus system, prefill, postHistory, modelOverrides{}, refusalChain[], systemAsUser, providerIgnore[], providerOrder[].
-- **Session**: title, universe, instance, mode (writer / pov), world {continuity, chronicle}, clockStart, pov {characterId, difficulty, checks, startLocation}?, style?, characters[], writer/summarizer/helper models, draftModels[], context strategy config (incl. world and continuity budgets), zdr flag, explicit flag (on by default), heat (0-4), current node id, summary cache, brief, planFirst.
+- **Session**: title, universe, instance, mode (writer / pov), world {continuity, chronicle, newcomers[], dismissed[]}, clockStart, pov {characterId, difficulty, checks, startLocation}?, style?, characters[], writer/summarizer/helper models, draftModels[], context strategy config (incl. world and continuity budgets), zdr flag, explicit flag (on by default), heat (0-4), current node id, summary cache, brief, planFirst.
 - **Illustration**: session, beat?, prompt, file uri, model.
 - **Beat** (tree node): session, parent?, role, text, model?, usage, cost, reasoning?, direction? (regen direction), created, at? (in-world minutes), state? {location, pov sheet}.
+
+## Drafts and Forge
+
+Every library kind converts to a **draft**: a flat record of fields with references held as names (`src/core/world/drafts.ts`). Forge parses replies into drafts, the draft editor edits them, existing entries convert to drafts so the model can read them (`knowledge`: world card, roster, relevant cards within a budget), and `planDrafts` turns drafts into rows: names resolve against the world and the batch, own references first, then links on the other side (seat of → headquarters, leader role → leader, owner → inventory), then older entries whose text names a new one (headquarters, leader, home, controlled by). Field reforge edits one draft field and goes through the same plan. Prompts live in `src/core/world/forge.ts`.
 
 ## Vanilla guarantee
 

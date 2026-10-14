@@ -2,6 +2,8 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Beat, Character, Session, Species, Universe } from '@/core/types';
 import type { WorldContext } from '@/core/context/assemble';
 import type { CheckResult, SceneState, WorldEntity, WorldEvent, WorldInstance } from '@/core/world/types';
+import type { Newcomer } from '@/core/world/forge';
+import { normName } from '@/core/world/drafts';
 import { clockAt, sceneAt } from '@/core/world/timeline';
 import { applyDelta, initialPov, passTime, renderPov } from '@/core/world/survival';
 import { adjudicatePrompt, chroniclePrompt, parseChronicle, parseRuling, type Ruling } from '@/core/world/chronicle';
@@ -103,6 +105,7 @@ export interface ChronicleOutcome {
   events: WorldEvent[];
   minutes: number;
   notes: string[];
+  newcomers: Newcomer[];
 }
 
 /** After a passage: advance the clock, move the scene, record events, and in play keep the books. */
@@ -149,5 +152,7 @@ export async function chronicle(o: {
     for (const e of events) await saveEvent(o.db, e);
   }
   await updateBeatWorld(o.db, o.beat.id, at, scene);
-  return { at, scene, events, minutes, notes };
+  const knownNorm = new Set(known.map(normName));
+  const newcomers = r.newcomers.filter((n) => !knownNorm.has(normName(n.name))).map((n) => ({ ...n, beatId: o.beat.id }));
+  return { at, scene, events, minutes, notes, newcomers };
 }

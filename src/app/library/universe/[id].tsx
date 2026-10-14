@@ -10,15 +10,19 @@ import { deleteLore, deleteSpecies, deleteUniverse, getUniverse, listCharacters,
 import { instanceClock, listEntities, listInstances, newEntity, newInstance, saveEntity, saveInstance, sessionsInInstance } from '@/db/repo/world';
 import { useEntity } from '@/ui/useEntity';
 import { Badge, Button, Card, Chip, Field, ListItem, Row, Screen, Section, Sheet, Stepper, SwitchRow, T } from '@/ui/components';
-import { FieldEditor } from '@/ui/components/World';
+import { FieldEditor, KeysField } from '@/ui/components/World';
+import { useEntryReforge } from '@/ui/components/Reforge';
+import type { LibKind, Library } from '@/core/world/drafts';
+import { rowDraft } from '@/state/library';
+import { Avatar, EntryImage } from '@/ui/components/EntryImage';
 import { ForgeSheet } from '@/ui/components/Forge';
-import type { ForgeKind } from '@/core/helpers';
+import type { ForgeKind } from '@/core/world/forge';
 import { refOptions } from '@/ui/worldRefs';
 import { space } from '@/ui/theme';
 
 type Tab = 'overview' | 'places' | 'factions' | 'things' | 'people' | 'peoples' | 'lore' | 'instances';
 const TABS: { key: Tab; label: string }[] = [
-  { key: 'overview', label: 'World' }, { key: 'places', label: 'Places' }, { key: 'people', label: 'People' }, { key: 'factions', label: 'Factions' },
+  { key: 'overview', label: 'World' }, { key: 'places', label: 'Places' }, { key: 'people', label: 'Characters' }, { key: 'factions', label: 'Factions' },
   { key: 'things', label: 'Things' }, { key: 'peoples', label: 'Peoples' }, { key: 'lore', label: 'Lore' }, { key: 'instances', label: 'Instances' },
 ];
 
@@ -34,8 +38,11 @@ export default function WorldHub() {
   const [lore, setLore] = useState<LoreEntry[]>([]);
   const [instances, setInstances] = useState<(WorldInstance & { clock: number; stories: number })[]>([]);
   const [edit, setEdit] = useState<{ kind: 'species'; v: Species } | { kind: 'lore'; v: LoreEntry } | null>(null);
-  const [forge, setForge] = useState<ForgeKind | null>(null);
+  const [forge, setForge] = useState<{ kind: ForgeKind; anchor?: { kind: LibKind; id: string } } | null>(null);
   const [newInst, setNewInst] = useState<{ name: string; description: string } | null>(null);
+
+  const worldRf = useEntryReforge({ db, universeId: id, row: useCallback(() => (u ? { kind: 'world' as const, row: u } : null), [u]), onSelf: useCallback((row: unknown) => update(row as Universe), [update]) });
+  const editRf = useEntryReforge({ db, universeId: id, row: useCallback(() => (edit ? (edit.kind === 'species' ? { kind: 'species' as const, row: edit.v } : { kind: 'lore' as const, row: edit.v }) : null), [edit]), onSelf: useCallback((row: unknown) => setEdit((e) => (e ? ({ kind: e.kind, v: row } as typeof e) : e)), []) });
 
   const reload = useCallback(() => {
     if (!id) return;
@@ -48,6 +55,8 @@ export default function WorldHub() {
   if (!u) return null;
 
   const refs = refOptions(entities, people);
+  const libNow = (): Library => ({ universe: u, entities, characters: people, species, lore });
+  const speciesDraftOf = (v: Species) => rowDraft({ kind: 'species', row: v }, libNow());
   const cal = u.data.calendar;
   const setCal = (p: Partial<WorldCalendar>) => update({ data: { ...u.data, calendar: { ...cal, ...p } } });
 
@@ -84,7 +93,7 @@ export default function WorldHub() {
   }
 
   const tree = (kind: EntityKind) => (refs[kind] ?? []).map((o) => entities.find((e) => e.id === o.id)!).filter(Boolean).map((e) => ({ e, depth: (refs[kind] ?? []).find((o) => o.id === e.id)?.depth ?? 0 }));
-  const forgeButton = (k: ForgeKind) => <Button small kind="ghost" icon="sparkles-outline" title="Forge" onPress={() => setForge(k)} />;
+  const forgeButton = (k: ForgeKind) => <Button small kind="ghost" icon="sparkles-outline" title="Forge" onPress={() => setForge({ kind: k })} />;
 
   return (
     <Screen scroll>
@@ -97,9 +106,13 @@ export default function WorldHub() {
         <>
           <Section title="The world">
             {u.isDefault ? <T v="faint">The real world sends nothing to the writer unless you write something here. Stories set in it stay exactly as plain as before.</T> : null}
-            <Field label="Name" value={u.name} onChangeText={(v) => update({ name: v })} />
-            <Field label="Description" hint="Always sent to the writer when a story is set here." value={u.description} onChangeText={(v) => update({ description: v })} multiline style={{ minHeight: 120 }} />
-            <FieldEditor defs={WORLD_FIELDS} data={u.data as unknown as Record<string, unknown>} onChange={(p) => update({ data: { ...u.data, ...p } })} />
+            <Field label="Name" value={u.name} onChangeText={(v) => update({ name: v })} onForge={() => worldRf.open('name')} />
+            <Field label="Description" hint="Always sent to the writer when a story is set here." value={u.description} onChangeText={(v) => update({ description: v })} multiline style={{ minHeight: 120 }} onForge={() => worldRf.open('description')} />
+            <FieldEditor defs={WORLD_FIELDS} data={u.data as unknown as Record<string, unknown>} onChange={(p) => update({ data: { ...u.data, ...p } })} onForge={(d) => worldRf.open(d.key)} />
+          </Section>
+          <Section title="Grow the world">
+            <T v="faint">Forge any mix of places, factions, characters, things, peoples and lore that the world most needs, read against everything already in it. Surprise me pulls on its loose threads: factions without leaders, cities nobody lives in, names mentioned but never written.</T>
+            <Button kind="outline" icon="leaf-outline" title="Grow the world" onPress={() => setForge({ kind: 'mixed' })} />
           </Section>
           <Section title="Calendar">
             <Row>
@@ -140,7 +153,7 @@ export default function WorldHub() {
 
       {tab === 'people' ? (
         <Section title="People" right={<Row gap={4}>{forgeButton('character')}<Button small kind="outline" icon="add" title="Add" onPress={addPerson} /></Row>}>
-          {people.length ? people.map((c) => <ListItem key={c.id} title={c.name} subtitle={[c.data.occupation, c.summary].filter(Boolean).join(' · ')} right={!c.adult ? <Badge label="not adult" tone="warn" /> : undefined} onPress={() => router.push(`/library/character/${c.id}`)} />) : <T v="faint">Characters who belong to this world. The same people appear in every story set here, kept consistent by each instance’s timeline.</T>}
+          {people.length ? people.map((c) => <ListItem key={c.id} left={<Avatar data={c.data as Record<string, unknown>} name={c.name} />} title={c.name} subtitle={[c.data.occupation, c.summary].filter(Boolean).join(' · ')} right={!c.adult ? <Badge label="not adult" tone="warn" /> : undefined} onPress={() => router.push(`/library/character/${c.id}`)} />) : <T v="faint">Characters who belong to this world. The same people appear in every story set here, kept consistent by each instance’s timeline.</T>}
         </Section>
       ) : null}
 
@@ -171,7 +184,9 @@ export default function WorldHub() {
         </Section>
       ) : null}
 
-      <ForgeSheet open={!!forge} onClose={() => setForge(null)} kind={forge ?? 'species'} universeId={u.id} onSaved={reload} />
+      <ForgeSheet open={!!forge} onClose={() => setForge(null)} kind={forge?.kind ?? 'species'} anchor={forge?.anchor} universeId={u.id} onSaved={reload} />
+      {worldRf.sheet}
+      {editRf.sheet}
       <Sheet open={!!newInst} onClose={() => setNewInst(null)} title="New instance">
         <Field label="Name" value={newInst?.name ?? ''} onChangeText={(v) => setNewInst((x) => (x ? { ...x, name: v } : x))} placeholder="e.g. The Long Winter, What if the duke lived" autoFocus />
         <Field label="How it differs" value={newInst?.description ?? ''} onChangeText={(v) => setNewInst((x) => (x ? { ...x, description: v } : x))} multiline placeholder="Optional. Sent with every story in it." />
@@ -181,23 +196,25 @@ export default function WorldHub() {
       <Sheet open={!!edit} onClose={saveEdit} title={edit?.kind === 'species' ? 'People' : 'Lore entry'} full>
         {edit?.kind === 'species' ? (
           <>
-            <Field label="Name" value={edit.v.name} onChangeText={(v) => setEdit({ kind: 'species', v: { ...edit.v, name: v } })} />
-            <Field label="Adulthood" hint="When a member counts as adult, in the world's terms." value={edit.v.adulthood} onChangeText={(v) => setEdit({ kind: 'species', v: { ...edit.v, adulthood: v } })} multiline />
-            <FieldEditor defs={SPECIES_FIELDS} data={edit.v.data} refs={refs} onChange={(p) => setEdit({ kind: 'species', v: { ...edit.v, data: { ...edit.v.data, ...p } } })} />
-            <Field label="Notes" value={edit.v.notes} onChangeText={(v) => setEdit({ kind: 'species', v: { ...edit.v, notes: v } })} multiline />
+            <Field label="Name" value={edit.v.name} onChangeText={(v) => setEdit({ kind: 'species', v: { ...edit.v, name: v } })} onForge={() => editRf.open('name')} />
+            <Field label="Adulthood" hint="When a member counts as adult, in the world's terms." value={edit.v.adulthood} onChangeText={(v) => setEdit({ kind: 'species', v: { ...edit.v, adulthood: v } })} multiline onForge={() => editRf.open('adulthood')} />
+            <EntryImage kind="species" name={edit.v.name} data={edit.v.data} draft={() => speciesDraftOf(edit.v)} world={u} onChange={(image) => setEdit({ kind: 'species', v: { ...edit.v, data: { ...edit.v.data, image } } })} />
+            <FieldEditor defs={SPECIES_FIELDS} data={edit.v.data} refs={refs} onChange={(p) => setEdit({ kind: 'species', v: { ...edit.v, data: { ...edit.v.data, ...p } } })} onForge={(d) => editRf.open(d.key)} />
+            <Field label="Notes" value={edit.v.notes} onChangeText={(v) => setEdit({ kind: 'species', v: { ...edit.v, notes: v } })} multiline onForge={() => editRf.open('notes')} />
           </>
         ) : edit?.kind === 'lore' ? (
           <>
-            <Field label="Title" value={edit.v.title} onChangeText={(v) => setEdit({ kind: 'lore', v: { ...edit.v, title: v } })} />
+            <Field label="Title" value={edit.v.title} onChangeText={(v) => setEdit({ kind: 'lore', v: { ...edit.v, title: v } })} onForge={() => editRf.open('name')} />
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
               {LORE_CATEGORIES.map((c) => <Chip key={c} small label={c} selected={edit.v.category === c} onPress={() => setEdit({ kind: 'lore', v: { ...edit.v, category: c } })} />)}
             </ScrollView>
-            <Field label="Keywords" hint="Comma separated" value={edit.v.keys.join(', ')} onChangeText={(v) => setEdit({ kind: 'lore', v: { ...edit.v, keys: v.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean) } })} autoCapitalize="none" />
-            <Field label="Text" value={edit.v.text} onChangeText={(v) => setEdit({ kind: 'lore', v: { ...edit.v, text: v } })} multiline style={{ minHeight: 120 }} />
+            <KeysField label="Keywords" hint="Comma separated" value={edit.v.keys} onChange={(keys) => setEdit({ kind: 'lore', v: { ...edit.v, keys } })} onForge={() => editRf.open('keys')} />
+            <Field label="Text" value={edit.v.text} onChangeText={(v) => setEdit({ kind: 'lore', v: { ...edit.v, text: v } })} multiline style={{ minHeight: 120 }} onForge={() => editRf.open('text')} />
             <SwitchRow label="Always on" value={edit.v.alwaysOn} onChange={(v) => setEdit({ kind: 'lore', v: { ...edit.v, alwaysOn: v } })} />
             <Row between><T>Priority</T><Stepper value={edit.v.priority} min={0} max={10} onChange={(v) => setEdit({ kind: 'lore', v: { ...edit.v, priority: v } })} /></Row>
           </>
         ) : null}
+        {edit ? <Button kind="outline" icon="git-branch-outline" title="Forge under this" onPress={async () => { const e = edit; await saveEdit(); setForge({ kind: e.kind === 'species' ? 'character' : 'lore', anchor: { kind: e.kind, id: e.v.id } }); }} /> : null}
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Button title="Done" onPress={saveEdit} style={{ flex: 1 }} />
           <Button kind="danger" title="Delete" onPress={removeEdit} />
