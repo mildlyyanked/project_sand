@@ -401,11 +401,11 @@ export function forgePrompt(kind: ForgeKind, o: { wish: string; count: number; c
   return [
     { role: 'system', content: [
       `You invent material for a fiction writer's library: ${what}, as JSON. Everything is invented fiction for an adult author; write with the specificity of a good novelist, not a catalogue. Concrete details over adjectives; one strange, memorable particular per entry; no names or ideas that already exist in the library below.`,
-      kind === 'world' ? 'Make it a place stories can happen in: tensions between factions, places with dangers and resources, a calendar that suits it (real dates for a world like ours, its own reckoning otherwise).' : '',
+      kind === 'world' ? 'Make it a place stories can happen in: tensions between factions, places with dangers and resources, a calendar that suits it (real dates for a world like ours, its own reckoning otherwise). Keep each place, faction and people field to a sentence or two so the whole world fits in one reply.' : '',
       kind === 'character' ? 'Each character must be someone a scene could turn on: a want, a flaw, a way of speaking that is theirs alone. Keep names pronounceable and distinct from each other. Tie them to the world: a home, a faction, what they carry.' : '',
       kind === 'lore' ? 'Each entry is what a writer needs when its subject comes up: how it works, how it looks, what it costs, who cares. Keywords are the words a passage would use.' : '',
       kind === 'location' ? 'Places nest: use "within" to put a district in a city or a room in a building, naming an existing place or one you are creating now.' : '',
-      `Output only JSON of this shape: ${FORGE_SHAPES[kind]}. Exactly ${kind === 'world' ? 'one world' : `${o.count} item${o.count === 1 ? '' : 's'}`}.`,
+      `Output only JSON of this shape: ${FORGE_SHAPES[kind]}. Inside string values quote with single quotes, never bare double quotes. Exactly ${kind === 'world' ? 'one world' : `${o.count} item${o.count === 1 ? '' : 's'}`}.`,
     ].filter(Boolean).join('\n\n') },
     { role: 'user', content: [have, `What I want: ${o.wish.trim() || (kind === 'world' ? 'a world worth setting stories in' : 'something that fits and surprises')}`].filter(Boolean).join('\n\n') },
   ];

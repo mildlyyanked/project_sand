@@ -11,8 +11,13 @@ describe('lenientJson', () => {
     expect(lenientJson('{"description": "First paragraph.\n\nSecond paragraph.", "list": [1, 2,],}')).toEqual({ description: 'First paragraph.\n\nSecond paragraph.', list: [1, 2] });
     expect(lenientJson('{"t": "a\ttab", "q": "say \\"hi\\""}')).toEqual({ t: 'a\ttab', q: 'say "hi"' });
   });
-  it('gives up on truncated output', () => {
-    expect(lenientJson('{"a": "unfinished')).toBeNull();
+  it('escapes quotes left bare inside a string', () => {
+    expect(lenientJson('{"d": "the "Federation" and the "Imperium" rule", "n": 1}')).toEqual({ d: 'the "Federation" and the "Imperium" rule', n: 1 });
+  });
+  it('keeps every complete value of a truncated reply', () => {
+    expect(lenientJson('{"name": "Vell", "places": [{"name": "Port"}, {"name": "Dock", "summary": "half')).toEqual({ name: 'Vell', places: [{ name: 'Port' }, { name: 'Dock' }] });
+    expect(lenientJson('```json\n{"name": "Vell", "lore": [{"title": "Tide law", "keys": ["tide"]}, ')).toEqual({ name: 'Vell', lore: [{ title: 'Tide law', keys: ['tide'] }] });
+    expect(lenientJson('{"a": "unfinished')).toEqual({});
     expect(lenientJson('no json here')).toBeNull();
   });
 });

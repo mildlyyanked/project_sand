@@ -91,20 +91,26 @@ function ForgeBody({ onClose, kind, universeId, onSaved }: { onClose: () => void
       const ctx: ForgeContext = { universe, species: species.map((s) => ({ name: s.name, adulthood: s.adulthood })), lore: lore.map((l) => ({ title: l.title, keys: l.keys })), characters: chars.filter((c) => !uId || c.universeId === uId).map((c) => ({ name: c.name, summary: c.summary })), elements: ents.map((e) => ({ kind: e.kind, name: e.name, within: ents.find((p) => p.id === e.parentId)?.name })) };
       let text = '';
       let reasoning = '';
+      let finish: string | undefined;
       await runInForeground('Forging library entries', async () => {
-        for await (const ev of client.stream({ apiKey, model, messages: forgePrompt(kind, { wish, count, ctx }), params: { temperature: 0.9, topP: 0.95, maxTokens: kind === 'world' ? 5000 : 700 + 600 * count, reasoning: false }, zdr: defaults.zdr })) {
+        for await (const ev of client.stream({ apiKey, model, messages: forgePrompt(kind, { wish, count, ctx }), params: { temperature: 0.9, topP: 0.95, maxTokens: kind === 'world' ? 9000 : 1000 + 900 * count, reasoning: false }, zdr: defaults.zdr })) {
           if (ev.type === 'text') { text += ev.text ?? ''; setProgress(text.length); }
           if (ev.type === 'reasoning') reasoning += ev.text ?? '';
+          if (ev.type === 'done') finish = ev.finishReason;
           if (ev.type === 'error') throw new Error(ev.error);
         }
       });
       // Some providers answer on the reasoning channel when a model thinks first; the JSON is there then.
       const r = parseForge(kind, text) ?? (text.trim() ? null : parseForge(kind, reasoning));
       if (!r) {
-        const peek = (text || reasoning).trim().replace(/\s+/g, ' ').slice(0, 160);
-        throw new Error(peek ? `The model did not answer with the expected JSON. It began: “${peek}…” Try again, a clearer wish, or another model.` : 'The model returned nothing. Try again or another model.');
+        const flat = (text || reasoning).trim().replace(/\s+/g, ' ');
+        const peek = flat.slice(0, 160);
+        const tail = flat.length > 320 ? ` It ended: “…${flat.slice(-120)}”` : '';
+        if (finish === 'length') throw new Error(`The reply ran out of room before anything usable was complete. Ask for less, or a model that writes more tightly. It began: “${peek}…”`);
+        throw new Error(peek ? `The model did not answer with the expected JSON. It began: “${peek}…”${tail} Try again, a clearer wish, or another model.` : 'The model returned nothing. Try again or another model.');
       }
       setResult(r);
+      if (finish === 'length') setErr('The reply ran out of room, so the last entries may be missing or cut short. What arrived whole is below.');
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
