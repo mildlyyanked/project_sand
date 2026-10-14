@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Dimensions, FlatList, Image, Platform, Pressable, Share, TextInput, View } from 'react-native';
+import { Dimensions, FlatList, Image, Platform, Pressable, ScrollView, Share, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardShift } from '@/ui/keyboard';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -8,6 +8,13 @@ import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
 import type { Beat, Illustration } from '@/core/types';
+import type { CheckResult } from '@/core/world/types';
+import { formatDuration, formatShort, formatTime } from '@/core/world/calendar';
+import { RESOURCES, RESOURCE_INFO, parseEffects } from '@/core/world/survival';
+import { ATTRIBUTE_INFO, OUTCOME_LABEL } from '@/core/world/dice';
+import { childrenOf } from '@/core/world/scan';
+import { chronicleOn } from '@/state/world';
+import { Bar, TimeEditor } from '@/ui/components/World';
 import { HEAT_LABELS } from '@/core/types';
 import { leafOf, siblingPosition, siblings } from '@/core/beatTree';
 import { voiceDrift } from '@/core/voiceDrift';
@@ -27,7 +34,11 @@ const DIRECTIONS = ['Hotter', 'Softer', 'Slower', 'More dialogue', 'Less dialogu
  * writer what happens next and lets it write. Scene asks the helper for a
  * scene plan first, then writes from it.
  */
-type Mode = 'write' | 'direct' | 'scene';
+type Mode = 'write' | 'direct' | 'scene' | 'do' | 'say';
+const POV_MODES: { key: Mode; label: string; placeholder: string }[] = [
+  { key: 'do', label: 'Do', placeholder: 'What you do…' },
+  { key: 'say', label: 'Say', placeholder: 'What you say…' },
+];
 const MODES: { key: Mode; label: string; placeholder: string }[] = [
   { key: 'write', label: 'Write', placeholder: 'Write prose yourself…' },
   { key: 'direct', label: 'Direct', placeholder: 'What happens next; the writer writes it…' },
@@ -43,7 +54,11 @@ export default function Manuscript() {
   const fontSize = useSettings((x) => x.defaults.fontSize);
   const imageBackend = useSettings((x) => x.defaults.imageBackend);
   const [text, setText] = useState('');
-  const [mode, setMode] = useState<Mode>('direct');
+  const [rawMode, setMode] = useState<Mode>('direct');
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetTab, setSheetTab] = useState<'status' | 'inventory' | 'aims' | 'people'>('status');
+  const [clockOpen, setClockOpen] = useState(false);
+  const [travelOpen, setTravelOpen] = useState(false);
   const [menu, setMenu] = useState(false);
   const [beatMenu, setBeatMenu] = useState<Beat | null>(null);
   const [edit, setEdit] = useState<{ beat: Beat; text: string } | null>(null);
@@ -72,6 +87,14 @@ export default function Manuscript() {
 
   const session = s.session;
   const path = s.path;
+  const world = s.world;
+  const playing = session?.mode === 'pov' && !!s.wb.player;
+  const mode: Mode = playing ? (rawMode === 'say' ? 'say' : 'do') : rawMode === 'do' || rawMode === 'say' ? 'direct' : rawMode;
+  const calendar = s.bundle.universe?.data.calendar;
+  const currency = s.bundle.universe?.data.currency || 'coins';
+  const clockShown = !!session && chronicleOn(session);
+  const sheet = world?.scene.pov;
+  const quick = (text: string) => { void askNotificationPermission(); void s.act(text); };
   const lastProse = useMemo(() => [...path].reverse().find((b) => b.role === 'prose'), [path]);
   const drift = useMemo(() => {
     const prose = path.filter((b) => b.role === 'prose');
@@ -118,6 +141,11 @@ export default function Manuscript() {
     if (!v) return;
     setText('');
     s.clearSuggestions();
+    if (mode === 'do' || mode === 'say') {
+      void askNotificationPermission();
+      await s.act(mode === 'say' ? `You say: “${v.replace(/^["“]|["”]$/g, '')}”` : v);
+      return;
+    }
     await s.addBeat(mode === 'write' ? 'prose' : 'instruction', v);
     if (mode === 'direct') {
       void askNotificationPermission();
@@ -216,14 +244,16 @@ export default function Manuscript() {
                 {sibs.map((x) => <Chip key={x.id} small label={shortModel(x.model ?? 'you')} selected={x.id === b.id} onPress={() => s.setCurrent(leafOf(s.index, x.id).id)} />)}
               </Row>
             ) : b.model ? <T v="small">{shortModel(b.model)}{b.direction ? ` · ${b.direction}` : ''}</T> : null}
+            {b.at != null && clockShown ? <T v="small" style={{ color: t.faint }}>{formatShort(calendar, b.at)}</T> : null}
+            {b.state?.pov?.lastCheck ? <CheckChip c={b.state.pov.lastCheck} /> : null}
           </Row>
         ) : null}
       </Pressable>
     );
   };
 
-  const phaseLabel = !streaming ? '' : streaming.phase === 'summarizing' ? 'Folding older beats into the summary' : streaming.phase === 'reweaving' ? 'Reweaving later passages' : streaming.phase === 'planning' ? 'Planning the passage' : streaming.phase === 'critiquing' ? 'Editor is reading' : streaming.phase === 'proposing' ? 'Planning the next scene' : streaming.phase === 'suggesting' ? 'Thinking of next moves' : streaming.phase === 'illustrating' ? (streaming.text ? `Painting with ${shortModel(streaming.model)}` : 'Describing the picture') : `${shortModel(streaming.model)}${streaming.attempt ? ` · attempt ${streaming.attempt + 1}${streaming.step ? ` · ${streaming.step.kind}` : ''}` : ''}`;
-  const phaseIcon = !streaming ? 'pencil-outline' : streaming.phase === 'writing' ? 'pencil-outline' : streaming.phase === 'reweaving' ? 'git-merge-outline' : streaming.phase === 'planning' || streaming.phase === 'proposing' ? 'map-outline' : streaming.phase === 'critiquing' ? 'glasses-outline' : streaming.phase === 'suggesting' ? 'sparkles-outline' : streaming.phase === 'illustrating' ? 'image-outline' : 'albums-outline';
+  const phaseLabel = !streaming ? '' : streaming.phase === 'refereeing' ? 'Weighing the action' : streaming.phase === 'chronicling' ? 'Recording what changed' : streaming.phase === 'summarizing' ? 'Folding older beats into the summary' : streaming.phase === 'reweaving' ? 'Reweaving later passages' : streaming.phase === 'planning' ? 'Planning the passage' : streaming.phase === 'critiquing' ? 'Editor is reading' : streaming.phase === 'proposing' ? 'Planning the next scene' : streaming.phase === 'suggesting' ? 'Thinking of next moves' : streaming.phase === 'illustrating' ? (streaming.text ? `Painting with ${shortModel(streaming.model)}` : 'Describing the picture') : `${shortModel(streaming.model)}${streaming.attempt ? ` · attempt ${streaming.attempt + 1}${streaming.step ? ` · ${streaming.step.kind}` : ''}` : ''}`;
+  const phaseIcon = !streaming ? 'pencil-outline' : streaming.phase === 'refereeing' ? 'dice-outline' : streaming.phase === 'chronicling' ? 'git-commit-outline' : streaming.phase === 'writing' ? 'pencil-outline' : streaming.phase === 'reweaving' ? 'git-merge-outline' : streaming.phase === 'planning' || streaming.phase === 'proposing' ? 'map-outline' : streaming.phase === 'critiquing' ? 'glasses-outline' : streaming.phase === 'suggesting' ? 'sparkles-outline' : streaming.phase === 'illustrating' ? 'image-outline' : 'albums-outline';
 
   return (
     <KeyboardShift style={{ flex: 1, backgroundColor: t.bg }} offset={insets.top + (Platform.OS === 'ios' ? 44 : 56)}>
@@ -319,6 +349,31 @@ export default function Manuscript() {
 
       {/* Composer */}
       <View style={{ borderTopWidth: 1, borderTopColor: t.border, backgroundColor: t.bg, paddingHorizontal: space.md, paddingTop: space.sm, paddingBottom: Platform.OS === 'ios' ? space.xl : space.md, gap: space.sm }}>
+        {world && (clockShown || playing) ? (
+          <Pressable onPress={() => (playing ? setSheetOpen(true) : setClockOpen(true))} style={{ gap: 6 }}>
+            <Row gap={8}>
+              <Ionicons name="time-outline" size={13} color={t.dim} />
+              <T v="small">{formatShort(calendar, world.now)}</T>
+              {world.scene.locationName ? <><Ionicons name="location-outline" size={13} color={t.dim} /><T v="small" numberOfLines={1} style={{ flex: 1 }}>{world.scene.locationName}</T></> : <View style={{ flex: 1 }} />}
+              {playing && sheet ? <T v="small" style={{ color: t.accent }}>{sheet.money} {currency}</T> : null}
+            </Row>
+            {playing && sheet ? (
+              <Row gap={6}>
+                {RESOURCES.map((r) => <Bar key={r} label={RESOURCE_INFO[r].label} value={sheet.resources[r]} />)}
+              </Row>
+            ) : null}
+            {playing && sheet && (sheet.conditions.length || sheet.down) ? <T v="small" style={{ color: t.danger }} numberOfLines={1}>{[sheet.down ? 'down' : '', ...sheet.conditions].filter(Boolean).join(' · ')}</T> : null}
+          </Pressable>
+        ) : null}
+        {playing ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+            <Chip small label="Look around" onPress={() => quick('You look around, taking in the place and the people in it.')} />
+            <Chip small label="Go to…" onPress={() => setTravelOpen(true)} />
+            <Chip small label="Rest" onPress={() => quick('You find somewhere as safe as you can and rest, sleeping if you can.')} />
+            <Chip small label="Wait an hour" onPress={() => quick('You wait for an hour, watching what happens around you.')} />
+            <Chip small label="Inventory" onPress={() => { setSheetTab('inventory'); setSheetOpen(true); }} />
+          </ScrollView>
+        ) : null}
         {s.suggestions.length ? (
           <Row style={{ flexWrap: 'wrap' }} gap={6}>
             {s.suggestions.map((sg) => <Chip key={sg} small label={sg} onPress={() => { setMode('direct'); setText(sg); }} />)}
@@ -326,7 +381,7 @@ export default function Manuscript() {
           </Row>
         ) : null}
         <Row>
-          {MODES.map((m) => <Chip key={m.key} small label={m.label} selected={mode === m.key} onPress={() => setMode(m.key)} />)}
+          {(playing ? POV_MODES : MODES).map((m) => <Chip key={m.key} small label={m.label} selected={mode === m.key} onPress={() => setMode(m.key)} />)}
           <IconButton name="sparkles-outline" size={18} color={s.suggestions.length ? t.accent : t.dim} onPress={() => { void askNotificationPermission(); void s.suggest(); }} disabled={!!streaming} style={{ padding: 4 }} />
           <View style={{ flex: 1 }} />
           <IconButton name="arrow-undo-outline" size={20} onPress={s.undo} disabled={!path.length || !!streaming} />
@@ -336,7 +391,7 @@ export default function Manuscript() {
           <TextInput
             value={text}
             onChangeText={setText}
-            placeholder={MODES.find((m) => m.key === mode)!.placeholder}
+            placeholder={[...MODES, ...POV_MODES].find((m) => m.key === mode)!.placeholder}
             placeholderTextColor={t.faint}
             multiline
             style={{ flex: 1, backgroundColor: t.surface, color: t.text, borderRadius: radius.lg, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, maxHeight: 140, fontFamily: mode === 'write' ? serif : undefined }}
@@ -381,6 +436,8 @@ export default function Manuscript() {
         <MenuItem icon="text-outline" label={s.bundle.style ? `Voice · ${s.bundle.style.name}` : 'Voice'} hint={s.bundle.style ? 'Writer prompt, persistence chain and card. Shared across stories.' : 'No voice attached; pick one in session settings'} onPress={() => { setMenu(false); router.push(session.styleId ? `/library/style/${session.styleId}` : `/session/${session.id}/settings`); }} />
         <MenuItem icon="flask-outline" label="Prompt lab" hint="A strong model revises the voice or brief against a goal; test, then override or save as new" onPress={() => { setMenu(false); router.push(`/lab?session=${session.id}`); }} />
         <MenuItem icon="albums-outline" label="Summarize now" hint="Fold older beats into the summary" onPress={() => { setMenu(false); void s.summarizeNow(); }} />
+        {session.universeId && !s.bundle.universe?.isDefault ? <MenuItem icon="planet-outline" label={`World · ${s.bundle.universe?.name ?? ''}`} hint="Places, people, factions, things, lore" onPress={() => { setMenu(false); router.push(`/library/universe/${session.universeId}`); }} /> : null}
+        {session.instanceId && (session.world.continuity || clockShown) ? <MenuItem icon="git-commit-outline" label="Timeline" hint="What has happened in this version of the world" onPress={() => { setMenu(false); router.push(`/world/instance/${session.instanceId}`); }} /> : null}
       </Sheet>
 
       {/* Beat menu */}
@@ -475,6 +532,99 @@ export default function Manuscript() {
         ) : null}
       </Sheet>
 
+      {/* Character sheet */}
+      <Sheet open={sheetOpen} onClose={() => setSheetOpen(false)} title={s.wb.player?.name ?? 'Character'} full>
+        {sheet && world ? (
+          <>
+            <Row style={{ flexWrap: 'wrap' }}>
+              {(['status', 'inventory', 'aims', 'people'] as const).map((k) => <Chip key={k} small label={k === 'status' ? 'Status' : k === 'inventory' ? `Inventory · ${sheet.inventory.reduce((n, i) => n + i.qty, 0)}` : k === 'aims' ? `Aims · ${sheet.objectives.filter((o) => !o.done).length}` : 'People'} selected={sheetTab === k} onPress={() => setSheetTab(k)} />)}
+            </Row>
+            {sheetTab === 'status' ? (
+              <>
+                <T v="dim">{formatTime(calendar, world.now)}{world.scene.locationName ? ` · ${world.scene.locationName}` : ''}</T>
+                {RESOURCES.map((r) => (
+                  <View key={r} style={{ gap: 2 }}>
+                    <Row between><T>{RESOURCE_INFO[r].label}</T><T v="dim">{sheet.resources[r]}</T></Row>
+                    <Bar label="" value={sheet.resources[r]} />
+                  </View>
+                ))}
+                <T>Money: {sheet.money} {currency}</T>
+                {sheet.conditions.length ? <T>Afflictions: {sheet.conditions.join(', ')}</T> : <T v="faint">No afflictions.</T>}
+                {sheet.down ? <Banner text={session.pov?.difficulty === 'hardcore' ? 'Fallen. Undo to go back to an earlier moment, or play out the end.' : 'Down. The story goes on, at a cost.'} tone="warn" /> : null}
+                <T v="label">Attributes</T>
+                <T v="dim">{(Object.keys(ATTRIBUTE_INFO) as (keyof typeof ATTRIBUTE_INFO)[]).map((a) => `${ATTRIBUTE_INFO[a].label} ${s.wb.player?.data.attributes?.[a] ?? 2}`).join(' · ')}</T>
+                <T v="faint">{session.pov?.difficulty === 'story' ? 'Story difficulty: needs do not run down with time.' : `${session.pov?.difficulty === 'hardcore' ? 'Hardcore' : 'Survival'}: food, water and energy run down as time passes; rest restores energy.`}</T>
+              </>
+            ) : sheetTab === 'inventory' ? (
+              <>
+                {sheet.inventory.length ? sheet.inventory.map((it) => {
+                  const def = s.wb.entities.find((e) => e.kind === 'item' && e.name.toLowerCase() === it.name.toLowerCase());
+                  const usable = Object.keys(parseEffects(def?.data.effects ?? it.note ?? '')).length > 0;
+                  return (
+                    <Row key={it.name} between>
+                      <View style={{ flex: 1 }}><T>{it.qty > 1 ? `${it.qty} × ` : ''}{it.name}</T>{def?.summary ? <T v="faint" numberOfLines={1}>{def.summary}</T> : null}</View>
+                      <Row gap={4}>
+                        {usable ? <Button small title="Use" onPress={() => { setSheetOpen(false); void s.useItem(it.name); }} disabled={!!streaming} /> : <Button small kind="outline" title="Use" onPress={() => { setSheetOpen(false); quick(`You use the ${it.name}.`); }} disabled={!!streaming} />}
+                        <Button small kind="ghost" title="Drop" onPress={() => { setSheetOpen(false); quick(`You drop the ${it.name}.`); }} disabled={!!streaming} />
+                      </Row>
+                    </Row>
+                  );
+                }) : <T v="faint">Carrying nothing.</T>}
+                <T v="faint">Things with effects in the world’s Things list (food, medicine) apply them at once; anything else is acted out.</T>
+              </>
+            ) : sheetTab === 'aims' ? (
+              <>
+                {sheet.objectives.length ? sheet.objectives.map((o) => <T key={o.text} v={o.done ? 'faint' : 'body'} style={o.done ? { textDecorationLine: 'line-through' } : undefined}>• {o.text}</T>) : <T v="faint">No aims yet. They appear as the story gives you some.</T>}
+              </>
+            ) : (
+              <>
+                {Object.keys(sheet.relations).length ? Object.entries(sheet.relations).map(([n, r]) => <Row key={n} between><T>{n}</T><T v="dim">{r.attitude > 0 ? `+${r.attitude}` : r.attitude}{r.note ? ` · ${r.note}` : ''}</T></Row>) : <T v="faint">Nobody has an opinion of you yet.</T>}
+              </>
+            )}
+          </>
+        ) : <T v="dim">Pick a played character in session settings.</T>}
+      </Sheet>
+
+      {/* Clock */}
+      <Sheet open={clockOpen} onClose={() => setClockOpen(false)} title="Time and place" full>
+        {world ? (
+          <>
+            <TimeEditor calendar={calendar} value={world.now} onChange={(m) => void s.setClock(m)} label={path.length ? 'Now, at the current passage' : 'The story opens at'} />
+            <Row style={{ flexWrap: 'wrap' }}>
+              {[60, 480, 1440].map((m) => <Chip key={m} small label={`+ ${formatDuration(m)}`} onPress={() => void s.setClock(world.now + m)} />)}
+            </Row>
+            <T v="label">Recorded in this story</T>
+            {world.events.filter((e) => e.sessionId === session.id).slice().reverse().slice(0, 30).map((e) => (
+              <View key={e.id} style={{ gap: 2 }}>
+                <T v="small" style={{ color: t.accent }}>{formatShort(calendar, e.at)}{e.importance === 3 ? ' · major' : ''}</T>
+                <T>{e.title}</T>
+              </View>
+            ))}
+            {!world.events.some((e) => e.sessionId === session.id) ? <T v="faint">{clockShown ? 'Nothing yet. The chronicle records events as passages are written.' : 'Chronicle is off for this story.'}</T> : null}
+            {session.instanceId ? <Button kind="outline" icon="git-commit-outline" title="Open the instance timeline" onPress={() => { setClockOpen(false); router.push(`/world/instance/${session.instanceId}`); }} /> : null}
+          </>
+        ) : null}
+      </Sheet>
+
+      {/* Travel */}
+      <Sheet open={travelOpen} onClose={() => setTravelOpen(false)} title="Go to">
+        {(() => {
+          const here = world?.scene.locationId ? s.wb.entities.find((e) => e.id === world.scene.locationId) : undefined;
+          const places = s.wb.entities.filter((e) => e.kind === 'location');
+          const near = here ? [...childrenOf(here.id, places), ...(here.parentId ? [places.find((p) => p.id === here.parentId)!, ...childrenOf(here.parentId, places).filter((p) => p.id !== here.id)] : [])].filter(Boolean) : [];
+          const rest = places.filter((p) => p.id !== here?.id && !near.includes(p));
+          return (
+            <>
+              {near.length ? <T v="label">Nearby</T> : null}
+              {near.map((p) => <MenuItem key={p.id} icon="navigate-outline" label={p.name} hint={p.summary} onPress={() => { setTravelOpen(false); quick(`You make your way to ${p.name}.`); }} />)}
+              {rest.length ? <T v="label">Elsewhere</T> : null}
+              {rest.map((p) => <MenuItem key={p.id} icon="map-outline" label={p.name} hint={p.summary} onPress={() => { setTravelOpen(false); quick(`You set out for ${p.name}.`); }} />)}
+              {!places.length ? <T v="faint">This world has no places yet. Type where you go instead.</T> : null}
+            </>
+          );
+        })()}
+      </Sheet>
+
       {/* Drift */}
       <Sheet open={driftOpen} onClose={() => setDriftOpen(false)} title="Voice check">
         <T v="dim">Local heuristics against the voice card. Informational only.</T>
@@ -482,5 +632,17 @@ export default function Manuscript() {
         <Button kind="outline" title="Regenerate with 'stay on voice'" onPress={() => { setDriftOpen(false); if (lastProse) { setDirText('stay strictly in the established voice; avoid stock phrases'); setDir({ regenerateId: lastProse.id }); } }} />
       </Sheet>
     </KeyboardShift>
+  );
+}
+
+function CheckChip({ c }: { c: CheckResult }) {
+  const t = useTheme();
+  const good = c.outcome === 'success' || c.outcome === 'crit-success';
+  const color = good ? t.ok : c.outcome === 'partial' ? t.warn : t.danger;
+  return (
+    <Row gap={4}>
+      <Ionicons name="dice-outline" size={13} color={color} />
+      <T v="small" style={{ color }}>{ATTRIBUTE_INFO[c.attribute].label} {c.total} vs {c.difficulty} · {OUTCOME_LABEL[c.outcome]}</T>
+    </Row>
   );
 }

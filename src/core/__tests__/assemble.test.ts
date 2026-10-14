@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { assembleContext, resolvePreset, splitPath } from '../context/assemble';
-import { beat, character, lore, preset, session, style } from './fixtures';
+import { beat, character, lore, preset, session, style, universe } from './fixtures';
 
 const path = [
   beat({ id: 'b1', parentId: null, text: 'Mara checked the hold.' }),
@@ -26,7 +26,7 @@ describe('assembleContext', () => {
   });
   it('triggers lore from recent beats and respects the lore budget', () => {
     const entries = [lore({ id: 'warden', keys: ['warden'], priority: 2 }), lore({ id: 'hold', keys: ['hold'], priority: 1 }), lore({ id: 'quiet', keys: ['zzz'] }), lore({ id: 'always', alwaysOn: true })];
-    const ctx = assembleContext({ session: session({ universeId: 'u1' }), path, style: null, characters: [], species: [], universe: { id: 'u1', name: 'W', description: 'desc', createdAt: 0, updatedAt: 0 }, lore: entries, model: 'x' });
+    const ctx = assembleContext({ session: session({ universeId: 'u1' }), path, style: null, characters: [], species: [], universe: universe({ description: 'desc' }), lore: entries, model: 'x' });
     const loreLayer = ctx.layers.find((l) => l.key === 'lore')!;
     expect(loreLayer.text).toContain('## warden');
     expect(loreLayer.text).toContain('## hold');
@@ -55,7 +55,7 @@ describe('assembleContext', () => {
   });
   it('splits summarized, overflow and recent by budget', () => {
     const long = Array.from({ length: 10 }, (_, i) => beat({ id: `b${i + 1}`, parentId: i ? `b${i}` : null, text: 'word '.repeat(400) }));
-    const s = session({ strategy: { recentBudget: 1200, summaryBudget: 500, loreScanBeats: 3, loreBudget: 500, summarizeThreshold: 2000 }, summary: 'so far', summaryUpToBeatId: 'b3' });
+    const s = session({ strategy: { recentBudget: 1200, summaryBudget: 500, loreScanBeats: 3, loreBudget: 500, summarizeThreshold: 2000, worldBudget: 500, continuityBudget: 500 }, summary: 'so far', summaryUpToBeatId: 'b3' });
     const parts = splitPath(long, s, s.strategy);
     expect(parts.summarized.map((b) => b.id)).toEqual(['b1', 'b2', 'b3']);
     expect(parts.recent.length).toBeGreaterThan(0);

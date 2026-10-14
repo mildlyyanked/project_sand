@@ -50,6 +50,27 @@ const MIGRATIONS: string[] = [
   CREATE TABLE illustrations (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, beat_id TEXT, prompt TEXT NOT NULL, uri TEXT NOT NULL, model TEXT NOT NULL, created_at INTEGER NOT NULL);
   CREATE INDEX illustrations_session ON illustrations(session_id);
   `,
+  `
+  ALTER TABLE universes ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE universes ADD COLUMN data_json TEXT NOT NULL DEFAULT '{}';
+  ALTER TABLE species ADD COLUMN data_json TEXT NOT NULL DEFAULT '{}';
+  ALTER TABLE lore ADD COLUMN category TEXT NOT NULL DEFAULT 'other';
+  ALTER TABLE characters ADD COLUMN data_json TEXT NOT NULL DEFAULT '{}';
+  CREATE TABLE entities (id TEXT PRIMARY KEY, universe_id TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, parent_id TEXT, summary TEXT NOT NULL DEFAULT '', keys_json TEXT NOT NULL DEFAULT '[]', data_json TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX entities_universe ON entities(universe_id, kind);
+  CREATE TABLE instances (id TEXT PRIMARY KEY, universe_id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', forked_from TEXT, fork_at INTEGER, is_prime INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX instances_universe ON instances(universe_id);
+  CREATE TABLE world_events (id TEXT PRIMARY KEY, instance_id TEXT NOT NULL, session_id TEXT, beat_id TEXT, at INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT 'event', title TEXT NOT NULL, text TEXT NOT NULL DEFAULT '', entities_json TEXT NOT NULL DEFAULT '[]', importance INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL);
+  CREATE INDEX world_events_instance ON world_events(instance_id, at);
+  CREATE INDEX world_events_beat ON world_events(beat_id);
+  ALTER TABLE sessions ADD COLUMN instance_id TEXT;
+  ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'writer';
+  ALTER TABLE sessions ADD COLUMN world_json TEXT NOT NULL DEFAULT '{"continuity":false,"chronicle":false}';
+  ALTER TABLE sessions ADD COLUMN clock_start INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE sessions ADD COLUMN pov_json TEXT;
+  ALTER TABLE beats ADD COLUMN at INTEGER;
+  ALTER TABLE beats ADD COLUMN state_json TEXT;
+  `,
 ];
 
 export async function migrate(db: SQLiteDatabase): Promise<void> {

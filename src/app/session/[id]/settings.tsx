@@ -1,8 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Share, View } from 'react-native';
+import { Alert, ScrollView, Share, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import type { Character, Style, Universe } from '@/core/types';
+import type { Difficulty, WorldEntity, WorldInstance } from '@/core/world/types';
+import { listEntities, listInstances, primeInstance } from '@/db/repo/world';
+import { RefChips, TimeEditor } from '@/ui/components/World';
+import { refOptions } from '@/ui/worldRefs';
 import { HEAT_LABELS } from '@/core/types';
 import { useSession } from '@/state/session';
 import { listCharacters, listStyles, listUniverses } from '@/db/repo/library';
@@ -26,6 +30,13 @@ export default function SessionSettings() {
   const [ask, setAsk] = useState<'variant' | 'template' | 'duplicate' | null>(null);
   const [note, setNote] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  const [instances, setInstances] = useState<WorldInstance[]>([]);
+  const [entities, setEntities] = useState<WorldEntity[]>([]);
+  const universeId = session?.universeId ?? null;
+  useEffect(() => {
+    if (!universeId) return;
+    void Promise.all([listInstances(db, universeId), listEntities(db, universeId)]).then(([i, e]) => { setInstances(i); setEntities(e); });
+  }, [db, universeId]);
 
   useEffect(() => {
     if (session?.id !== id) void s.open(db, id!);
@@ -123,11 +134,44 @@ export default function SessionSettings() {
       </Section>
 
       <Section title="World">
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+          {universes.map((u) => <Chip key={u.id} label={u.name} selected={session.universeId === u.id} onPress={async () => { const prime = await primeInstance(db, u.id); await s.patch({ universeId: u.id, instanceId: prime.id }); }} />)}
+        </ScrollView>
+        {instances.length > 1 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+            {instances.map((i) => <Chip key={i.id} small label={i.name} selected={session.instanceId === i.id} onPress={() => s.patch({ instanceId: i.id })} />)}
+          </ScrollView>
+        ) : null}
         <Row style={{ flexWrap: 'wrap' }}>
-          <Chip label="None" selected={!session.universeId} onPress={() => s.patch({ universeId: null })} />
-          {universes.map((u) => <Chip key={u.id} label={u.name} selected={session.universeId === u.id} onPress={() => s.patch({ universeId: u.id })} />)}
+          {session.universeId ? <Button small kind="ghost" title="Open world" onPress={() => router.push(`/library/universe/${session.universeId}`)} /> : null}
+          {session.instanceId ? <Button small kind="ghost" title="Timeline" icon="git-commit-outline" onPress={() => router.push(`/world/instance/${session.instanceId}`)} /> : null}
         </Row>
-        {session.universeId ? <Button small kind="ghost" title="Open world" onPress={() => router.push(`/library/universe/${session.universeId}`)} /> : null}
+        <SwitchRow label="Continuity" hint="Read this instance’s timeline and the other stories set in it. No extra calls." value={session.world.continuity} onChange={(v) => s.patch({ world: { ...session.world, continuity: v } })} />
+        <SwitchRow label="Chronicle" hint={session.mode === 'pov' ? 'Always on in play: it keeps the clock, the place and the player’s sheet.' : 'After each passage, a helper call records elapsed time, the place and events onto the timeline. Off: the clock stays where you set it.'} value={session.world.chronicle || session.mode === 'pov'} disabled={session.mode === 'pov'} onChange={(v) => s.patch({ world: { ...session.world, chronicle: v } })} />
+        <TimeEditor calendar={s.bundle.universe?.data.calendar} value={session.clockStart} onChange={(v) => s.patch({ clockStart: v })} label="The story opens at" />
+      </Section>
+
+      <Section title="Mode">
+        <Row>
+          <Chip label="Write" selected={session.mode === 'writer'} onPress={() => s.patch({ mode: 'writer' })} />
+          <Chip label="Play a character" selected={session.mode === 'pov'} onPress={() => s.patch({ mode: 'pov', pov: session.pov ?? { characterId: null, difficulty: 'survival', checks: true, startLocationId: null } })} />
+        </Row>
+        {session.mode === 'pov' ? (() => {
+          const pov = session.pov ?? { characterId: null, difficulty: 'survival' as Difficulty, checks: true, startLocationId: null };
+          const setPov = (p: Partial<typeof pov>) => s.patch({ pov: { ...pov, ...p } });
+          const playable = chars.filter((c) => c.universeId === session.universeId || c.universeId == null);
+          return (
+            <>
+              <T v="label">Played character</T>
+              <RefChips value={pov.characterId} options={playable.map((c) => ({ id: c.id, name: c.name }))} onChange={(id) => setPov({ characterId: id })} none="Nobody yet" />
+              <Row>{(['story', 'survival', 'hardcore'] as Difficulty[]).map((d) => <Chip key={d} label={d[0]!.toUpperCase() + d.slice(1)} selected={pov.difficulty === d} onPress={() => setPov({ difficulty: d })} />)}</Row>
+              <SwitchRow label="Tests of skill" value={pov.checks} onChange={(v) => setPov({ checks: v })} />
+              <T v="label">Start at</T>
+              <RefChips value={pov.startLocationId} options={refOptions(entities, []).location ?? []} onChange={(id) => setPov({ startLocationId: id })} none="Home, or let the story decide" />
+              <T v="faint">The sheet starts fresh from the character card at the story’s start; later changes live on the passages, so undo and branches rewind them.</T>
+            </>
+          );
+        })() : null}
       </Section>
 
       <Section title="Characters">
@@ -141,6 +185,8 @@ export default function SessionSettings() {
         <Row between><T>Recent beats (tokens)</T><Stepper value={session.strategy.recentBudget} min={1000} max={60000} step={500} onChange={(v) => s.patch({ strategy: { ...session.strategy, recentBudget: v } })} /></Row>
         <Row between><T>Summary (tokens)</T><Stepper value={session.strategy.summaryBudget} min={300} max={6000} step={100} onChange={(v) => s.patch({ strategy: { ...session.strategy, summaryBudget: v } })} /></Row>
         <Row between><T>Lore (tokens)</T><Stepper value={session.strategy.loreBudget} min={0} max={6000} step={100} onChange={(v) => s.patch({ strategy: { ...session.strategy, loreBudget: v } })} /></Row>
+        <Row between><T>World (tokens)</T><Stepper value={session.strategy.worldBudget} min={0} max={6000} step={100} onChange={(v) => s.patch({ strategy: { ...session.strategy, worldBudget: v } })} /></Row>
+        <Row between><T>Continuity (tokens)</T><Stepper value={session.strategy.continuityBudget} min={0} max={6000} step={100} onChange={(v) => s.patch({ strategy: { ...session.strategy, continuityBudget: v } })} /></Row>
         <Row between><T>Lore scan (beats)</T><Stepper value={session.strategy.loreScanBeats} min={1} max={30} onChange={(v) => s.patch({ strategy: { ...session.strategy, loreScanBeats: v } })} /></Row>
       </Section>
 

@@ -7,19 +7,21 @@ import { b, ib, j, pj } from './map';
 interface Row {
   id: string; title: string; universe_id: string | null; style_id: string | null; character_ids_json: string; models_json: string; params_json: string; strategy_json: string;
   zdr: number; explicit: number; heat: number; current_beat_id: string | null; summary: string; summary_upto: string | null; variant_of: string | null; variant_note: string; is_template: number; brief: string; plan_first: number; draft_models_json: string; created_at: number; updated_at: number;
+  instance_id: string | null; mode: string; world_json: string; clock_start: number; pov_json: string | null;
 }
 
 function fromRow(r: Row): Session {
   return {
-    id: r.id, title: r.title, universeId: r.universe_id, styleId: r.style_id, characterIds: pj(r.character_ids_json, []),
+    id: r.id, title: r.title, universeId: r.universe_id, instanceId: r.instance_id ?? null, mode: r.mode === 'pov' ? 'pov' : 'writer', world: { continuity: false, chronicle: false, ...pj(r.world_json, {}) }, clockStart: r.clock_start ?? 0, pov: pj(r.pov_json, null),
+    styleId: r.style_id, characterIds: pj(r.character_ids_json, []),
     models: pj(r.models_json, { writer: '', summarizer: '', helper: '' }), draftModels: pj(r.draft_models_json, []), params: { ...DEFAULT_PARAMS, ...pj(r.params_json, {}) }, strategy: { ...DEFAULT_STRATEGY, ...pj(r.strategy_json, {}) },
     zdr: b(r.zdr), explicit: b(r.explicit), heat: r.heat, currentBeatId: r.current_beat_id, summary: r.summary, summaryUpToBeatId: r.summary_upto,
     variantOf: r.variant_of, variantNote: r.variant_note, isTemplate: b(r.is_template), brief: r.brief ?? '', planFirst: r.plan_first == null ? true : b(r.plan_first), createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
 
-const COLS = 'id, title, universe_id, style_id, character_ids_json, models_json, params_json, strategy_json, zdr, explicit, heat, current_beat_id, summary, summary_upto, variant_of, variant_note, is_template, brief, plan_first, draft_models_json, created_at, updated_at';
-const vals = (s: Session) => [s.id, s.title, s.universeId, s.styleId, j(s.characterIds), j(s.models), j(s.params), j(s.strategy), ib(s.zdr), ib(s.explicit), s.heat, s.currentBeatId, s.summary, s.summaryUpToBeatId, s.variantOf, s.variantNote, ib(s.isTemplate), s.brief, ib(s.planFirst), j(s.draftModels), s.createdAt, s.updatedAt];
+const COLS = 'id, title, universe_id, style_id, character_ids_json, models_json, params_json, strategy_json, zdr, explicit, heat, current_beat_id, summary, summary_upto, variant_of, variant_note, is_template, brief, plan_first, draft_models_json, created_at, updated_at, instance_id, mode, world_json, clock_start, pov_json';
+const vals = (s: Session) => [s.id, s.title, s.universeId, s.styleId, j(s.characterIds), j(s.models), j(s.params), j(s.strategy), ib(s.zdr), ib(s.explicit), s.heat, s.currentBeatId, s.summary, s.summaryUpToBeatId, s.variantOf, s.variantNote, ib(s.isTemplate), s.brief, ib(s.planFirst), j(s.draftModels), s.createdAt, s.updatedAt, s.instanceId, s.mode, j(s.world), Math.round(s.clockStart), s.pov ? j(s.pov) : null];
 
 export async function listSessions(db: SQLiteDatabase, opts: { templates?: boolean } = {}): Promise<Session[]> {
   const rows = await db.getAllAsync<Row>(`SELECT ${COLS} FROM sessions WHERE is_template = ? ORDER BY updated_at DESC`, ib(!!opts.templates));
@@ -48,6 +50,7 @@ export async function deleteSession(db: SQLiteDatabase, id: Id): Promise<void> {
   await db.withTransactionAsync(async () => {
     await db.runAsync('DELETE FROM beats WHERE session_id = ?', id);
     await db.runAsync('DELETE FROM illustrations WHERE session_id = ?', id);
+    await db.runAsync('DELETE FROM world_events WHERE session_id = ?', id);
     await db.runAsync('DELETE FROM sessions WHERE id = ?', id);
   });
 }
@@ -55,7 +58,7 @@ export async function deleteSession(db: SQLiteDatabase, id: Id): Promise<void> {
 export function blankSession(p: Partial<Session> & { models: Session['models'] }): Session {
   const t = now();
   return {
-    id: newId(), title: 'Untitled', universeId: null, styleId: null, characterIds: [], params: DEFAULT_PARAMS, strategy: DEFAULT_STRATEGY,
+    id: newId(), title: 'Untitled', universeId: null, instanceId: null, mode: 'writer', world: { continuity: false, chronicle: false }, clockStart: 0, pov: null, styleId: null, characterIds: [], params: DEFAULT_PARAMS, strategy: DEFAULT_STRATEGY,
     draftModels: [], zdr: false, explicit: true, heat: 4, currentBeatId: null, summary: '', summaryUpToBeatId: null, variantOf: null, variantNote: '', isTemplate: false, brief: '', planFirst: true, createdAt: t, updatedAt: t, ...p,
   };
 }
@@ -90,9 +93,9 @@ export async function copySession(db: SQLiteDatabase, id: Id, o: { title: string
 
 // Beats
 
-interface BeatRow { id: string; session_id: string; parent_id: string | null; role: string; text: string; model: string | null; direction: string | null; reasoning: string | null; plan: string | null; prompt_tokens: number | null; completion_tokens: number | null; cost_usd: number | null; created_at: number }
+interface BeatRow { id: string; session_id: string; parent_id: string | null; role: string; text: string; model: string | null; direction: string | null; reasoning: string | null; plan: string | null; prompt_tokens: number | null; completion_tokens: number | null; cost_usd: number | null; created_at: number; at: number | null; state_json: string | null }
 
-const beatFromRow = (r: BeatRow): Beat => ({ id: r.id, sessionId: r.session_id, parentId: r.parent_id, role: r.role as Beat['role'], text: r.text, model: r.model, direction: r.direction, reasoning: r.reasoning, plan: r.plan ?? null, promptTokens: r.prompt_tokens, completionTokens: r.completion_tokens, costUsd: r.cost_usd, createdAt: r.created_at });
+const beatFromRow = (r: BeatRow): Beat => ({ id: r.id, sessionId: r.session_id, parentId: r.parent_id, role: r.role as Beat['role'], text: r.text, model: r.model, direction: r.direction, reasoning: r.reasoning, plan: r.plan ?? null, promptTokens: r.prompt_tokens, completionTokens: r.completion_tokens, costUsd: r.cost_usd, createdAt: r.created_at, at: r.at ?? null, state: pj(r.state_json, null) });
 
 export async function listBeats(db: SQLiteDatabase, sessionId: Id): Promise<Beat[]> {
   const rows = await db.getAllAsync<BeatRow>('SELECT * FROM beats WHERE session_id = ? ORDER BY created_at ASC', sessionId);
@@ -100,7 +103,12 @@ export async function listBeats(db: SQLiteDatabase, sessionId: Id): Promise<Beat
 }
 
 export async function insertBeat(db: SQLiteDatabase, bt: Beat): Promise<void> {
-  await db.runAsync('INSERT OR REPLACE INTO beats (id, session_id, parent_id, role, text, model, direction, reasoning, plan, prompt_tokens, completion_tokens, cost_usd, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', bt.id, bt.sessionId, bt.parentId, bt.role, bt.text, bt.model, bt.direction, bt.reasoning, bt.plan, bt.promptTokens, bt.completionTokens, bt.costUsd, bt.createdAt);
+  await db.runAsync('INSERT OR REPLACE INTO beats (id, session_id, parent_id, role, text, model, direction, reasoning, plan, prompt_tokens, completion_tokens, cost_usd, created_at, at, state_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', bt.id, bt.sessionId, bt.parentId, bt.role, bt.text, bt.model, bt.direction, bt.reasoning, bt.plan, bt.promptTokens, bt.completionTokens, bt.costUsd, bt.createdAt, bt.at == null ? null : Math.round(bt.at), bt.state ? j(bt.state) : null);
+}
+
+/** Record where the clock and the scene stand after a beat. */
+export async function updateBeatWorld(db: SQLiteDatabase, id: Id, at: number | null, state: Beat['state']): Promise<void> {
+  await db.runAsync('UPDATE beats SET at = ?, state_json = ? WHERE id = ?', at == null ? null : Math.round(at), state ? j(state) : null, id);
 }
 
 export async function updateBeatText(db: SQLiteDatabase, id: Id, text: string): Promise<void> {
@@ -110,10 +118,11 @@ export async function updateBeatText(db: SQLiteDatabase, id: Id, text: string): 
 export async function deleteBeats(db: SQLiteDatabase, ids: Id[]): Promise<void> {
   if (!ids.length) return;
   await db.runAsync(`DELETE FROM beats WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids);
+  await db.runAsync(`DELETE FROM world_events WHERE beat_id IN (${ids.map(() => '?').join(',')})`, ...ids);
 }
 
 export function makeBeat(p: Partial<Beat> & { sessionId: Id; parentId: Id | null; role: Beat['role']; text: string }): Beat {
-  return { id: newId(), model: null, direction: null, reasoning: null, plan: null, promptTokens: null, completionTokens: null, costUsd: null, createdAt: now(), ...p };
+  return { id: newId(), model: null, direction: null, reasoning: null, plan: null, promptTokens: null, completionTokens: null, costUsd: null, createdAt: now(), at: null, state: null, ...p };
 }
 
 export async function sessionStats(db: SQLiteDatabase, sessionId: Id): Promise<{ beats: number; cost: number; words: number }> {

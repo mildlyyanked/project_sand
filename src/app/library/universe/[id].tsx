@@ -1,94 +1,207 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Alert } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import React, { useCallback, useState } from 'react';
+import { Alert, ScrollView, View } from 'react-native';
+import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import type { CanonEvent, LoreEntry, Species, Universe } from '@/core/types';
-import { deleteCanon, deleteLore, deleteSpecies, deleteUniverse, getUniverse, listCanon, listLore, listSpecies, newLore, newSpecies, saveCanon, saveLore, saveSpecies, saveUniverse } from '@/db/repo/library';
-import { newId, now } from '@/core/ids';
+import type { Character, LoreEntry, Species, Universe } from '@/core/types';
+import type { EntityKind, WorldCalendar, WorldEntity, WorldInstance } from '@/core/world/types';
+import { LORE_CATEGORIES, SPECIES_FIELDS, WORLD_FIELDS } from '@/core/world/schema';
+import { formatShort, formatTime } from '@/core/world/calendar';
+import { deleteLore, deleteSpecies, deleteUniverse, getUniverse, listCharacters, listLore, listSpecies, newCharacter, newLore, newSpecies, saveCharacter, saveLore, saveSpecies, saveUniverse } from '@/db/repo/library';
+import { instanceClock, listEntities, listInstances, newEntity, newInstance, saveEntity, saveInstance, sessionsInInstance } from '@/db/repo/world';
 import { useEntity } from '@/ui/useEntity';
-import { Badge, Button, Field, ListItem, Row, Screen, Section, Sheet, Stepper, SwitchRow, T } from '@/ui/components';
+import { Badge, Button, Card, Chip, Field, ListItem, Row, Screen, Section, Sheet, Stepper, SwitchRow, T } from '@/ui/components';
+import { FieldEditor } from '@/ui/components/World';
 import { ForgeSheet } from '@/ui/components/Forge';
 import type { ForgeKind } from '@/core/helpers';
+import { refOptions } from '@/ui/worldRefs';
+import { space } from '@/ui/theme';
 
-export default function UniverseEditor() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+type Tab = 'overview' | 'places' | 'factions' | 'things' | 'people' | 'peoples' | 'lore' | 'instances';
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'overview', label: 'World' }, { key: 'places', label: 'Places' }, { key: 'people', label: 'People' }, { key: 'factions', label: 'Factions' },
+  { key: 'things', label: 'Things' }, { key: 'peoples', label: 'Peoples' }, { key: 'lore', label: 'Lore' }, { key: 'instances', label: 'Instances' },
+];
+
+/** A world template: what it is, everything in it, and the versions of it stories happen in. */
+export default function WorldHub() {
+  const { id, tab: initialTab } = useLocalSearchParams<{ id: string; tab?: Tab }>();
   const db = useSQLiteContext();
   const [u, update] = useEntity<Universe>(() => getUniverse(db, id!), (v) => saveUniverse(db, v), [id]);
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'overview');
+  const [entities, setEntities] = useState<WorldEntity[]>([]);
+  const [people, setPeople] = useState<Character[]>([]);
   const [species, setSpecies] = useState<Species[]>([]);
   const [lore, setLore] = useState<LoreEntry[]>([]);
-  const [canon, setCanon] = useState<CanonEvent[]>([]);
-  const [edit, setEdit] = useState<{ kind: 'species'; v: Species } | { kind: 'lore'; v: LoreEntry } | { kind: 'canon'; v: CanonEvent } | null>(null);
+  const [instances, setInstances] = useState<(WorldInstance & { clock: number; stories: number })[]>([]);
+  const [edit, setEdit] = useState<{ kind: 'species'; v: Species } | { kind: 'lore'; v: LoreEntry } | null>(null);
   const [forge, setForge] = useState<ForgeKind | null>(null);
+  const [newInst, setNewInst] = useState<{ name: string; description: string } | null>(null);
+
   const reload = useCallback(() => {
-    void Promise.all([listSpecies(db, id!), listLore(db, id!), listCanon(db, id!)]).then(([s, l, c]) => { setSpecies(s); setLore(l); setCanon(c); });
+    if (!id) return;
+    void Promise.all([listEntities(db, id), listCharacters(db), listSpecies(db, id), listLore(db, id), listInstances(db, id)]).then(async ([e, c, s, l, inst]) => {
+      setEntities(e); setPeople(c.filter((x) => x.universeId === id)); setSpecies(s); setLore(l);
+      setInstances(await Promise.all(inst.map(async (i) => ({ ...i, clock: await instanceClock(db, i.id), stories: (await sessionsInInstance(db, i.id)).length }))));
+    });
   }, [db, id]);
-  useEffect(reload, [reload]);
+  useFocusEffect(reload);
   if (!u) return null;
 
+  const refs = refOptions(entities, people);
+  const cal = u.data.calendar;
+  const setCal = (p: Partial<WorldCalendar>) => update({ data: { ...u.data, calendar: { ...cal, ...p } } });
+
+  async function addEntity(kind: EntityKind) {
+    const e = newEntity(u!.id, kind);
+    await saveEntity(db, e);
+    router.push(`/library/entity/${e.id}`);
+  }
+  async function addPerson() {
+    const c = { ...newCharacter(), universeId: u!.id };
+    await saveCharacter(db, c);
+    router.push(`/library/character/${c.id}`);
+  }
   async function saveEdit() {
     if (!edit) return;
     if (edit.kind === 'species') await saveSpecies(db, edit.v);
-    if (edit.kind === 'lore') await saveLore(db, edit.v);
-    if (edit.kind === 'canon') await saveCanon(db, edit.v);
+    else await saveLore(db, edit.v);
     setEdit(null);
     reload();
   }
   async function removeEdit() {
     if (!edit) return;
     if (edit.kind === 'species') await deleteSpecies(db, edit.v.id);
-    if (edit.kind === 'lore') await deleteLore(db, edit.v.id);
-    if (edit.kind === 'canon') await deleteCanon(db, edit.v.id);
+    else await deleteLore(db, edit.v.id);
     setEdit(null);
     reload();
   }
+  async function createInstance() {
+    if (!newInst?.name.trim()) return;
+    const i = { ...newInstance(u!.id, newInst.name.trim()), description: newInst.description };
+    await saveInstance(db, i);
+    setNewInst(null);
+    router.push(`/world/instance/${i.id}`);
+  }
+
+  const tree = (kind: EntityKind) => (refs[kind] ?? []).map((o) => entities.find((e) => e.id === o.id)!).filter(Boolean).map((e) => ({ e, depth: (refs[kind] ?? []).find((o) => o.id === e.id)?.depth ?? 0 }));
+  const forgeButton = (k: ForgeKind) => <Button small kind="ghost" icon="sparkles-outline" title="Forge" onPress={() => setForge(k)} />;
 
   return (
     <Screen scroll>
-      <Section title="World">
-        <Field label="Name" value={u.name} onChangeText={(v) => update({ name: v })} />
-        <Field label="Description" hint="Always sent to the writer when a story is set here." value={u.description} onChangeText={(v) => update({ description: v })} multiline style={{ minHeight: 120 }} />
-        <Button small kind="outline" icon="sparkles-outline" title="Forge people for this world" onPress={() => setForge('character')} />
-      </Section>
-      <Section title="Species" right={<Row gap={4}><Button small kind="ghost" icon="sparkles-outline" title="Forge" onPress={() => setForge('species')} /><Button small kind="outline" icon="add" title="Add" onPress={() => setEdit({ kind: 'species', v: newSpecies(u.id) })} /></Row>}>
-        <T v="faint">Each species defines adulthood in its own terms. Character cards show that definition next to their adult flag.</T>
-        {species.map((s) => <ListItem key={s.id} title={s.name} subtitle={s.adulthood} onPress={() => setEdit({ kind: 'species', v: s })} />)}
-      </Section>
-      <Section title="Lore" right={<Row gap={4}><Button small kind="ghost" icon="sparkles-outline" title="Forge" onPress={() => setForge('lore')} /><Button small kind="outline" icon="add" title="Add" onPress={() => setEdit({ kind: 'lore', v: newLore(u.id) })} /></Row>}>
-        <T v="faint">Entries are sent when one of their keywords appears in the recent beats. Always-on entries ride with the description.</T>
-        {lore.map((l) => <ListItem key={l.id} title={l.title} subtitle={l.alwaysOn ? 'always on' : l.keys.join(', ') || 'no keywords'} right={l.priority ? <Badge label={`p${l.priority}`} /> : undefined} onPress={() => setEdit({ kind: 'lore', v: l })} />)}
-      </Section>
-      <Section title="Canon" right={<Button small kind="outline" icon="add" title="Add" onPress={() => setEdit({ kind: 'canon', v: { id: newId(), universeId: u.id, sessionId: null, title: '', text: '', order: canon.length, createdAt: now() } })} />}>
-        <T v="faint">Events that happened in this world, across stories. Canon is sent as always-on lore.</T>
-        {canon.map((c) => <ListItem key={c.id} title={c.title || '(untitled)'} subtitle={c.text} onPress={() => setEdit({ kind: 'canon', v: c })} />)}
-      </Section>
-      <Button kind="danger" title="Delete world" onPress={() => Alert.alert('Delete world?', 'Species, lore and canon go with it. Characters and stories stay, detached.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { await deleteUniverse(db, u.id); router.back(); } }])} />
+      <Stack.Screen options={{ title: u.name }} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: space.md }}>
+        {TABS.map((x) => <Chip key={x.key} label={x.label} selected={tab === x.key} onPress={() => setTab(x.key)} />)}
+      </ScrollView>
+
+      {tab === 'overview' ? (
+        <>
+          <Section title="The world">
+            {u.isDefault ? <T v="faint">The real world sends nothing to the writer unless you write something here. Stories set in it stay exactly as plain as before.</T> : null}
+            <Field label="Name" value={u.name} onChangeText={(v) => update({ name: v })} />
+            <Field label="Description" hint="Always sent to the writer when a story is set here." value={u.description} onChangeText={(v) => update({ description: v })} multiline style={{ minHeight: 120 }} />
+            <FieldEditor defs={WORLD_FIELDS} data={u.data as unknown as Record<string, unknown>} onChange={(p) => update({ data: { ...u.data, ...p } })} />
+          </Section>
+          <Section title="Calendar">
+            <Row>
+              <Chip label="Real dates" selected={cal.kind === 'gregorian'} onPress={() => setCal({ kind: 'gregorian' })} />
+              <Chip label="Its own reckoning" selected={cal.kind === 'custom'} onPress={() => setCal({ kind: 'custom' })} />
+            </Row>
+            {cal.kind === 'gregorian' ? (
+              <Field label="Minute zero" hint="The date and time the world's clock starts from, YYYY-MM-DDTHH:MM." value={cal.start} onChangeText={(v) => setCal({ start: v })} autoCapitalize="none" />
+            ) : (
+              <>
+                <Row between><T>Hours in a day</T><Stepper value={cal.hoursPerDay || 24} min={6} max={60} onChange={(v) => setCal({ hoursPerDay: v })} /></Row>
+                <Row between><T>Days in a year</T><Stepper value={cal.daysPerYear} min={0} max={2000} step={5} format={(v) => (v ? String(v) : 'no years')} onChange={(v) => setCal({ daysPerYear: v })} /></Row>
+                {cal.daysPerYear ? (
+                  <>
+                    <Row between><T>Starting year</T><Stepper value={cal.startYear} min={-100000} max={100000} onChange={(v) => setCal({ startYear: v })} /></Row>
+                    <Field label="Years are called" value={cal.yearLabel} onChangeText={(v) => setCal({ yearLabel: v })} placeholder="e.g. AF, of the Long Night" />
+                    <Field label="Months" hint="Comma separated, optional. The year is split evenly." value={cal.monthNames.join(', ')} onChangeText={(v) => setCal({ monthNames: v.split(',').map((x) => x.trim()).filter(Boolean) })} />
+                  </>
+                ) : null}
+              </>
+            )}
+            <T v="faint">Minute zero reads as {formatTime(cal, 0)}. Stories keep their own clocks on this calendar; the writer always knows the time.</T>
+          </Section>
+          {!u.isDefault ? <Button kind="danger" title="Delete world" onPress={() => Alert.alert('Delete world?', 'Places, factions, things, peoples, lore, instances and their timelines go with it. Characters stay, detached. Stories move to the real world.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { await deleteUniverse(db, u.id); router.back(); } }])} /> : null}
+        </>
+      ) : null}
+
+      {tab === 'places' || tab === 'factions' || tab === 'things' ? (() => {
+        const kind: EntityKind = tab === 'places' ? 'location' : tab === 'factions' ? 'organization' : 'item';
+        const rows = tree(kind);
+        const empty = { location: 'Realms, cities, districts, rooms. Nest them: a market inside a quarter inside a city. The writer gets where the scene is and what is nearby.', organization: 'Governments, guilds, churches, gangs, families. Goals, methods, leaders, enemies.', item: 'Weapons, relics, documents, food. In play, things with effects can be used from the inventory.' }[kind];
+        return (
+          <Section title={tab === 'places' ? 'Places' : tab === 'factions' ? 'Factions' : 'Things'} right={<Row gap={4}>{forgeButton(kind)}<Button small kind="outline" icon="add" title="Add" onPress={() => addEntity(kind)} /></Row>}>
+            {rows.length ? rows.map(({ e, depth }) => <ListItem key={e.id} title={`${'   '.repeat(depth)}${depth ? '› ' : ''}${e.name}`} subtitle={[typeof e.data.type === 'string' ? e.data.type : '', e.summary].filter(Boolean).join(' · ')} onPress={() => router.push(`/library/entity/${e.id}`)} />) : <T v="faint">{empty}</T>}
+          </Section>
+        );
+      })() : null}
+
+      {tab === 'people' ? (
+        <Section title="People" right={<Row gap={4}>{forgeButton('character')}<Button small kind="outline" icon="add" title="Add" onPress={addPerson} /></Row>}>
+          {people.length ? people.map((c) => <ListItem key={c.id} title={c.name} subtitle={[c.data.occupation, c.summary].filter(Boolean).join(' · ')} right={!c.adult ? <Badge label="not adult" tone="warn" /> : undefined} onPress={() => router.push(`/library/character/${c.id}`)} />) : <T v="faint">Characters who belong to this world. The same people appear in every story set here, kept consistent by each instance’s timeline.</T>}
+        </Section>
+      ) : null}
+
+      {tab === 'peoples' ? (
+        <Section title="Peoples" right={<Row gap={4}>{forgeButton('species')}<Button small kind="outline" icon="add" title="Add" onPress={() => setEdit({ kind: 'species', v: newSpecies(u.id) })} /></Row>}>
+          <T v="faint">Races and species. Each defines adulthood in its own terms; character cards show it next to their adult flag.</T>
+          {species.map((s) => <ListItem key={s.id} title={s.name} subtitle={s.adulthood} onPress={() => setEdit({ kind: 'species', v: s })} />)}
+        </Section>
+      ) : null}
+
+      {tab === 'lore' ? (
+        <Section title="Lore" right={<Row gap={4}>{forgeButton('lore')}<Button small kind="outline" icon="add" title="Add" onPress={() => setEdit({ kind: 'lore', v: newLore(u.id) })} /></Row>}>
+          <T v="faint">Sent when one of its keywords appears in the recent passages. Always-on entries ride with the world description.</T>
+          {lore.map((l) => <ListItem key={l.id} title={l.title} subtitle={[l.category !== 'other' ? l.category : '', l.alwaysOn ? 'always on' : l.keys.join(', ') || 'no keywords'].filter(Boolean).join(' · ')} right={l.priority ? <Badge label={`p${l.priority}`} /> : undefined} onPress={() => setEdit({ kind: 'lore', v: l })} />)}
+        </Section>
+      ) : null}
+
+      {tab === 'instances' ? (
+        <Section title="Instances" right={<Button small kind="outline" icon="add" title="New" onPress={() => setNewInst({ name: '', description: '' })} />}>
+          <T v="faint">An instance is one version of this world: the same people and places, its own timeline. Stories in the same instance share what happened; another instance can let it all go differently.</T>
+          {instances.map((i) => (
+            <Card key={i.id} onPress={() => router.push(`/world/instance/${i.id}`)} style={{ gap: 4 }}>
+              <Row between><T v="h">{i.name}</T>{i.isPrime ? <Badge label="prime" tone="accent" /> : i.forkedFrom ? <Badge label="fork" tone="info" /> : null}</Row>
+              {i.description ? <T v="dim" numberOfLines={2}>{i.description}</T> : null}
+              <T v="faint">{i.stories} stor{i.stories === 1 ? 'y' : 'ies'} · up to {formatShort(cal, i.clock)}</T>
+            </Card>
+          ))}
+        </Section>
+      ) : null}
 
       <ForgeSheet open={!!forge} onClose={() => setForge(null)} kind={forge ?? 'species'} universeId={u.id} onSaved={reload} />
-      <Sheet open={!!edit} onClose={saveEdit} title={edit?.kind === 'species' ? 'Species' : edit?.kind === 'lore' ? 'Lore entry' : 'Canon event'} full>
+      <Sheet open={!!newInst} onClose={() => setNewInst(null)} title="New instance">
+        <Field label="Name" value={newInst?.name ?? ''} onChangeText={(v) => setNewInst((x) => (x ? { ...x, name: v } : x))} placeholder="e.g. The Long Winter, What if the duke lived" autoFocus />
+        <Field label="How it differs" value={newInst?.description ?? ''} onChangeText={(v) => setNewInst((x) => (x ? { ...x, description: v } : x))} multiline placeholder="Optional. Sent with every story in it." />
+        <T v="faint">Starts with an empty timeline. To branch from an existing instance at a moment, use Fork on that instance instead.</T>
+        <Button title="Create" onPress={createInstance} disabled={!newInst?.name.trim()} />
+      </Sheet>
+      <Sheet open={!!edit} onClose={saveEdit} title={edit?.kind === 'species' ? 'People' : 'Lore entry'} full>
         {edit?.kind === 'species' ? (
           <>
             <Field label="Name" value={edit.v.name} onChangeText={(v) => setEdit({ kind: 'species', v: { ...edit.v, name: v } })} />
-            <Field label="Adulthood" hint="When a member of this species counts as adult, in the world's terms." value={edit.v.adulthood} onChangeText={(v) => setEdit({ kind: 'species', v: { ...edit.v, adulthood: v } })} multiline />
+            <Field label="Adulthood" hint="When a member counts as adult, in the world's terms." value={edit.v.adulthood} onChangeText={(v) => setEdit({ kind: 'species', v: { ...edit.v, adulthood: v } })} multiline />
+            <FieldEditor defs={SPECIES_FIELDS} data={edit.v.data} refs={refs} onChange={(p) => setEdit({ kind: 'species', v: { ...edit.v, data: { ...edit.v.data, ...p } } })} />
             <Field label="Notes" value={edit.v.notes} onChangeText={(v) => setEdit({ kind: 'species', v: { ...edit.v, notes: v } })} multiline />
           </>
         ) : edit?.kind === 'lore' ? (
           <>
             <Field label="Title" value={edit.v.title} onChangeText={(v) => setEdit({ kind: 'lore', v: { ...edit.v, title: v } })} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+              {LORE_CATEGORIES.map((c) => <Chip key={c} small label={c} selected={edit.v.category === c} onPress={() => setEdit({ kind: 'lore', v: { ...edit.v, category: c } })} />)}
+            </ScrollView>
             <Field label="Keywords" hint="Comma separated" value={edit.v.keys.join(', ')} onChangeText={(v) => setEdit({ kind: 'lore', v: { ...edit.v, keys: v.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean) } })} autoCapitalize="none" />
             <Field label="Text" value={edit.v.text} onChangeText={(v) => setEdit({ kind: 'lore', v: { ...edit.v, text: v } })} multiline style={{ minHeight: 120 }} />
             <SwitchRow label="Always on" value={edit.v.alwaysOn} onChange={(v) => setEdit({ kind: 'lore', v: { ...edit.v, alwaysOn: v } })} />
             <Row between><T>Priority</T><Stepper value={edit.v.priority} min={0} max={10} onChange={(v) => setEdit({ kind: 'lore', v: { ...edit.v, priority: v } })} /></Row>
           </>
-        ) : edit?.kind === 'canon' ? (
-          <>
-            <Field label="Title" value={edit.v.title} onChangeText={(v) => setEdit({ kind: 'canon', v: { ...edit.v, title: v } })} />
-            <Field label="What happened" value={edit.v.text} onChangeText={(v) => setEdit({ kind: 'canon', v: { ...edit.v, text: v } })} multiline style={{ minHeight: 120 }} />
-          </>
         ) : null}
-        <Row>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
           <Button title="Done" onPress={saveEdit} style={{ flex: 1 }} />
           <Button kind="danger" title="Delete" onPress={removeEdit} />
-        </Row>
+        </View>
       </Sheet>
     </Screen>
   );

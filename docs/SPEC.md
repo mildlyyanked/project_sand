@@ -22,27 +22,40 @@ Mobile-first story writing app on top of OpenRouter. Single user, everything on 
 
 ## Entities
 
-- **Universe**: name, description, species[], lore entries[], canon events[].
-- **Species**: name, adulthood description (free text), notes.
-- **Character**: universe?, name, species?, age or life stage (free text), `adult` flag, voice, tells, relationships, limits, preferences, summary for prompt.
+- **Universe** (world template): name, description, `isDefault` (the real world), data {genre, tone, rules, technology, society, themes, currency, calendar}. Empty default world contributes nothing to the prompt.
+- **World entity**: universe, kind (location / organization / item), parent (locations nest), name, summary, keys[], data per kind (see `src/core/world/schema.ts`).
+- **Species**: name, adulthood description (free text), notes, data (traits, lifespan, culture, homeland...).
+- **Character**: universe?, name, species?, age or life stage (free text), `adult` flag, voice, tells, relationships, limits, preferences, summary for prompt, data {appearance, personality, backstory, goals, fears, secrets, skills, occupation, home, memberships, attributes, inventory, money}.
+- **Lore entry**: universe, category, keys[], text, always-on flag, priority.
+- **Instance**: universe, name, notes (how it differs), isPrime, forkedFrom?, forkAt?.
+- **World event**: instance, session?, beat?, at (minutes from the calendar start), title, text, kind, importance 1-3, refs to entities/characters. Canon = manual events + events on each story's current branch.
 - **Style** (voice): point of view, tense, prose density, dialogue ratio, register (clinical / euphemistic / blunt), vocabulary rules, banned phrases, sample passages; plus system, prefill, postHistory, modelOverrides{}, refusalChain[], systemAsUser, providerIgnore[], providerOrder[].
-- **Session**: title, universe?, style?, characters[], writer/summarizer/helper models, draftModels[], context strategy config, zdr flag, explicit flag (on by default), heat (0-4), current node id, summary cache, brief, planFirst.
+- **Session**: title, universe, instance, mode (writer / pov), world {continuity, chronicle}, clockStart, pov {characterId, difficulty, checks, startLocation}?, style?, characters[], writer/summarizer/helper models, draftModels[], context strategy config (incl. world and continuity budgets), zdr flag, explicit flag (on by default), heat (0-4), current node id, summary cache, brief, planFirst.
 - **Illustration**: session, beat?, prompt, file uri, model.
-- **Beat** (tree node): session, parent?, role, text, model?, usage, cost, reasoning?, direction? (regen direction), created.
-- **Lore entry**: universe, keys[], text, always-on flag, priority.
+- **Beat** (tree node): session, parent?, role, text, model?, usage, cost, reasoning?, direction? (regen direction), created, at? (in-world minutes), state? {location, pov sheet}.
+
+## Vanilla guarantee
+
+A story in the default world, writer mode, Continuity and Chronicle off, with an empty real-world card, assembles exactly the messages it did before worlds existed and makes no extra calls (`assemble.test.ts` asserts this).
 
 ## Context assembly order
 
 1. Voice system prompt (or the default template)
 2. Voice card
-3. Character cards (attached)
-4. Universe description + always-on lore
-5. Triggered lore (keyword hits in recent beats)
-6. Rolling summary (older beats)
-7. Recent beats verbatim (budget-limited)
-8. Pending instruction beats (as user messages)
-9. Post-history instruction + heat directive
-10. Assistant prefill (if any)
+3. Character cards (attached; in play the player's card is tagged)
+4. World card + always-on lore (skipped for an empty default world)
+5. Current place with parents and children
+6. Triggered world elements (keyword hits in recent beats; world budget)
+7. Triggered lore
+8. Continuity: instance timeline up to now, sibling stories' progress (continuity budget)
+9. Rolling summary (older beats)
+10. Play: the player's sheet, survival notes, the check result and the narrator contract
+11. Recent beats verbatim (budget-limited)
+12. Pending instruction beats (as user messages)
+13. Post-history instruction + heat directive
+14. Assistant prefill (if any)
+
+The app, not the model, keeps the books: dice, decay, clock and sheet are pure functions in `src/core/world/`; helper calls (referee, chronicle) only propose JSON that the app applies.
 
 ## Feature roadmap
 
@@ -50,7 +63,9 @@ Phase 1 (this build): sessions, manuscript, streaming generation, tree history, 
 
 Phase 2: guided start wizard, scene generator, duplicate / template / variant with diff note, voice drift indicator (quiet, non-blocking), rewind-and-reweave, multi-model draft race.
 
-Later: continuity checker, character interview, perspective flip, reader mode + EPUB export, timeline view of canon.
+Phase 3 (worlds): world templates with places, factions, things, peoples, lore; instances with timelines; story clocks; continuity and chronicle; POV play with checks and survival.
+
+Later: continuity checker, character interview, perspective flip, reader mode + EPUB export.
 
 ## Verification notes
 

@@ -15,6 +15,31 @@ import { estimateTokens, trimToTokens } from '../tokens';
 import { alwaysOnLore, triggeredLore } from './lorebook';
 import { renderCharacter, renderHeat, renderStyle } from './cards';
 import { DEFAULT_TEMPLATES, type PromptTemplates } from '../prompts';
+import type { CheckResult, SceneState, WorldEntity, WorldEvent, WorldInstance } from '../world/types';
+import { locationChain, scanEntities, childrenOf } from '../world/scan';
+import { renderCharacterWorld, renderEntity, renderSpecies, renderWorldTemplate, worldTemplateEmpty } from '../world/render';
+import { renderContinuity, renderSiblings, selectContinuity, type SiblingStory } from '../world/continuity';
+import { timeOfDay } from '../world/calendar';
+import { renderPov } from '../world/survival';
+import { renderCheck } from '../world/dice';
+
+/** Everything the world adds to a request. Absent: the story is on its own (vanilla). */
+export interface WorldContext {
+  entities: WorldEntity[];
+  instance: WorldInstance | null;
+  /** Timeline events this story may know of: the whole instance with continuity on, only its own otherwise. */
+  events: WorldEvent[];
+  siblings: SiblingStory[];
+  /** In-world time at the point the next passage starts. */
+  now: number;
+  scene: SceneState;
+  /** POV mode: the character the player plays. */
+  player: Character | null;
+  /** POV mode: the referee's ruling on this turn's action. */
+  check?: CheckResult | null;
+  /** POV mode: thresholds crossed since the last passage ("Water is low: thirsty."). */
+  survivalNotes?: string[];
+}
 
 export interface AssembleInput {
   session: Session;
@@ -34,6 +59,7 @@ export interface AssembleInput {
   /** A plan for this passage from the helper, sent as guidance. */
   plan?: string;
   templates?: PromptTemplates;
+  world?: WorldContext;
 }
 
 export function resolvePreset(preset: Pick<Style, 'system' | 'prefill' | 'postHistory' | 'modelOverrides'> | null, model: string): Pick<Style, 'system' | 'prefill' | 'postHistory'> {
@@ -92,21 +118,68 @@ export function assembleContext(input: AssembleInput): AssembledContext {
     return layer;
   };
 
+  const world = input.world;
+  const pov = session.mode === 'pov' && world?.player ? world.player : null;
+  const entities = world?.entities ?? [];
+  const names = new Map<string, string>();
+  for (const e of entities) names.set(e.id, e.name);
+  for (const c of characters) names.set(c.id, c.name);
+  const refName = (id: string) => names.get(id);
+
   push({ key: 'system', label: 'System', role: 'system', text: p.system.trim() || tpl.craft });
   const styleText = style ? renderStyle(style) : '';
   if (style && styleText) push({ key: 'style', label: `Voice · ${style.name}`, role: 'system', text: styleText });
   if (characters.length) {
-    const text = ['# Characters', ...characters.map((c) => renderCharacter(c, species.find((s) => s.id === c.speciesId)))].join('\n\n');
+    const text = ['# Characters', ...characters.map((c) => renderCharacter(c, species.find((s) => s.id === c.speciesId), world ? renderCharacterWorld(c, refName) : [], pov?.id === c.id ? " (the player's character)" : ''))].join('\n\n');
     push({ key: 'characters', label: `Characters · ${characters.length}`, role: 'system', text });
   }
   if (session.brief.trim()) push({ key: 'brief', label: 'Brief', role: 'system', text: `# The story\n${session.brief.trim()}` });
   if (universe) {
     const always = alwaysOnLore(lore);
-    const text = [`# World: ${universe.name}`, universe.description.trim(), ...always.map((e) => `## ${e.title}\n${e.text}`)].filter(Boolean).join('\n\n');
-    push({ key: 'universe', label: `World · ${universe.name}`, role: 'system', text, detail: always.length ? `${always.length} always-on entries` : undefined });
+    // The seeded real world says nothing unless the writer gave it something to say.
+    if (!(universe.isDefault && worldTemplateEmpty(universe) && !always.length)) {
+      const text = universe.data ? renderWorldTemplate(universe, always) : [`# World: ${universe.name}`, universe.description.trim(), ...always.map((e) => `## ${e.title}\n${e.text}`)].filter(Boolean).join('\n\n');
+      push({ key: 'universe', label: `World · ${universe.name}`, role: 'system', text, detail: always.length ? `${always.length} always-on entries` : undefined });
+    }
   }
 
   const { summarized, overflow, recent, recentTokens } = splitPath(path, session, strategy);
+
+  // The scene: where we are, and what of the world the recent passages bring up.
+  const scanText = [...recent.slice(-strategy.loreScanBeats).map((b) => b.text), input.direction ?? '', world?.scene.locationName ?? ''].join('\n');
+  const chain = world ? locationChain(world.scene.locationId, entities) : [];
+  const here = chain[chain.length - 1];
+  const focusIds = new Set<string>([...characters.map((c) => c.id), ...chain.map((c) => c.id)]);
+  const focusNames = [...characters.map((c) => c.name), ...(here ? [here.name] : [])];
+  if (world && (here || world.scene.locationName.trim())) {
+    const lines: string[] = [];
+    if (here) {
+      lines.push(`# Where the scene is: ${chain.map((c) => c.name).join(' › ')}`, renderEntity(here, entities, refName, { play: !!pov }));
+      const exits = [...childrenOf(here.id, entities), ...(here.parentId ? childrenOf(here.parentId, entities).filter((x) => x.id !== here.id) : [])].filter((x) => x.kind === 'location').slice(0, 12);
+      if (exits.length) lines.push(`Nearby: ${exits.map((x) => x.name).join(', ')}.`);
+    } else lines.push(`# Where the scene is: ${world.scene.locationName.trim()}`);
+    push({ key: 'place', label: `Place · ${here?.name ?? world.scene.locationName}`, role: 'system', text: lines.join('\n\n') });
+  }
+  if (world && (entities.length || species.length)) {
+    const chainIds = new Set(chain.map((c) => c.id));
+    const scanned = scanEntities(entities.filter((e) => !chainIds.has(e.id)), scanText);
+    const linked: WorldEntity[] = [];
+    const link = (id: unknown) => { const e = typeof id === 'string' ? entities.find((x) => x.id === id) : undefined; if (e && !chainIds.has(e.id) && !scanned.includes(e) && !linked.includes(e)) linked.push(e); };
+    if (here) link(here.data.controlledBy);
+    for (const c of characters) { link(c.data.homeLocationId); for (const m of c.data.memberships ?? []) link(m.orgId); }
+    const peoples = scanEntities(species.map((s) => ({ ...s, keys: [] as string[] })), scanText);
+    const blocks: { text: string; name: string }[] = [];
+    for (const e of [...scanned, ...linked]) blocks.push({ name: e.name, text: renderEntity(e, entities, refName, { play: !!pov }) });
+    for (const s of peoples) blocks.push({ name: s.name, text: renderSpecies(s as Species, refName) });
+    let budget = strategy.worldBudget ?? 1400;
+    const kept = blocks.filter((b) => { const t = estimateTokens(b.text); if (t > budget) return false; budget -= t; return true; });
+    for (const e of scanned) focusIds.add(e.id);
+    focusNames.push(...scanned.map((e) => e.name));
+    if (kept.length) {
+      log.push(`world: ${blocks.length} elements in scene, ${kept.length} kept`);
+      push({ key: 'elements', label: `World · ${kept.length} in scene`, role: 'system', text: `# In this scene\n\n${kept.map((b) => b.text).join('\n\n')}`, detail: kept.map((b) => b.name).join(', ') });
+    }
+  }
   log.push(`recent window: ${recent.length} beats, ~${recentTokens} tokens (budget ${strategy.recentBudget})`);
 
   if (lore.length) {
@@ -126,8 +199,21 @@ export function assembleContext(input: AssembleInput): AssembledContext {
     } else log.push('lore: no keyword hits');
   }
 
+  if (world && (session.world?.continuity || session.world?.chronicle)) {
+    const c = selectContinuity(world.events, world.now, { ids: focusIds, names: focusNames }, strategy.continuityBudget ?? 1600);
+    const cal = universe?.data?.calendar;
+    const text = renderContinuity(c, { now: world.now, calendar: cal, instanceName: world.instance && !world.instance.isPrime ? world.instance.name : undefined, timeOfDay: timeOfDay(cal, world.now) });
+    push({ key: 'continuity', label: `Continuity · ${c.past.length} past${c.future.length ? `, ${c.future.length} later` : ''}`, role: 'system', text, detail: c.states.length ? c.states.map((s) => s.name).join(', ') : undefined });
+    if (session.world?.continuity && world.siblings.length) {
+      const sibText = renderSiblings(world.siblings, Math.round((strategy.continuityBudget ?? 1600) * 0.6), cal, world.now);
+      if (sibText) push({ key: 'stories', label: `Other stories · ${world.siblings.length}`, role: 'system', text: sibText });
+    }
+  }
   if (session.summary.trim()) {
     push({ key: 'summary', label: `Summary · ${summarized.length} beats`, role: 'system', text: `# Story so far\n${trimToTokens(session.summary, strategy.summaryBudget)}` });
+  }
+  if (pov && world?.scene.pov) {
+    push({ key: 'pov', label: `Player · ${pov.name}`, role: 'system', text: renderPov(world.scene.pov, { name: pov.name, currency: universe?.data?.currency ?? '', difficulty: session.pov?.difficulty ?? 'survival' }) });
   }
   if (overflow.length) {
     const t = overflow.reduce((n, b) => n + estimateTokens(b.text), 0);
@@ -143,7 +229,10 @@ export function assembleContext(input: AssembleInput): AssembledContext {
 
   const tail: string[] = [];
   const opening = !recent.some((b) => b.role === 'prose') && !session.summary.trim();
-  if (opening) tail.push(tpl.opening);
+  if (opening) tail.push(pov ? `Open the game: set ${pov.name} in the opening scene with something to want, something to fear and a way in. Describe only the world; end where ${pov.name} can act.` : tpl.opening);
+  if (pov) tail.push(`This is interactive. The player plays ${pov.name}. Never decide, speak, think or act for ${pov.name}; narrate the world's response to their action, the people around them and its consequences, then stop at a moment where ${pov.name} can act again.`);
+  if (world?.check) tail.push(renderCheck(world.check));
+  if (world?.survivalNotes?.length) tail.push(`Since the last passage: ${world.survivalNotes.join(' ')}`);
   if (input.plan?.trim()) tail.push(`${tpl.planLead}\n${input.plan.trim()}`);
   if (p.postHistory.trim()) tail.push(p.postHistory.trim());
   if (session.explicit) tail.push(renderHeat(session.heat));

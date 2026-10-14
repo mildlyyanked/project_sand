@@ -95,6 +95,44 @@ OpenRouter's image models come with their providers' filters. **Settings → Ill
 
 The writer model can invent library entries from a wish. **Forge** on the People and Worlds tabs, and on a world's page for its species, lore and people, asks for what you want and how many, shows the model what the world already holds so new entries fit and avoid repeats, then previews the result for you to prune before saving. A forged world arrives with a description and, where it calls for them, first species and lore. Characters come with a life stage and an adult flag by their species' definition, shown in the preview; everything is editable afterwards. Replies are read leniently (fenced, prefaced, literal newlines inside strings, trailing commas), and when a model answers on its reasoning channel the JSON is taken from there; a reply that still cannot be read is quoted in the error.
 
+## Worlds
+
+Every story lives in a world. **The real world** is the default and sends nothing to the writer unless you write something on its page, so a blank story there is exactly the old vanilla experience: no extra context, no extra calls, free writing. Stories on the Stories tab are grouped by world, with filter chips once there is more than one.
+
+A world (Library → Worlds) is a template with tabs:
+
+- **World**: description, genre, tone, rules (magic, physics, law), technology, society, themes, currency, and a calendar (the real Gregorian one, or your own year label, month names, days per year and hours per day).
+- **Places**: a hierarchy (continent › city › district › room), each with kind, summary, climate, dangers, resources, population, controlling faction, keywords and anything else that fits its kind.
+- **People**: characters with appearance, personality, backstory, goals, fears, secrets, skills, occupation, home place, memberships with roles, attributes, inventory and money, on top of voice, tells, relationships and limits.
+- **Factions**, **Things** (objects, artefacts, goods), **Peoples** (species and races with traits, lifespan, adulthood in their own terms, culture, homeland) and **Lore** by category (history, religion, magic, law, custom...).
+
+Forge works on every tab: the writer model invents places within places, factions with headquarters, people with homes and memberships, fitted to what the world already holds.
+
+The writer gets only what the scene calls for: the world card, the place the scene is in with its parents and children, and any place, faction, thing, person, people or lore whose keywords show up in the recent passages, within the **World** budget (context strategy).
+
+### Instances and timelines
+
+An instance is one version of a world: the same people and places, its own history. Every world has a prime instance; add more, or **Fork** one at a moment in its timeline to branch the multiverse there. An instance can say how it differs from the template, and that note goes with every story in it.
+
+Each story keeps an internal clock. Every passage is stamped with the in-world time and place, so undo and branches rewind both. The instance timeline (World page → Instances, or Timeline in a story's menu) holds events from two sources: ones you add by hand, and ones the **Chronicle** records from each story's current branch. Branches you abandoned do not count.
+
+Two switches in a story's settings decide how much of this it uses:
+
+- **Continuity** (free): the writer reads the instance's timeline up to the story's present and what the other stories in the instance have reached, within the **Continuity** budget. Nothing that happened later in world time leaks in.
+- **Chronicle** (one cheap helper call per passage): records elapsed time, the place, events with importance and the people involved, and changes, so the timeline fills itself.
+
+The Clock sheet in a story shows the time, lets you set it or skip ahead, and lists the story's events.
+
+## Playing a character
+
+**Play a character** (from + on Stories, or **Play here** on an instance) puts you inside the world as one of its people. You write what they do or say; the narrator answers as the world, never deciding, speaking or acting for your character.
+
+- **Tests of skill**: before the narrator writes, a helper call judges whether the action is risky and which attribute it tests (might, agility, wits, presence, resolve) and how hard. The app rolls a d20 locally, adds the attribute modifier and penalties for wounds, fatigue and despair, and tells the narrator the outcome (triumph, success, success at a cost, failure, disaster) to write to. The roll shows under your action.
+- **Needs**: on Survival and Hardcore, energy, food and water run down with in-world time; rest recovers energy and health; starving or going without water hurts. Story difficulty keeps the sheet without the decay. Health at zero puts you down.
+- **The sheet**: the status strip shows time, place, money and bars; tap it for Status, Inventory (Use and Drop, with effects), Aims and People (how others feel about you). The Chronicle, always on in play, moves money, items, conditions, aims and relations as the story says, and the Travel sheet moves you between places.
+
+The world's people, places and timeline inform play just as they inform writing.
+
 ## Home
 
 Home is three tabs: **Stories**, **Library** (people, voices, worlds) and **Usage**. Usage shows spend today, over the last week and all time, totals for passages, words and tokens, and breakdowns by model (with the refusal ledger), by story and by day, all from the cost OpenRouter reports on every writer request; helper calls are not itemized. With a key saved it also shows what OpenRouter has counted against the key. The build version sits at the foot of Stories and Settings.

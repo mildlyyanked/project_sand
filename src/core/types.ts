@@ -21,6 +21,10 @@ export interface Beat {
   completionTokens: number | null;
   costUsd: number | null;
   createdAt: number;
+  /** In-world time after this beat, in minutes since the world calendar's start. Null: inherit from the parent. */
+  at: number | null;
+  /** Scene and player state after this beat (location, and in POV mode the whole sheet). Null: inherit. */
+  state: import('./world/types').SceneState | null;
 }
 
 export interface Species {
@@ -30,12 +34,18 @@ export interface Species {
   /** How adulthood is defined for this species, in the world's own terms. */
   adulthood: string;
   notes: string;
+  /** Lifespan, appearance, traits, abilities, culture… see core/world/schema. */
+  data: Record<string, unknown>;
 }
 
 export interface Universe {
   id: Id;
   name: string;
   description: string;
+  /** The seeded real world: no context of its own unless the writer adds some. */
+  isDefault: boolean;
+  /** Genre, tone, rules, technology, currency, calendar… see core/world/schema. */
+  data: import('./world/types').WorldData;
   createdAt: number;
   updatedAt: number;
 }
@@ -49,6 +59,8 @@ export interface LoreEntry {
   text: string;
   alwaysOn: boolean;
   priority: number;
+  /** history, religion, magic, technology, culture, law, geography, other. */
+  category: string;
 }
 
 export interface CanonEvent {
@@ -76,6 +88,8 @@ export interface Character {
   relationships: string;
   limits: string;
   preferences: string;
+  /** Appearance, personality, goals, secrets, home, memberships, play stats… see core/world/schema. */
+  data: import('./world/types').CharacterData;
   createdAt: number;
   updatedAt: number;
 }
@@ -156,6 +170,10 @@ export interface ContextStrategy {
   loreBudget: number;
   /** Re-summarize when un-summarized tokens exceed this. */
   summarizeThreshold: number;
+  /** Token budget for places, factions, things and peoples brought in by the scene. */
+  worldBudget: number;
+  /** Token budget for the instance timeline and other stories in it. */
+  continuityBudget: number;
 }
 
 export interface ModelSlots {
@@ -179,6 +197,16 @@ export interface Session {
   id: Id;
   title: string;
   universeId: Id | null;
+  /** The version of the world this story happens in. */
+  instanceId: Id | null;
+  /** Free writing, or playing one character inside the world. */
+  mode: 'writer' | 'pov';
+  /** Share the instance's timeline and other stories (continuity) and record this story's events (chronicle). */
+  world: { continuity: boolean; chronicle: boolean };
+  /** In-world time when the story opens, minutes since the calendar start. */
+  clockStart: number;
+  /** POV mode settings; the live sheet is on the beats. */
+  pov: import('./world/types').PovSettings | null;
   styleId: Id | null;
   characterIds: Id[];
   models: ModelSlots;
@@ -272,6 +300,8 @@ export const DEFAULT_STRATEGY: ContextStrategy = {
   loreScanBeats: 6,
   loreBudget: 1200,
   summarizeThreshold: 9000,
+  worldBudget: 1400,
+  continuityBudget: 1600,
 };
 
 export const DEFAULT_PARAMS: GenerationParams = {

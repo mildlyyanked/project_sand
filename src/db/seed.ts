@@ -1,6 +1,8 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { RefusalStep, Style } from '@/core/types';
-import { listStyles, saveStyle, newStyle, kvGet, kvSet } from './repo/library';
+import { listStyles, saveStyle, newStyle, kvGet, kvSet, listUniverses, saveUniverse, newUniverse, DEFAULT_WORLD_DATA } from './repo/library';
+import { primeInstance, saveEvent, newEvent } from './repo/world';
+import { newId } from '@/core/ids';
 import { pj, b } from './repo/map';
 import { CRAFT_SYSTEM } from '@/core/context/assemble';
 
@@ -147,14 +149,41 @@ async function upgradeTo7(db: SQLiteDatabase): Promise<void> {
   }
 }
 
+/**
+ * Worlds become places stories live in. The real world is seeded and says
+ * nothing unless the writer adds to it; every world gets a prime instance;
+ * old canon entries move onto that instance's timeline; every story is placed.
+ */
+async function upgradeTo8(db: SQLiteDatabase): Promise<void> {
+  const today = new Date();
+  const start = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}T08:00`;
+  let worlds = await listUniverses(db);
+  let real = worlds.find((w) => w.isDefault);
+  if (!real) {
+    real = { ...newUniverse('The real world'), isDefault: true, data: { ...DEFAULT_WORLD_DATA, calendar: { ...DEFAULT_WORLD_DATA.calendar, kind: 'gregorian', start } } };
+    await saveUniverse(db, real);
+    worlds = [real, ...worlds];
+  }
+  for (const w of worlds) {
+    const prime = await primeInstance(db, w.id, w.isDefault ? 'Our world' : 'Prime');
+    const canon = await db.getAllAsync<{ id: string; title: string; text: string; ord: number; created_at: number }>('SELECT id, title, text, ord, created_at FROM canon WHERE universe_id = ? ORDER BY ord, created_at', w.id).catch(() => []);
+    for (const c of canon) await saveEvent(db, newEvent(prime.id, 0, { id: newId(), title: c.title || 'Canon', text: c.text, importance: 3, createdAt: c.created_at }));
+    // Stories already in a custom world share its continuity; recording (a helper call per passage) stays opt-in for them.
+    await db.runAsync(`UPDATE sessions SET instance_id = ?, world_json = ? WHERE universe_id = ? AND instance_id IS NULL`, prime.id, JSON.stringify({ continuity: !w.isDefault, chronicle: false }), w.id);
+  }
+  const realPrime = await primeInstance(db, real.id, 'Our world');
+  await db.runAsync(`UPDATE sessions SET universe_id = ?, instance_id = ?, world_json = '{"continuity":false,"chronicle":false}' WHERE universe_id IS NULL`, real.id, realPrime.id);
+}
+
 export async function seedIfEmpty(db: SQLiteDatabase): Promise<void> {
   const version = Number((await kvGet(db, 'seeded')) ?? 0);
-  if (version >= 7) return;
+  if (version >= 8) return;
   if (version >= 1) {
     if (version < 5) await upgradeTo5(db);
     if (version < 6) await upgradeTo6(db);
-    await upgradeTo7(db);
-    await kvSet(db, 'seeded', '7');
+    if (version < 7) await upgradeTo7(db);
+    await upgradeTo8(db);
+    await kvSet(db, 'seeded', '8');
     return;
   }
   if ((await listStyles(db)).length === 0) {
@@ -168,5 +197,6 @@ export async function seedIfEmpty(db: SQLiteDatabase): Promise<void> {
     } catch {}
   }
   await db.execAsync('DROP TABLE IF EXISTS presets');
-  await kvSet(db, 'seeded', '7');
+  await upgradeTo8(db);
+  await kvSet(db, 'seeded', '8');
 }

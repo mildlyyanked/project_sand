@@ -2,7 +2,12 @@ import { create } from 'zustand';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Beat, Character, ChatMessage, ContextLayer, Id, Illustration, LoreEntry, RefusalStep, Session, Species, Style, Universe } from '@/core/types';
 import { indexBeats, pathTo, type BeatIndex, descendants, leafOf, stepSibling } from '@/core/beatTree';
-import { assembleContext, splitPath, summaryPrompt, type AssembleInput } from '@/core/context/assemble';
+import { assembleContext, splitPath, summaryPrompt, type AssembleInput, type WorldContext } from '@/core/context/assemble';
+import type { CheckResult, SceneState } from '@/core/world/types';
+import { rollCheck } from '@/core/world/dice';
+import { useItem as spendItem, parseEffects } from '@/core/world/survival';
+import { sceneAt } from '@/core/world/timeline';
+import { buildWorldContext, chronicle, chronicleOn, emptyWorldBundle, initialScene, loadWorldBundle, referee, type WorldBundle } from './world';
 import { clinicOpening, clinicSystem, critiquePrompt, imagePromptPrompt, parseClinicReply, parseSuggestions, planPrompt, scenePrompt, suggestPrompt, transcriptOf, type ClinicEdit } from '@/core/helpers';
 import { renderHeat } from '@/core/context/cards';
 import { manuscriptText } from '@/core/beatTree';
@@ -14,7 +19,7 @@ import { runInForeground } from './foreground';
 import { removeImage, saveImage } from './images';
 import { generateViaBackend } from './imageBackend';
 import { useSettings } from './settings';
-import { deleteBeats, getSession, insertBeat, listBeats, makeBeat, patchSession, updateBeatText, upsertSession } from '@/db/repo/sessions';
+import { deleteBeats, getSession, insertBeat, listBeats, makeBeat, patchSession, updateBeatText, updateBeatWorld, upsertSession } from '@/db/repo/sessions';
 import { deleteIllustration, getCharacters, getStyle, getUniverse, listIllustrations, listLore, listModelStats, listSpecies, recordAttempt, saveIllustration } from '@/db/repo/library';
 
 export interface Streaming {
@@ -23,7 +28,7 @@ export interface Streaming {
   attempt: number;
   step: RefusalStep | null;
   model: string;
-  phase: 'summarizing' | 'writing' | 'reweaving' | 'planning' | 'critiquing' | 'proposing' | 'suggesting' | 'illustrating';
+  phase: 'summarizing' | 'writing' | 'reweaving' | 'planning' | 'critiquing' | 'proposing' | 'suggesting' | 'illustrating' | 'refereeing' | 'chronicling';
   startedAt: number;
   /** Beat being replaced (regenerate) or the parent for a new beat. */
   parentId: Id | null;
@@ -83,6 +88,19 @@ interface SessionState {
   index: BeatIndex;
   path: Beat[];
   bundle: Bundle;
+  /** Places, factions, things, the instance and the player's character. */
+  wb: WorldBundle;
+  /** World context at the current beat; null for vanilla stories. */
+  world: WorldContext | null;
+  /** Survival thresholds crossed in the last passage, told to the writer on the next one. */
+  survivalNotes: string[];
+  refreshWorld(): Promise<void>;
+  /** POV: use one of an inventory item; its effects apply now, then the narrator continues. */
+  useItem(name: string): Promise<void>;
+  /** POV quick action or writer instruction: add it and continue. */
+  act(text: string): Promise<void>;
+  /** Set the in-world time at the current beat (or the story's opening time when empty). */
+  setClock(minutes: number): Promise<void>;
   streaming: Streaming | null;
   drafts: Draft[];
   illustrations: Illustration[];
@@ -115,7 +133,7 @@ interface SessionState {
   reload(): Promise<void>;
   patch(p: Partial<Session>): Promise<void>;
   setCurrent(id: Id | null): Promise<void>;
-  addBeat(role: Beat['role'], text: string): Promise<Beat>;
+  addBeat(role: Beat['role'], text: string, extra?: { state?: SceneState | null; at?: number | null }): Promise<Beat>;
   editBeat(id: Id, text: string): Promise<void>;
   deleteFrom(id: Id): Promise<void>;
   undo(): Promise<void>;
@@ -157,7 +175,8 @@ export const useSession = create<SessionState>((set, get) => {
   };
 
   async function loadBundle(db: SQLiteDatabase, s: Session): Promise<Bundle> {
-    const [style, characters, universe] = await Promise.all([getStyle(db, s.styleId), getCharacters(db, s.characterIds), s.universeId ? getUniverse(db, s.universeId) : Promise.resolve(null)]);
+    const ids = s.mode === 'pov' && s.pov?.characterId && !s.characterIds.includes(s.pov.characterId) ? [s.pov.characterId, ...s.characterIds] : s.characterIds;
+    const [style, characters, universe] = await Promise.all([getStyle(db, s.styleId), getCharacters(db, ids), s.universeId ? getUniverse(db, s.universeId) : Promise.resolve(null)]);
     const [species, lore] = s.universeId ? await Promise.all([listSpecies(db, s.universeId), listLore(db, s.universeId)]) : [await listSpecies(db, null), []];
     return { style, characters, species, universe, lore };
   }
@@ -193,13 +212,13 @@ export const useSession = create<SessionState>((set, get) => {
   }
 
   const assembleInput = (direction?: string, model?: string): AssembleInput | null => {
-    const { session, path, bundle, dropped } = get();
+    const { session, path, bundle, dropped, world } = get();
     if (!session) return null;
-    return { session, path, ...bundle, model: model ?? session.models.writer, direction, dropped };
+    return { session, path, ...bundle, model: model ?? session.models.writer, direction, dropped, world: world ?? undefined, templates: useSettings.getState().templates };
   };
 
   return {
-    db: null, session: null, beats: [], index: emptyIndex, path: [], bundle: emptyBundle, streaming: null, drafts: [], illustrations: [], suggestions: [], sceneProposal: null, refusal: null, clinic: null, imagePrompt: null, diagnoseOnStop: false, error: null, notice: null, dropped: new Set(), lastLog: [], abort: null,
+    db: null, session: null, beats: [], index: emptyIndex, path: [], bundle: emptyBundle, wb: emptyWorldBundle, world: null, survivalNotes: [], streaming: null, drafts: [], illustrations: [], suggestions: [], sceneProposal: null, refusal: null, clinic: null, imagePrompt: null, diagnoseOnStop: false, error: null, notice: null, dropped: new Set(), lastLog: [], abort: null,
 
     async open(db, id) {
       const row = await getSession(db, id);
@@ -211,8 +230,15 @@ export const useSession = create<SessionState>((set, get) => {
       // A reload must never undo a change that is newer in memory than in the row it just read.
       const inMemory = get().session;
       const session = !fresh && inMemory && (patching > 0 || inMemory.updatedAt > row.updatedAt) ? inMemory : row;
-      const [beats, bundle, illustrations] = await Promise.all([listBeats(db, id), loadBundle(db, session), listIllustrations(db, id)]);
-      set({ db, session, bundle, illustrations, error: null, dropped: fresh ? new Set() : get().dropped, ...(fresh ? { suggestions: [], sceneProposal: null, drafts: [], refusal: null, clinic: null } : {}), ...recompute(beats, session) });
+      const [beats, bundle, illustrations, wb] = await Promise.all([listBeats(db, id), loadBundle(db, session), listIllustrations(db, id), loadWorldBundle(db, session)]);
+      set({ db, session, bundle, wb, illustrations, error: null, dropped: fresh ? new Set() : get().dropped, ...(fresh ? { suggestions: [], sceneProposal: null, drafts: [], refusal: null, clinic: null, survivalNotes: [], world: null } : {}), ...recompute(beats, session) });
+      await get().refreshWorld();
+    },
+    async refreshWorld() {
+      const { db, session, path, wb } = get();
+      if (!db || !session) return;
+      const world = (await buildWorldContext(db, session, path, wb, { survivalNotes: get().survivalNotes })) ?? null;
+      if (get().session?.id === session.id) set({ world });
     },
     async reload() {
       const { db, session } = get();
@@ -227,8 +253,10 @@ export const useSession = create<SessionState>((set, get) => {
       try {
         set({ session: next, ...recompute(get().beats, next) });
         await upsertSession(db, next);
-        const needBundle = 'styleId' in p || 'characterIds' in p || 'universeId' in p;
+        const needBundle = 'styleId' in p || 'characterIds' in p || 'universeId' in p || 'pov' in p || 'mode' in p;
         if (needBundle) set({ bundle: await loadBundle(db, next) });
+        if (needBundle || 'instanceId' in p) set({ wb: await loadWorldBundle(db, next) });
+        if (needBundle || 'instanceId' in p || 'currentBeatId' in p || 'world' in p || 'clockStart' in p) await get().refreshWorld();
       } finally {
         patching--;
       }
@@ -236,14 +264,15 @@ export const useSession = create<SessionState>((set, get) => {
     async setCurrent(id) {
       await get().patch({ currentBeatId: id });
     },
-    async addBeat(role, text) {
+    async addBeat(role, text, extra) {
       const { db, session } = get();
       if (!db || !session) throw new Error('No session');
-      const b = makeBeat({ sessionId: session.id, parentId: session.currentBeatId, role, text });
+      const b = makeBeat({ sessionId: session.id, parentId: session.currentBeatId, role, text, state: extra?.state ?? null, at: extra?.at ?? null });
       await insertBeat(db, b);
       const beats = [...get().beats, b];
       const next = (await patchSession(db, session.id, { currentBeatId: b.id }))!;
       set({ session: next, ...recompute(beats, next) });
+      await get().refreshWorld();
       return b;
     },
     async editBeat(id, text) {
@@ -269,6 +298,7 @@ export const useSession = create<SessionState>((set, get) => {
       }
       const next = (await patchSession(db, session.id, patch))!;
       set({ session: next, ...recompute(beats, next) });
+      await get().refreshWorld();
     },
     async undo() {
       const { path } = get();
@@ -313,6 +343,7 @@ export const useSession = create<SessionState>((set, get) => {
       const beats = [...get().beats, b];
       const next = keepCurrent ? get().session! : (await patchSession(db, session.id, { currentBeatId: b.id }))!;
       set({ session: next, ...recompute(beats, next) });
+      if (!keepCurrent) void get().refreshWorld();
       return b;
     },
 
@@ -426,9 +457,27 @@ export const useSession = create<SessionState>((set, get) => {
         }
         const lastProse = [...path].reverse().find((b) => b.role === 'prose');
         const lastBeat = path[path.length - 1];
-        // Plan first: a short, cheap call to the helper that gives the writer a spine to follow.
+        const wb = get().wb;
+        const playing = sess.mode === 'pov' && !!wb.player;
+        // Play: the referee decides whether the action is tested; the dice are rolled here, not by the model.
+        let check: CheckResult | null = null;
+        const action = [lastBeat?.role === 'instruction' ? lastBeat.text : '', o.direction ?? ''].filter(Boolean).join('; ');
+        if (playing && sess.pov?.checks !== false && action && !o.regenerateId) {
+          set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'refereeing', model: sess.models.helper } } : {}));
+          try {
+            const scene = sceneAt(path, initialScene(sess, wb));
+            const ruling = await referee({ apiKey, model: sess.models.helper, zdr: sess.zdr, signal: abort.signal, action, scene, player: wb.player!, universe: bundle.universe, difficulty: sess.pov?.difficulty ?? 'survival', recent: lastProse?.text ?? '' });
+            if (ruling) check = rollCheck({ attribute: ruling.attribute, difficulty: ruling.difficulty, score: wb.player!.data.attributes?.[ruling.attribute], state: scene.pov, why: ruling.why, onSuccess: ruling.onSuccess, onFailure: ruling.onFailure });
+          } catch {
+            if (abort.signal.aborted) return;
+          }
+          set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'writing', model } } : {}));
+        }
+        if (o.regenerateId && playing) check = index.byId.get(o.regenerateId)?.state?.pov?.lastCheck ?? null;
+        const world = await buildWorldContext(db, sess, path, wb, { check, survivalNotes: get().survivalNotes });
+        // Plan first: a short, cheap call to the helper that gives the writer a spine to follow. Not in play: the player is the plan.
         let plan = '';
-        if (sess.planFirst) {
+        if (sess.planFirst && !playing) {
           set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'planning', model: sess.models.helper } } : {}));
           try {
             const instruction = [lastBeat?.role === 'instruction' ? lastBeat.text : '', o.direction ?? ''].filter(Boolean).join('; ');
@@ -441,14 +490,14 @@ export const useSession = create<SessionState>((set, get) => {
           }
           set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'writing', model } } : {}));
         }
-        const ctx = assembleContext({ session: sess, path, ...bundle, model, direction: o.direction, dropped: get().dropped, plan: plan.trim() || undefined, templates: useSettings.getState().templates });
+        const ctx = assembleContext({ session: sess, path, ...bundle, model, direction: o.direction, dropped: get().dropped, plan: plan.trim() || undefined, templates: useSettings.getState().templates, world });
         set({ lastLog: ctx.log });
         // Extra drafts: other models write the same passage as siblings, without the chain, so the writer can compare in place.
         const extra = o.regenerateId ? [] : sess.draftModels.filter((m) => m && m !== model);
         const draftJobs = extra.map(async (dm, i) => {
           const upd = (p: Partial<Draft>) => set((st) => ({ drafts: st.drafts.map((d, j) => (j === i ? { ...d, ...p } : d)) }));
           try {
-            const dctx = model === dm ? ctx : assembleContext({ session: sess, path, ...bundle, model: dm, direction: o.direction, dropped: get().dropped, plan: plan.trim() || undefined, templates: useSettings.getState().templates });
+            const dctx = model === dm ? ctx : assembleContext({ session: sess, path, ...bundle, model: dm, direction: o.direction, dropped: get().dropped, plan: plan.trim() || undefined, templates: useSettings.getState().templates, world });
             let text = '';
             let cost: number | null = null;
             for await (const ev of client.stream({ apiKey, model: dm, messages: dctx.messages, params: applyRepetition(sess.params, bundle.style?.repetition), zdr: sess.zdr, providerIgnore: bundle.style?.providerIgnore, providerOrder: bundle.style?.providerOrder, signal: abort.signal })) {
@@ -522,9 +571,30 @@ export const useSession = create<SessionState>((set, get) => {
         const finalText = guarded.text;
         const totalCost = attempts.reduce((n, a) => n + (a.usage?.costUsd ?? 0), 0);
         const usage = final.usage ? { ...final.usage, costUsd: attempts.some((a) => a.usage?.costUsd != null) ? totalCost : null } : null;
-        await get().insertGenerated({ parentId, text: finalText.trim(), model: final.model, direction: o.direction, reasoning: final.reasoning, plan: plan.trim() || null, usage });
+        const mainBeat = await get().insertGenerated({ parentId, text: finalText.trim(), model: final.model, direction: o.direction, reasoning: final.reasoning, plan: plan.trim() || null, usage });
         // The passage is on the page; the footer now only tracks the extra drafts still writing.
         set((st) => (st.streaming ? { streaming: { ...st.streaming, text: '', reasoning: '' } } : {}));
+        // The chronicle: time, place, events, and in play the player's books. A refusal is not chronicled.
+        if (chronicleOn(sess) && !final.refused && finalText.trim()) {
+          set((st) => (st.streaming ? { streaming: { ...st.streaming, phase: 'chronicling', model: sess.models.helper } } : {}));
+          try {
+            const out = await chronicle({ db, apiKey, model: sess.models.helper, zdr: sess.zdr, signal: abort.signal, session: sess, universe: bundle.universe, species: bundle.species, wb, beat: mainBeat, parentPath: path, action, check });
+            if (out) {
+              const beats = get().beats.map((b) => (b.id === mainBeat.id ? { ...b, at: out.at, state: out.scene } : b));
+              set({ survivalNotes: out.notes, ...recompute(beats, get().session!) });
+              if (out.scene.pov?.down && !sceneAt(path, initialScene(sess, wb)).pov?.down) set({ notice: sess.pov?.difficulty === 'hardcore' ? `${wb.player?.name ?? 'Your character'} has fallen. Undo to try again from an earlier moment, or play out the end.` : `${wb.player?.name ?? 'Your character'} is down. The story goes on, at a cost.` });
+            } else if (check) {
+              // Keep the roll on the passage even when the chronicle could not be read.
+              const scene = sceneAt(path, initialScene(sess, wb));
+              const state = { ...scene, pov: scene.pov ? { ...scene.pov, lastCheck: check } : undefined };
+              await updateBeatWorld(db, mainBeat.id, null, state);
+              set(recompute(get().beats.map((b) => (b.id === mainBeat.id ? { ...b, state } : b)), get().session!));
+            }
+          } catch (e) {
+            if (!abort.signal.aborted) set({ notice: `The chronicle could not record this passage (${e instanceof Error ? e.message : String(e)}). The story is unaffected; time and events stand where they were.` });
+          }
+          await get().refreshWorld();
+        }
         await Promise.all(draftJobs);
         const ran = attempts.filter((a) => !a.skipped);
         const okDrafts = get().drafts.filter((d) => d.done && !d.error && d.text.length > 40).length;
@@ -680,6 +750,40 @@ export const useSession = create<SessionState>((set, get) => {
       } finally {
         set({ streaming: null, abort: null });
       }
+    },
+    async useItem(name) {
+      const { session, path, wb } = get();
+      if (!session || session.mode !== 'pov' || get().streaming) return;
+      const scene = sceneAt(path, initialScene(session, wb));
+      if (!scene.pov) return;
+      const item = scene.pov.inventory.find((i) => i.name.toLowerCase() === name.toLowerCase());
+      if (!item) return;
+      const def = wb.entities.find((e) => e.kind === 'item' && (e.id === item.itemId || e.name.toLowerCase() === item.name.toLowerCase()));
+      const effects = parseEffects(def?.data.effects ?? item.note ?? '');
+      const used = spendItem(scene.pov, item.name, effects);
+      const effectText = Object.entries(effects).map(([k, v]) => `${k} ${v! > 0 ? '+' : ''}${v}`).join(', ');
+      set({ survivalNotes: used.notes });
+      await get().addBeat('instruction', `You use the ${item.name}.${effectText ? ` (Already applied: ${effectText}.)` : ''}`, { state: { ...scene, pov: used.state } });
+      await get().generate();
+    },
+    async act(text) {
+      const v = text.trim();
+      if (!v || get().streaming) return;
+      await get().addBeat('instruction', v);
+      await get().generate();
+    },
+    async setClock(minutes) {
+      const { db, session, path } = get();
+      if (!db || !session) return;
+      const m = Math.max(0, Math.round(minutes));
+      const tip = path[path.length - 1];
+      if (!tip) {
+        await get().patch({ clockStart: m });
+        return;
+      }
+      await updateBeatWorld(db, tip.id, m, tip.state);
+      set(recompute(get().beats.map((b) => (b.id === tip.id ? { ...b, at: m } : b)), session));
+      await get().refreshWorld();
     },
     clearRefusal: () => set({ refusal: null, clinic: null }),
     ackClinic: () => set((st) => (st.refusal ? { refusal: { ...st.refusal, auto: false } } : {})),

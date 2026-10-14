@@ -32,9 +32,9 @@ export function renderStyle(s: Style): string {
   return lines.join('\n');
 }
 
-export function renderCharacter(c: Character, species?: Species | null): string {
+export function renderCharacter(c: Character, species?: Species | null, extra: string[] = [], tag = ''): string {
   return [
-    `## ${c.name}`,
+    `## ${c.name}${tag}`,
     field('Species', species?.name),
     field('Life stage', c.lifeStage),
     field('Summary', c.summary),
@@ -43,6 +43,7 @@ export function renderCharacter(c: Character, species?: Species | null): string 
     field('Relationships', c.relationships),
     field('Limits', c.limits),
     field('Preferences', c.preferences),
+    ...extra,
   ]
     .filter(Boolean)
     .join('\n');

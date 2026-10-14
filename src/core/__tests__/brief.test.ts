@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { briefNote, forgePrompt, imagePromptPrompt, parseBrief, parseClinicReply, parseForge, parseSuggestions, suggestPrompt } from '../helpers';
+import { universe } from './fixtures';
 
 describe('parseBrief', () => {
   it('parses fenced JSON and fills defaults', () => {
@@ -66,7 +67,7 @@ describe('forge', () => {
     expect(parseForge('lore', 'nothing here')).toBeNull();
   });
   it('tells the model what is already there', () => {
-    const m = forgePrompt('character', { wish: 'a smuggler', count: 1, ctx: { universe: { id: 'u', name: 'Vell', description: 'd', createdAt: 0, updatedAt: 0 }, species: [{ name: 'Moulters', adulthood: 'x' }], lore: [], characters: [{ name: 'Ora', summary: 'judge' }] } });
+    const m = forgePrompt('character', { wish: 'a smuggler', count: 1, ctx: { universe: { id: 'u', name: 'Vell', description: 'd', isDefault: false, data: universe().data, createdAt: 0, updatedAt: 0 }, species: [{ name: 'Moulters', adulthood: 'x' }], lore: [], characters: [{ name: 'Ora', summary: 'judge' }] } });
     expect(m[1]!.content).toContain('Ora: judge');
     expect(m[1]!.content).toContain('Moulters');
     expect(m[0]!.content).toContain('Exactly 1 item.');

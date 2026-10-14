@@ -2,65 +2,77 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { CanonEvent, Character, Id, Illustration, LoreEntry, ModelStat, Species, Style, Universe } from '@/core/types';
 import { newId, now } from '@/core/ids';
 import { b, ib, j, pj } from './map';
+import { DEFAULT_CALENDAR } from '@/core/world/calendar';
 
 // Universes
 
-interface URow { id: string; name: string; description: string; created_at: number; updated_at: number }
-const uFrom = (r: URow): Universe => ({ id: r.id, name: r.name, description: r.description, createdAt: r.created_at, updatedAt: r.updated_at });
+interface URow { id: string; name: string; description: string; created_at: number; updated_at: number; is_default: number | null; data_json: string | null }
+export const DEFAULT_WORLD_DATA: Universe['data'] = { genre: '', tone: '', rules: '', technology: '', society: '', themes: '', currency: '', calendar: DEFAULT_CALENDAR };
+const uFrom = (r: URow): Universe => {
+  const d = pj<Partial<Universe['data']>>(r.data_json, {});
+  return { id: r.id, name: r.name, description: r.description, isDefault: b(r.is_default ?? 0), data: { ...DEFAULT_WORLD_DATA, ...d, calendar: { ...DEFAULT_CALENDAR, ...(d.calendar ?? {}) } }, createdAt: r.created_at, updatedAt: r.updated_at };
+};
 
 export async function listUniverses(db: SQLiteDatabase): Promise<Universe[]> {
-  return (await db.getAllAsync<URow>('SELECT * FROM universes ORDER BY updated_at DESC')).map(uFrom);
+  return (await db.getAllAsync<URow>('SELECT * FROM universes ORDER BY is_default DESC, updated_at DESC')).map(uFrom);
 }
 export async function getUniverse(db: SQLiteDatabase, id: Id): Promise<Universe | null> {
   const r = await db.getFirstAsync<URow>('SELECT * FROM universes WHERE id = ?', id);
   return r ? uFrom(r) : null;
 }
 export async function saveUniverse(db: SQLiteDatabase, u: Universe): Promise<void> {
-  await db.runAsync('INSERT OR REPLACE INTO universes (id, name, description, created_at, updated_at) VALUES (?,?,?,?,?)', u.id, u.name, u.description, u.createdAt, now());
+  await db.runAsync('INSERT OR REPLACE INTO universes (id, name, description, is_default, data_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?)', u.id, u.name, u.description, ib(u.isDefault), j(u.data), u.createdAt, now());
 }
 export async function deleteUniverse(db: SQLiteDatabase, id: Id): Promise<void> {
+  const u = await getUniverse(db, id);
+  if (!u || u.isDefault) return;
+  const real = await db.getFirstAsync<{ id: string }>('SELECT id FROM universes WHERE is_default = 1');
+  const realPrime = real ? await db.getFirstAsync<{ id: string }>('SELECT id FROM instances WHERE universe_id = ? AND is_prime = 1', real.id) : null;
   await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM world_events WHERE instance_id IN (SELECT id FROM instances WHERE universe_id = ?)', id);
+    await db.runAsync('DELETE FROM instances WHERE universe_id = ?', id);
+    await db.runAsync('DELETE FROM entities WHERE universe_id = ?', id);
+    await db.runAsync('UPDATE sessions SET universe_id = ?, instance_id = ? WHERE universe_id = ?', real?.id ?? null, realPrime?.id ?? null, id);
     await db.runAsync('DELETE FROM species WHERE universe_id = ?', id);
     await db.runAsync('DELETE FROM lore WHERE universe_id = ?', id);
     await db.runAsync('DELETE FROM canon WHERE universe_id = ?', id);
     await db.runAsync('UPDATE characters SET universe_id = NULL, species_id = NULL WHERE universe_id = ?', id);
-    await db.runAsync('UPDATE sessions SET universe_id = NULL WHERE universe_id = ?', id);
     await db.runAsync('DELETE FROM universes WHERE id = ?', id);
   });
 }
-export const newUniverse = (name = 'New world'): Universe => ({ id: newId(), name, description: '', createdAt: now(), updatedAt: now() });
+export const newUniverse = (name = 'New world'): Universe => ({ id: newId(), name, description: '', isDefault: false, data: { ...DEFAULT_WORLD_DATA, calendar: { ...DEFAULT_CALENDAR, kind: 'custom', daysPerYear: 0 } }, createdAt: now(), updatedAt: now() });
 
 // Species
 
-interface SRow { id: string; universe_id: string; name: string; adulthood: string; notes: string }
-const sFrom = (r: SRow): Species => ({ id: r.id, universeId: r.universe_id, name: r.name, adulthood: r.adulthood, notes: r.notes });
+interface SRow { id: string; universe_id: string; name: string; adulthood: string; notes: string; data_json: string | null }
+const sFrom = (r: SRow): Species => ({ id: r.id, universeId: r.universe_id, name: r.name, adulthood: r.adulthood, notes: r.notes, data: pj(r.data_json, {}) });
 export async function listSpecies(db: SQLiteDatabase, universeId?: Id | null): Promise<Species[]> {
   const rows = universeId ? await db.getAllAsync<SRow>('SELECT * FROM species WHERE universe_id = ? ORDER BY name', universeId) : await db.getAllAsync<SRow>('SELECT * FROM species ORDER BY name');
   return rows.map(sFrom);
 }
 export async function saveSpecies(db: SQLiteDatabase, s: Species): Promise<void> {
-  await db.runAsync('INSERT OR REPLACE INTO species (id, universe_id, name, adulthood, notes) VALUES (?,?,?,?,?)', s.id, s.universeId, s.name, s.adulthood, s.notes);
+  await db.runAsync('INSERT OR REPLACE INTO species (id, universe_id, name, adulthood, notes, data_json) VALUES (?,?,?,?,?,?)', s.id, s.universeId, s.name, s.adulthood, s.notes, j(s.data ?? {}));
 }
 export async function deleteSpecies(db: SQLiteDatabase, id: Id): Promise<void> {
   await db.runAsync('UPDATE characters SET species_id = NULL WHERE species_id = ?', id);
   await db.runAsync('DELETE FROM species WHERE id = ?', id);
 }
-export const newSpecies = (universeId: Id): Species => ({ id: newId(), universeId, name: 'New species', adulthood: '', notes: '' });
+export const newSpecies = (universeId: Id): Species => ({ id: newId(), universeId, name: 'New people', adulthood: '', notes: '', data: {} });
 
 // Lore
 
-interface LRow { id: string; universe_id: string; title: string; keys_json: string; text: string; always_on: number; priority: number }
-const lFrom = (r: LRow): LoreEntry => ({ id: r.id, universeId: r.universe_id, title: r.title, keys: pj(r.keys_json, []), text: r.text, alwaysOn: b(r.always_on), priority: r.priority });
+interface LRow { id: string; universe_id: string; title: string; keys_json: string; text: string; always_on: number; priority: number; category: string | null }
+const lFrom = (r: LRow): LoreEntry => ({ id: r.id, universeId: r.universe_id, title: r.title, keys: pj(r.keys_json, []), text: r.text, alwaysOn: b(r.always_on), priority: r.priority, category: r.category || 'other' });
 export async function listLore(db: SQLiteDatabase, universeId: Id): Promise<LoreEntry[]> {
   return (await db.getAllAsync<LRow>('SELECT * FROM lore WHERE universe_id = ? ORDER BY priority DESC, title', universeId)).map(lFrom);
 }
 export async function saveLore(db: SQLiteDatabase, e: LoreEntry): Promise<void> {
-  await db.runAsync('INSERT OR REPLACE INTO lore (id, universe_id, title, keys_json, text, always_on, priority) VALUES (?,?,?,?,?,?,?)', e.id, e.universeId, e.title, j(e.keys), e.text, ib(e.alwaysOn), e.priority);
+  await db.runAsync('INSERT OR REPLACE INTO lore (id, universe_id, title, keys_json, text, always_on, priority, category) VALUES (?,?,?,?,?,?,?,?)', e.id, e.universeId, e.title, j(e.keys), e.text, ib(e.alwaysOn), e.priority, e.category || 'other');
 }
 export async function deleteLore(db: SQLiteDatabase, id: Id): Promise<void> {
   await db.runAsync('DELETE FROM lore WHERE id = ?', id);
 }
-export const newLore = (universeId: Id): LoreEntry => ({ id: newId(), universeId, title: 'New entry', keys: [], text: '', alwaysOn: false, priority: 0 });
+export const newLore = (universeId: Id): LoreEntry => ({ id: newId(), universeId, title: 'New entry', keys: [], text: '', alwaysOn: false, priority: 0, category: 'other' });
 
 // Canon
 
@@ -78,8 +90,8 @@ export async function deleteCanon(db: SQLiteDatabase, id: Id): Promise<void> {
 
 // Characters
 
-interface ChRow { id: string; universe_id: string | null; species_id: string | null; name: string; life_stage: string; adult: number; summary: string; voice: string; tells: string; relationships: string; limits: string; preferences: string; created_at: number; updated_at: number }
-const chFrom = (r: ChRow): Character => ({ id: r.id, universeId: r.universe_id, speciesId: r.species_id, name: r.name, lifeStage: r.life_stage, adult: b(r.adult), summary: r.summary, voice: r.voice, tells: r.tells, relationships: r.relationships, limits: r.limits, preferences: r.preferences, createdAt: r.created_at, updatedAt: r.updated_at });
+interface ChRow { id: string; universe_id: string | null; species_id: string | null; name: string; life_stage: string; adult: number; summary: string; voice: string; tells: string; relationships: string; limits: string; preferences: string; created_at: number; updated_at: number; data_json: string | null }
+const chFrom = (r: ChRow): Character => ({ id: r.id, universeId: r.universe_id, speciesId: r.species_id, name: r.name, lifeStage: r.life_stage, adult: b(r.adult), summary: r.summary, voice: r.voice, tells: r.tells, relationships: r.relationships, limits: r.limits, preferences: r.preferences, data: pj(r.data_json, {}), createdAt: r.created_at, updatedAt: r.updated_at });
 export async function listCharacters(db: SQLiteDatabase): Promise<Character[]> {
   return (await db.getAllAsync<ChRow>('SELECT * FROM characters ORDER BY name')).map(chFrom);
 }
@@ -90,12 +102,12 @@ export async function getCharacters(db: SQLiteDatabase, ids: Id[]): Promise<Char
   return ids.map((i) => m.get(i)).filter((c): c is Character => !!c);
 }
 export async function saveCharacter(db: SQLiteDatabase, c: Character): Promise<void> {
-  await db.runAsync('INSERT OR REPLACE INTO characters (id, universe_id, species_id, name, life_stage, adult, summary, voice, tells, relationships, limits, preferences, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', c.id, c.universeId, c.speciesId, c.name, c.lifeStage, ib(c.adult), c.summary, c.voice, c.tells, c.relationships, c.limits, c.preferences, c.createdAt, now());
+  await db.runAsync('INSERT OR REPLACE INTO characters (id, universe_id, species_id, name, life_stage, adult, summary, voice, tells, relationships, limits, preferences, data_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', c.id, c.universeId, c.speciesId, c.name, c.lifeStage, ib(c.adult), c.summary, c.voice, c.tells, c.relationships, c.limits, c.preferences, j(c.data ?? {}), c.createdAt, now());
 }
 export async function deleteCharacter(db: SQLiteDatabase, id: Id): Promise<void> {
   await db.runAsync('DELETE FROM characters WHERE id = ?', id);
 }
-export const newCharacter = (): Character => ({ id: newId(), universeId: null, speciesId: null, name: 'New character', lifeStage: '', adult: true, summary: '', voice: '', tells: '', relationships: '', limits: '', preferences: '', createdAt: now(), updatedAt: now() });
+export const newCharacter = (): Character => ({ id: newId(), universeId: null, speciesId: null, name: 'New character', lifeStage: '', adult: true, summary: '', voice: '', tells: '', relationships: '', limits: '', preferences: '', data: {}, createdAt: now(), updatedAt: now() });
 
 // Styles
 
