@@ -83,7 +83,7 @@ export async function buildWorldContext(db: SQLiteDatabase, s: Session, path: Be
 async function helperJson(o: { apiKey: string; model: string; messages: Parameters<typeof client.stream>[0]['messages']; maxTokens: number; zdr: boolean; signal?: AbortSignal }): Promise<string> {
   let text = '';
   let reasoning = '';
-  for await (const ev of client.stream({ apiKey: o.apiKey, model: o.model, messages: o.messages, params: { temperature: 0.2, topP: 0.9, maxTokens: o.maxTokens, reasoning: false }, zdr: o.zdr, signal: o.signal })) {
+  for await (const ev of client.stream({ apiKey: o.apiKey, model: o.model, messages: o.messages, params: { temperature: 0.2, topP: 0.9, maxTokens: Math.max(o.maxTokens, 4000), reasoning: false }, zdr: o.zdr, signal: o.signal })) {
     if (ev.type === 'text') text += ev.text ?? '';
     if (ev.type === 'reasoning') reasoning += ev.text ?? '';
     if (ev.type === 'error') throw new Error(ev.error);

@@ -64,7 +64,7 @@ export function EntryImage({ kind, name, data, draft, world, onChange }: { kind:
   const style = { art: world?.data.artStyle?.trim() || defaults.artStyle.trim(), sigil: world?.data.sigilStyle?.trim() || defaults.sigilStyle.trim() };
 
   async function describe(): Promise<string> {
-    const { text } = await complete({ model: defaults.models.helper, messages: entryImagePrompt({ draft: draft(), world: worldLine(world) }), maxTokens: 300, temperature: 0.7, spend: { db, note: `${what.noun} prompt` } });
+    const { text } = await complete({ model: defaults.models.helper, messages: entryImagePrompt({ draft: draft(), world: worldLine(world) }), maxTokens: 2000, temperature: 0.7, spend: { db, note: `${what.noun} prompt` } });
     const subject = text.trim();
     if (!subject) throw new Error('The helper wrote no picture description. Try again.');
     return composePicture(kind, subject, style);

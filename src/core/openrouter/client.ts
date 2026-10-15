@@ -233,7 +233,7 @@ interface RawModel {
   context_length?: number;
   pricing?: { prompt?: string; completion?: string };
   supported_parameters?: string[];
-  top_provider?: { context_length?: number };
+  top_provider?: { context_length?: number; max_completion_tokens?: number | null };
   architecture?: { output_modalities?: string[] };
 }
 
@@ -248,5 +248,6 @@ export function toModelInfo(m: RawModel): ModelInfo {
     supportsReasoning: (m.supported_parameters ?? []).some((p) => p === 'reasoning' || p === 'include_reasoning'),
     privacy: 'unknown',
     outputImage: (m.architecture?.output_modalities ?? []).includes('image'),
+    maxOutput: m.top_provider?.max_completion_tokens ?? undefined,
   };
 }

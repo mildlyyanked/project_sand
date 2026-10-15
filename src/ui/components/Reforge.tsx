@@ -49,7 +49,7 @@ function ReforgeBody({ target, onClose }: { target: ReforgeTarget; onClose: () =
     setBusy(true); setErr(null); setResult(undefined);
     try {
       const messages = fieldForgePrompt({ draft: target.draft, key: target.key, instruction, knowledge: knowledge(pool, target.draft, instruction, 7000), options });
-      const { text } = await runInForeground('Reforging a field', () => complete({ model, messages, maxTokens: def.type === 'long' || def.type === 'lines' ? 900 : 300, temperature: 0.85, spend: { db, note: `reforge ${def.label.toLowerCase()}` } }));
+      const { text } = await runInForeground('Reforging a field', () => complete({ model, messages, maxTokens: def.type === 'long' || def.type === 'lines' ? 4000 : 2000, temperature: 0.85, spend: { db, note: `reforge ${def.label.toLowerCase()}` } }));
       const v = parseFieldValue(def, text, options);
       if (v === null) throw new Error(`The answer did not fit the field: “${text.trim().slice(0, 140)}”. Try again or say more in the instruction.`);
       setResult(v);

@@ -127,14 +127,15 @@ function ForgeBody({ onClose, kind, universeId, anchor, canon, onSaved }: ForgeS
       const focus = anchorDraft ?? (canon ? { name: canon.name, kind: canon.kind } : null);
       const extra = [wish, canon?.excerpts.join(' ') ?? ''].join(' ');
       const messages = forgePrompt(kindSel, { wish, count: n, knowledge: knowledge(pool, focus, extra), anchor: anchorDraft ?? undefined, surprise: surprise ? { hooks: hooks(pool) } : undefined, lookalike: people ? lookalike : undefined, canon: canon ?? undefined });
-      const maxTokens = kindSel === 'world' ? 9000 : kindSel === 'mixed' ? 1200 + 1000 * n : 1000 + 900 * n;
+      // Generous: a cap costs nothing unused, thinking models spend part of it, and a cut-off reply is continued anyway.
+      const maxTokens = kindSel === 'world' ? 24000 : kindSel === 'mixed' ? 6000 + 2500 * n : 4000 + 2000 * n;
       const { text, finish } = await runInForeground('Forging library entries', () => complete({ model, messages, maxTokens, onText: setProgress, spend: { db, note: canon ? `canonize ${canon.name}` : `forge ${kindSel}` } }));
       let r = parseForgeDrafts(kindSel, text, { lookalike: people ? lookalike : undefined });
       if (!r) {
         const flat = text.trim().replace(/\s+/g, ' ');
         const peek = flat.slice(0, 160);
         const tail = flat.length > 320 ? ` It ended: “…${flat.slice(-120)}”` : '';
-        if (finish === 'length') throw new Error(`The reply ran out of room before anything usable was complete. Ask for less, or a model that writes more tightly. It began: “${peek}…”`);
+        if (finish === 'length') throw new Error(`The reply was still unfinished after it was continued three times, and nothing in it was complete. Ask for fewer at a time, or try another model. It began: “${peek}…”`);
         throw new Error(peek ? `The model did not answer with the expected JSON. It began: “${peek}…”${tail} Try again, a clearer wish, or another model.` : 'The model returned nothing. Try again or another model.');
       }
       r = ensureAnchor(r, anchorDraft);
@@ -144,7 +145,7 @@ function ForgeBody({ onClose, kind, universeId, anchor, canon, onSaved }: ForgeS
       r = r.filter((d) => !taken.has(`${d.kind}:${normName(d.name)}`));
       if (!r.length) throw new Error('Everything the model offered already exists in this world. Try again or a different wish.');
       setDrafts(r);
-      if (finish === 'length') setErr('The reply ran out of room, so the last entries may be missing or cut short. What arrived whole is below.');
+      if (finish === 'length') setErr('The reply was still unfinished after it was continued three times, so the last entries may be missing or cut short. What arrived whole is below; ask for fewer at a time if this keeps happening.');
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {

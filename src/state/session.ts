@@ -712,7 +712,7 @@ export const useSession = create<SessionState>((set, get) => {
         await runInForeground(promptOnly ? 'Describing the picture' : 'Illustrating the passage', async () => {
           let prompt = '';
           const canPaint = backend.kind !== 'prompt';
-          for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: imagePromptPrompt({ passage: beat.text, characters: named.length ? named : bundle.characters, universe: bundle.universe, style: bundle.style, brief: session.brief, place, references: refs.length, fixedStyle: true }), params: { temperature: 0.7, topP: 0.95, maxTokens: 300, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
+          for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: imagePromptPrompt({ passage: beat.text, characters: named.length ? named : bundle.characters, universe: bundle.universe, style: bundle.style, brief: session.brief, place, references: refs.length, fixedStyle: true }), params: { temperature: 0.7, topP: 0.95, maxTokens: 3000, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
             if (ev.type === 'text') {
               prompt += ev.text ?? '';
               set((st) => (st.streaming ? { streaming: { ...st.streaming, text: prompt } } : {}));
@@ -802,7 +802,7 @@ export const useSession = create<SessionState>((set, get) => {
       set({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'chronicling', startedAt: now(), parentId: beat.parentId } });
       try {
         let text = '';
-        for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: newcomersPrompt({ passage: beat.text, known }), params: { temperature: 0.2, topP: 0.9, maxTokens: 500, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
+        for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: newcomersPrompt({ passage: beat.text, known }), params: { temperature: 0.2, topP: 0.9, maxTokens: 3000, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
           if (ev.type === 'text') text += ev.text ?? '';
           if (ev.type === 'error') throw new Error(ev.error);
         }

@@ -65,7 +65,7 @@ function RetconBody({ onClose, universeId, row, onSelf }: { onClose: () => void;
         if (!apiKey) throw new Error('Add your OpenRouter key in Settings first.');
         const touched = affected(pool, target, change);
         const messages = retconPrompt({ target, change, renameTo: to, affected: touched, knowledge: knowledge(pool.filter((d) => d.id !== target.id), target, change, 5000) });
-        const { text } = await runInForeground('Working through the retcon', () => complete({ model: defaults.models.writer, messages, maxTokens: 3000, temperature: 0.4, spend: { db, note: `retcon ${target.name}` } }));
+        const { text } = await runInForeground('Working through the retcon', () => complete({ model: defaults.models.writer, messages, maxTokens: 12000, temperature: 0.4, spend: { db, note: `retcon ${target.name}` } }));
         model = parseRetcon(text, pool);
         if (!model.length && !mech.length) throw new Error(text.trim() ? 'The model found nothing in the world that needs to change for this.' : 'The model returned nothing. Try again or another writer model.');
       }

@@ -295,6 +295,8 @@ export interface ModelInfo {
   privacy: 'zdr' | 'no-collection' | 'unknown';
   /** Can return images (OpenRouter output_modalities includes image). */
   outputImage: boolean;
+  /** The most the top provider will write in one reply, when OpenRouter says. */
+  maxOutput?: number;
 }
 
 export const DEFAULT_STRATEGY: ContextStrategy = {

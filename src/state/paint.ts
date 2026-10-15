@@ -1,5 +1,4 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import type { Usage } from '@/core/types';
 import { recordSpend } from '@/db/repo/spend';
 import { generateViaBackend } from './imageBackend';
 import { client } from './client';
@@ -32,21 +31,62 @@ export async function paint(prompt: string, o: { zdr: boolean; signal?: AbortSig
 /** Where to book a call's cost, for the Usage tab. */
 export interface SpendContext { db: SQLiteDatabase; note: string; sessionId?: string | null }
 
-/** The text of one helper or writer call, falling back to the reasoning channel when the content is empty. */
-export async function complete(o: { model: string; messages: Parameters<typeof client.stream>[0]['messages']; maxTokens: number; temperature?: number; signal?: AbortSignal; onText?: (chars: number) => void; spend?: SpendContext }): Promise<{ text: string; finish?: string }> {
+/** The reply budget for a model: what was asked, within what its provider allows (8k when unknown; a cut-off reply is continued). */
+export function replyBudget(model: string, wanted: number): number {
+  const max = useSettings.getState().models.find((m) => m.id === model)?.maxOutput;
+  return Math.max(256, Math.min(wanted, max && max > 0 ? max : 8000));
+}
+
+/**
+ * The text of one library call (Forge, reforge, retcon, picture prompts).
+ * Budgets are generous (a cap costs nothing unless used, and models that
+ * always think spend part of it thinking). A reply cut off by the budget is continued
+ * from where it stopped, up to three times, so long JSON arrives whole. Falls
+ * back to the reasoning channel when the content is empty.
+ */
+export async function complete(o: { model: string; messages: Parameters<typeof client.stream>[0]['messages']; maxTokens: number; temperature?: number; signal?: AbortSignal; onText?: (chars: number) => void; spend?: SpendContext; continuations?: number }): Promise<{ text: string; finish?: string }> {
   const { apiKey, defaults } = useSettings.getState();
   if (!apiKey) throw new Error('Add your OpenRouter key in Settings first.');
+  const maxTokens = replyBudget(o.model, o.maxTokens);
   let text = '';
   let reasoning = '';
   let finish: string | undefined;
-  let usage: Usage | undefined;
-  for await (const ev of client.stream({ apiKey, model: o.model, messages: o.messages, params: { temperature: o.temperature ?? 0.9, topP: 0.95, maxTokens: o.maxTokens, reasoning: false }, zdr: defaults.zdr, signal: o.signal })) {
-    if (ev.type === 'text') { text += ev.text ?? ''; o.onText?.(text.length); }
-    if (ev.type === 'reasoning') reasoning += ev.text ?? '';
-    if (ev.type === 'done') finish = ev.finishReason;
-    if (ev.type === 'usage' && ev.usage) usage = ev.usage;
-    if (ev.type === 'error') throw new Error(ev.error);
+  const spent = { cost: 0 as number | null, prompt: 0, completion: 0 };
+  const run = async (messages: typeof o.messages) => {
+    let part = '';
+    let fin: string | undefined;
+    for await (const ev of client.stream({ apiKey, model: o.model, messages, params: { temperature: o.temperature ?? 0.9, topP: 0.95, maxTokens, reasoning: false }, zdr: defaults.zdr, signal: o.signal })) {
+      if (ev.type === 'text') { part += ev.text ?? ''; o.onText?.(text.length + part.length); }
+      if (ev.type === 'reasoning') reasoning += ev.text ?? '';
+      if (ev.type === 'done') fin = ev.finishReason;
+      if (ev.type === 'usage' && ev.usage) {
+        spent.cost = spent.cost == null || ev.usage.costUsd == null ? null : spent.cost + ev.usage.costUsd;
+        spent.prompt += ev.usage.promptTokens;
+        spent.completion += ev.usage.completionTokens;
+      }
+      if (ev.type === 'error') throw new Error(ev.error);
+    }
+    return { part, fin };
+  };
+  try {
+    const first = await run(o.messages);
+    text = first.part;
+    finish = first.fin;
+    for (let i = 0; i < (o.continuations ?? 3) && finish === 'length' && text.trim(); i++) {
+      // Continue the cut-off reply from its last character.
+      let next: { part: string; fin?: string };
+      try {
+        next = await run([...o.messages, { role: 'assistant', content: text }]);
+      } catch {
+        break;
+      }
+      if (!next.part.trim()) break;
+      const restarted = /^\s*(```|\{)/.test(next.part) && /^\s*(```|\{)/.test(text);
+      text = restarted ? next.part : text + next.part;
+      finish = next.fin;
+    }
+  } finally {
+    if (o.spend) await recordSpend(o.spend.db, { kind: 'library', model: o.model, sessionId: o.spend.sessionId, costUsd: spent.cost, promptTokens: spent.prompt, completionTokens: spent.completion, note: o.spend.note });
   }
-  if (o.spend) await recordSpend(o.spend.db, { kind: 'library', model: o.model, sessionId: o.spend.sessionId, costUsd: usage?.costUsd ?? null, promptTokens: usage?.promptTokens, completionTokens: usage?.completionTokens, note: o.spend.note });
   return { text: text.trim() ? text : reasoning, finish };
 }
