@@ -108,7 +108,17 @@ Replies are read leniently (fenced, prefaced, literal newlines inside strings, b
 
 ## Pictures of the world
 
-Characters get a **portrait**, places a **view**, factions a **sigil**, things and peoples a **picture**: the helper writes an image prompt from the entry (appearance, world, era), and the painter from Settings → Illustrations paints it (or, prompt only, you copy it). Portraits show beside the characters in lists, beside every passage that names them, on the play strip and in the People tab of the character sheet. When a passage is illustrated, the people it names are described by their appearance, the scene's place by its description, and with an OpenRouter image model their portraits go with the request as references so they look like themselves (Settings → Illustrations → Use portraits as references).
+Characters get a **portrait**, places a **view**, factions a **sigil**, things and peoples a **picture**, shown large at the head of their page (tap for full size, with Paint again, the prompt, and remove). The helper describes only the subject (appearance, materials, colours, never a lookalike's name); the app puts the world's **art direction** and a fixed framing for the kind in front of it (portraits head and shoulders, three-quarter view; views wide at eye level; objects centred on plain ground; sigils in the world's **sigil style**), so a world's pictures match. Art direction and sigil style live on the world's page (forgeable like any field) with a fallback in Settings → Illustrations; they never reach the writer. Passage illustrations use the same art direction.
+
+Pictures show wherever the entry does: thumbnails in the place, faction and thing trees, avatars in character lists, in every reference picker (leader, home, faction...), on the story's cast and start screens, beside every passage that names a character, on the play strip and in the People tab. When a passage is illustrated, the people it names are described by their appearance, the scene's place by its description, and with an OpenRouter image model their portraits go with the request as references (Settings → Illustrations → Use portraits as references).
+
+## Finding things
+
+Places, factions and things are trees: sub-factions and places inside places fold under their parent, with a count, and open with the arrow. Every list in a world (and the Library's characters, voices and worlds) has a search once it holds more than a handful; a search flattens a tree to its matches, each with the path it sits in. Reference pickers (a faction's leader, a character's home or faction, a place's controller) get a search box once there are more than eight to choose from.
+
+## Retcon
+
+**Retcon** on any place, faction, thing, character, people or lore entry changes what is true about it and carries the change through the world. A new name replaces every mention in every entry's text, every reference by name, keywords, and event titles in the world's timelines. A change in words ("she founded the rival Ash Collective and leads it from the docks") goes to the writer model with the entry and every entry it touches, which proposes field edits wherever the world must change to agree. Every edit is listed, old and new, to untick before anything is saved; saving goes through the same two-way linking as Forge. Stories already written keep their words.
 
 ## Canonizing what the story invents
 
@@ -154,7 +164,7 @@ The world's people, places and timeline inform play just as they inform writing.
 
 ## Home
 
-Home is three tabs: **Stories**, **Library** (people, voices, worlds) and **Usage**. Usage shows spend today, over the last week and all time, totals for passages, words and tokens, and breakdowns by model (with the refusal ledger), by story and by day, all from the cost OpenRouter reports on every writer request; helper calls are not itemized. With a key saved it also shows what OpenRouter has counted against the key. The build version sits at the foot of Stories and Settings.
+Home is three tabs: **Stories**, **Library** (characters, voices, worlds) and **Usage**. Usage shows spend today, over the last week and all time, split into writing, pictures (illustrations, portraits, views, sigils) and library work (Forge, reforge, retcon, picture prompts), totals for passages, words and tokens, and breakdowns by model (with the refusal ledger), by story and by day, all from the cost OpenRouter reports on each request; story helper calls (plans, summaries, chronicle) are not itemized, and pictures from your own image host have no price to report. With a key saved it also shows what OpenRouter has counted against the key. The build version sits at the foot of Stories and Settings.
 
 While a passage streams, the manuscript follows the writing only until you scroll up; then it stays put and a **Follow the writing** button brings you back to the end.
 

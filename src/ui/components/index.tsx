@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, type PressableProps, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle, Platform } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, type PressableProps, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { radius, serif, space, useTheme, mono } from '../theme';
@@ -129,13 +129,40 @@ export function ListItem({ title, subtitle, right, left, onPress, onLongPress, i
   );
 }
 
-export function Chip({ label, selected, onPress, color, small }: { label: string; selected?: boolean; onPress?: () => void; color?: string; small?: boolean }) {
+export function Chip({ label, selected, onPress, color, small, image }: { label: string; selected?: boolean; onPress?: () => void; color?: string; small?: boolean; image?: string }) {
   const t = useTheme();
   const c = color ?? t.accent;
+  const size = small ? 18 : 22;
   return (
-    <Pressable onPress={onPress} disabled={!onPress} style={({ pressed }) => ({ paddingVertical: small ? 4 : 7, paddingHorizontal: small ? 9 : 12, borderRadius: radius.pill, backgroundColor: selected ? c : t.surface2, borderWidth: 1, borderColor: selected ? c : t.border, opacity: pressed ? 0.7 : 1 })}>
+    <Pressable onPress={onPress} disabled={!onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: small ? 4 : 7, paddingLeft: image ? 4 : small ? 9 : 12, paddingRight: small ? 9 : 12, borderRadius: radius.pill, backgroundColor: selected ? c : t.surface2, borderWidth: 1, borderColor: selected ? c : t.border, opacity: pressed ? 0.7 : 1 })}>
+      {image ? <Image source={{ uri: image }} style={{ width: size, height: size, borderRadius: size / 2 }} /> : null}
       <Text style={{ color: selected ? t.accentText : t.text, fontSize: small ? 12 : 13, fontWeight: '500' }}>{label}</Text>
     </Pressable>
+  );
+}
+
+/** Lower case, accents off: for matching a search against names and text. */
+export function fold(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+/** Whether every word of the query appears somewhere in the texts. */
+export function matches(query: string, ...texts: (string | null | undefined)[]): boolean {
+  const words = fold(query).split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const hay = fold(texts.filter(Boolean).join(' '));
+  return words.every((w) => hay.includes(w));
+}
+
+/** A search field with an icon and a clear button. */
+export function SearchBox({ value, onChange, placeholder = 'Search', small }: { value: string; onChange: (v: string) => void; placeholder?: string; small?: boolean }) {
+  const t = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: t.surface, borderRadius: radius.pill, borderWidth: 1, borderColor: t.border, paddingHorizontal: 12, paddingVertical: small ? 2 : 6 }}>
+      <Ionicons name="search" size={small ? 14 : 16} color={t.faint} />
+      <TextInput value={value} onChangeText={onChange} placeholder={placeholder} placeholderTextColor={t.faint} autoCorrect={false} style={{ flex: 1, color: t.text, fontSize: small ? 13 : 15, paddingVertical: small ? 4 : 6 }} />
+      {value ? <Pressable onPress={() => onChange('')} hitSlop={8}><Ionicons name="close-circle" size={16} color={t.faint} /></Pressable> : null}
+    </View>
   );
 }
 

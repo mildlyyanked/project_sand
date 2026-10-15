@@ -11,6 +11,7 @@ import { Banner, Button, Card, Chip, Field, ListItem, Row, Section, Screen, Segm
 import { relTime, shortModel } from '@/ui/format';
 import { space } from '@/ui/theme';
 import { appVersion } from '@/ui/version';
+import { DEFAULT_ART_STYLE, DEFAULT_SIGIL_STYLE } from '@/core/world/forge';
 
 export default function Settings() {
   const db = useSQLiteContext();
@@ -103,6 +104,8 @@ export default function Settings() {
           </>
         )}
         {ib.kind !== 'prompt' ? <SwitchRow label="Show the prompt before painting" hint="Illustrate stops at the helper's description so you can read it, change it, then paint. Useful when a painter keeps refusing: cut what it objects to and try again, without touching the story." value={s.defaults.reviewImagePrompt} onChange={(v) => s.setDefaults(db, { reviewImagePrompt: v })} /> : null}
+        <Field label="Art direction" hint="For every picture in worlds that set none of their own (a world's page has its own). Medium, palette, light, influences." value={s.defaults.artStyle} onChangeText={(v) => s.setDefaults(db, { artStyle: v })} placeholder={DEFAULT_ART_STYLE} multiline />
+        <Field label="Sigil style" hint="How faction emblems are drawn." value={s.defaults.sigilStyle} onChangeText={(v) => s.setDefaults(db, { sigilStyle: v })} placeholder={DEFAULT_SIGIL_STYLE} multiline />
         {ib.kind === 'openrouter' ? <SwitchRow label="Use portraits as references" hint="When a passage names characters who have portraits, the portraits go with the illustration request so they look like themselves. For image models that take images in; others ignore them." value={s.defaults.portraitReferences} onChange={(v) => s.setDefaults(db, { portraitReferences: v })} /> : null}
         {ib.kind !== 'openrouter' ? <Row between><T>Image size</T><Stepper value={ib.size} min={512} max={1536} step={128} onChange={(v) => setIb({ size: v })} /></Row> : null}
         <T v="faint">Painting with: {describeBackend(ib)}</T>

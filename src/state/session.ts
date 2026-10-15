@@ -7,7 +7,7 @@ import type { CheckResult, SceneState } from '@/core/world/types';
 import { rollCheck } from '@/core/world/dice';
 import { useItem as spendItem, parseEffects } from '@/core/world/survival';
 import { sceneAt } from '@/core/world/timeline';
-import { newcomersPrompt, parseNewcomers, type Newcomer } from '@/core/world/forge';
+import { DEFAULT_ART_STYLE, newcomersPrompt, parseNewcomers, type Newcomer } from '@/core/world/forge';
 import { normName } from '@/core/world/drafts';
 import { imageOf, namedIn } from '@/core/world/portraits';
 import { buildWorldContext, chronicle, chronicleOn, emptyWorldBundle, initialScene, loadWorldBundle, referee, type WorldBundle } from './world';
@@ -22,6 +22,7 @@ import { runInForeground } from './foreground';
 import { imageDataUrl, removeImage, saveImage } from './images';
 import { generateViaBackend } from './imageBackend';
 import { useSettings } from './settings';
+import { recordSpend } from '@/db/repo/spend';
 import { deleteBeats, getSession, insertBeat, listBeats, makeBeat, patchSession, updateBeatText, updateBeatWorld, upsertSession } from '@/db/repo/sessions';
 import { deleteIllustration, getCharacters, getStyle, getUniverse, listIllustrations, listLore, listModelStats, listSpecies, recordAttempt, saveIllustration } from '@/db/repo/library';
 
@@ -711,7 +712,7 @@ export const useSession = create<SessionState>((set, get) => {
         await runInForeground(promptOnly ? 'Describing the picture' : 'Illustrating the passage', async () => {
           let prompt = '';
           const canPaint = backend.kind !== 'prompt';
-          for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: imagePromptPrompt({ passage: beat.text, characters: named.length ? named : bundle.characters, universe: bundle.universe, style: bundle.style, brief: session.brief, place, references: refs.length }), params: { temperature: 0.7, topP: 0.95, maxTokens: 300, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
+          for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: imagePromptPrompt({ passage: beat.text, characters: named.length ? named : bundle.characters, universe: bundle.universe, style: bundle.style, brief: session.brief, place, references: refs.length, fixedStyle: true }), params: { temperature: 0.7, topP: 0.95, maxTokens: 300, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
             if (ev.type === 'text') {
               prompt += ev.text ?? '';
               set((st) => (st.streaming ? { streaming: { ...st.streaming, text: prompt } } : {}));
@@ -720,6 +721,9 @@ export const useSession = create<SessionState>((set, get) => {
           }
           prompt = prompt.trim();
           if (!prompt) throw new Error('The helper produced no image prompt.');
+          // The world's art direction leads, so illustrations match its portraits and views.
+          const art = bundle.universe?.data.artStyle?.trim() || defaults.artStyle.trim() || DEFAULT_ART_STYLE;
+          prompt = `${art.replace(/[.\s]+$/, '')}. ${prompt}`;
           if (promptOnly || defaults.reviewImagePrompt) {
             set({ imagePrompt: { beatId, prompt, canPaint } });
             return;
@@ -742,6 +746,7 @@ export const useSession = create<SessionState>((set, get) => {
         const uri = await saveImage(id, img.dataUrl);
         const ill = { id, sessionId: session!.id, beatId, prompt, uri, model: img.model, createdAt: now() };
         await saveIllustration(db!, ill);
+        await recordSpend(db!, { kind: 'image', model: img.model, sessionId: session!.id, costUsd: img.costUsd, note: 'illustration' });
         set({ illustrations: [...get().illustrations, ill] });
       }
     },
@@ -766,6 +771,7 @@ export const useSession = create<SessionState>((set, get) => {
           const uri = await saveImage(id, img.dataUrl);
           const ill = { id, sessionId: session.id, beatId, prompt: prompt.trim(), uri, model: img.model, createdAt: now() };
           await saveIllustration(db, ill);
+          await recordSpend(db, { kind: 'image', model: img.model, sessionId: session.id, costUsd: img.costUsd, note: 'illustration' });
           set({ illustrations: [...get().illustrations, ill] });
         });
       } catch (e) {

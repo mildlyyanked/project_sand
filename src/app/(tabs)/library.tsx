@@ -4,7 +4,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import type { Character, Style, Universe } from '@/core/types';
 import { listCharacters, listStyles, listUniverses, newCharacter, newStyle, newUniverse, saveCharacter, saveStyle, saveUniverse } from '@/db/repo/library';
-import { Badge, Button, Empty, ListItem, Row, Segmented, Screen } from '@/ui/components';
+import { Badge, Button, Empty, ListItem, Row, SearchBox, Segmented, Screen, matches } from '@/ui/components';
 import { ForgeSheet } from '@/ui/components/Forge';
 import { Avatar } from '@/ui/components/EntryImage';
 import type { ForgeKind } from '@/core/world/forge';
@@ -19,6 +19,7 @@ export default function Library() {
   const [styles, setStyles] = useState<Style[]>([]);
   const [worlds, setWorlds] = useState<Universe[]>([]);
   const [forge, setForge] = useState<ForgeKind | null>(null);
+  const [q, setQ] = useState('');
 
   const load = useCallback(() => {
     void Promise.all([listCharacters(db), listStyles(db), listUniverses(db)]).then(([c, s, w]) => {
@@ -37,11 +38,12 @@ export default function Library() {
 
   return (
     <Screen scroll>
-      <Segmented value={tab} onChange={setTab} options={[{ key: 'characters', label: 'Characters' }, { key: 'styles', label: 'Voices' }, { key: 'worlds', label: 'Worlds' }]} />
-      <View style={{ marginTop: space.md }}>
-        {tab === 'characters' && (chars.length ? chars.map((c) => <ListItem key={c.id} left={<Avatar data={c.data as Record<string, unknown>} name={c.name} />} title={c.name} subtitle={c.summary || c.lifeStage} right={!c.adult ? <Badge label="not adult" tone="warn" /> : undefined} onPress={() => router.push(`/library/character/${c.id}`)} />) : <Empty icon="people-outline" title="No characters" hint={empty} />)}
-        {tab === 'styles' && (styles.length ? styles.map((s) => <ListItem key={s.id} title={s.name} subtitle={[[s.pointOfView, s.tense].filter(Boolean).join(', '), s.system ? 'own writer prompt' : 'default writer prompt', s.refusalChain.length ? `${s.refusalChain.length} persistence step${s.refusalChain.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')} onPress={() => router.push(`/library/style/${s.id}`)} />) : <Empty icon="text-outline" title="No voices" hint={empty} />)}
-        {tab === 'worlds' && (worlds.length ? worlds.map((u) => <ListItem key={u.id} title={u.name} subtitle={u.description} onPress={() => router.push(`/library/universe/${u.id}`)} />) : <Empty icon="planet-outline" title="No worlds" hint={empty} />)}
+      <Segmented value={tab} onChange={(v) => { setTab(v); setQ(''); }} options={[{ key: 'characters', label: 'Characters' }, { key: 'styles', label: 'Voices' }, { key: 'worlds', label: 'Worlds' }]} />
+      <View style={{ marginTop: space.md, gap: space.sm }}>
+        {(tab === 'characters' ? chars.length : tab === 'styles' ? styles.length : worlds.length) > 5 ? <SearchBox value={q} onChange={setQ} placeholder={`Search ${tab === 'styles' ? 'voices' : tab}`} /> : null}
+        {tab === 'characters' && (chars.length ? chars.filter((c) => matches(q, c.name, c.summary, c.lifeStage, c.data.occupation, worlds.find((w) => w.id === c.universeId)?.name)).map((c) => <ListItem key={c.id} left={<Avatar data={c.data as Record<string, unknown>} name={c.name} />} title={c.name} subtitle={[worlds.find((w) => w.id === c.universeId && !w.isDefault)?.name, c.summary || c.lifeStage].filter(Boolean).join(' · ')} right={!c.adult ? <Badge label="not adult" tone="warn" /> : undefined} onPress={() => router.push(`/library/character/${c.id}`)} />) : <Empty icon="people-outline" title="No characters" hint={empty} />)}
+        {tab === 'styles' && (styles.length ? styles.filter((x) => matches(q, x.name, x.influences, x.register)).map((s) => <ListItem key={s.id} title={s.name} subtitle={[[s.pointOfView, s.tense].filter(Boolean).join(', '), s.system ? 'own writer prompt' : 'default writer prompt', s.refusalChain.length ? `${s.refusalChain.length} persistence step${s.refusalChain.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')} onPress={() => router.push(`/library/style/${s.id}`)} />) : <Empty icon="text-outline" title="No voices" hint={empty} />)}
+        {tab === 'worlds' && (worlds.length ? worlds.filter((w) => matches(q, w.name, w.description, w.data.genre)).map((u) => <ListItem key={u.id} title={u.name} subtitle={u.description} onPress={() => router.push(`/library/universe/${u.id}`)} />) : <Empty icon="planet-outline" title="No worlds" hint={empty} />)}
       </View>
       <Row style={{ marginTop: space.xl }}>
         <Button title={`New ${tab === 'characters' ? 'character' : tab === 'worlds' ? 'world' : 'voice'}`} icon="add" onPress={add} style={{ flex: 1 }} />

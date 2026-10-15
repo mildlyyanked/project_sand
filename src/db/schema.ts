@@ -71,6 +71,11 @@ const MIGRATIONS: string[] = [
   ALTER TABLE beats ADD COLUMN at INTEGER;
   ALTER TABLE beats ADD COLUMN state_json TEXT;
   `,
+  // 8: spend outside writer passages: pictures and library work (forge, reforge, retcon, picture prompts).
+  `
+  CREATE TABLE spend (id TEXT PRIMARY KEY, kind TEXT NOT NULL, model TEXT NOT NULL, session_id TEXT, cost_usd REAL, prompt_tokens INTEGER, completion_tokens INTEGER, note TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
+  CREATE INDEX spend_created ON spend(created_at);
+  `,
 ];
 
 export async function migrate(db: SQLiteDatabase): Promise<void> {

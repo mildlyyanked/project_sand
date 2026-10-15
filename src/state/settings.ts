@@ -18,6 +18,9 @@ export interface Defaults {
   reviewImagePrompt: boolean;
   /** Send the portraits of people in a passage along with the illustration request (OpenRouter image models). */
   portraitReferences: boolean;
+  /** Art direction for pictures in worlds that set none. */
+  artStyle: string;
+  sigilStyle: string;
   zdr: boolean;
   fontSize: number;
   styleId: string | null;
@@ -31,6 +34,8 @@ const DEFAULTS: Defaults = {
   imageBackend: DEFAULT_IMAGE_BACKEND,
   reviewImagePrompt: false,
   portraitReferences: true,
+  artStyle: '',
+  sigilStyle: '',
   zdr: false,
   fontSize: 17,
   styleId: null,

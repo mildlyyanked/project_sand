@@ -217,7 +217,7 @@ export function transcriptOf(messages: ChatMessage[]): string {
 }
 
 /** Turn the latest passage into a prompt for an image model. */
-export function imagePromptPrompt(o: { passage: string; characters: Character[]; universe: Universe | null; style: Style | null; brief: string; place?: string; references?: number }): ChatMessage[] {
+export function imagePromptPrompt(o: { passage: string; characters: Character[]; universe: Universe | null; style: Style | null; brief: string; place?: string; references?: number; fixedStyle?: boolean }): ChatMessage[] {
   // Appearance first: the same person should look the same in every picture.
   const look = (c: Character) => [c.lifeStage, c.data.appearance || c.summary].filter(Boolean).join('. ');
   const ctx = [
@@ -228,7 +228,7 @@ export function imagePromptPrompt(o: { passage: string; characters: Character[];
     o.references ? `${o.references} reference portrait${o.references === 1 ? ' is' : 's are'} attached to the image request; describe those people so they can be matched to the portraits (by build, hair, dress).` : '',
   ].filter(Boolean).join('\n\n');
   return [
-    { role: 'system', content: 'You write prompts for an image model from a passage of fiction. Pick the single strongest visual moment in the passage and describe it as one illustration: subject and action, setting, light, mood, composition and framing, medium and style (painterly, ink, photographic, etc.), and the era or world it belongs to. Name the people by appearance, never by name. Concrete nouns, no story explanation, no text or lettering in the image. 60 to 120 words, one paragraph, output only the prompt.' },
+    { role: 'system', content: `You write prompts for an image model from a passage of fiction. Pick the single strongest visual moment in the passage and describe it as one illustration: subject and action, setting, light, mood, composition and framing, ${o.fixedStyle ? 'and the era or world it belongs to. The art medium and style are fixed separately: do not name any' : 'medium and style (painterly, ink, photographic, etc.), and the era or world it belongs to'}. Name the people by appearance, never by name. Concrete nouns, no story explanation, no text or lettering in the image. 60 to 120 words, one paragraph, output only the prompt.` },
     { role: 'user', content: `${ctx ? `${ctx}\n\n` : ''}Passage:\n${o.passage}` },
   ];
 }

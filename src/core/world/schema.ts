@@ -105,6 +105,8 @@ export const WORLD_FIELDS: FieldDef[] = [
   { key: 'society', label: 'Society', type: 'long', hint: 'Who rules, what people fear, what is taboo.', inContext: true },
   { key: 'themes', label: 'Themes', type: 'text', inContext: true },
   { key: 'currency', label: 'Currency', type: 'text', inContext: true },
+  { key: 'artStyle', label: 'Art direction', type: 'long', hint: 'One look for every picture of this world: medium, palette, light, influences. Portraits, views, objects and illustrations all start from it. Never sent to the writer.' },
+  { key: 'sigilStyle', label: 'Sigil style', type: 'text', hint: 'How faction emblems are drawn, so they read as one heraldry. Never sent to the writer.' },
 ];
 
 export const FIELDS_BY_KIND = { location: LOCATION_FIELDS, organization: ORGANIZATION_FIELDS, item: ITEM_FIELDS, species: SPECIES_FIELDS, character: CHARACTER_FIELDS, world: WORLD_FIELDS } as const;

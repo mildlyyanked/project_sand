@@ -3,19 +3,29 @@ import { ScrollView, View } from 'react-native';
 import type { FieldDef } from '@/core/world/schema';
 import type { WorldCalendar } from '@/core/world/types';
 import { formatDuration, formatTime, fromParts, parseDuration, toParts } from '@/core/world/calendar';
-import { Chip, Field, FieldLabel, Row, SwitchRow, T } from './index';
+import { Chip, Field, FieldLabel, Row, SearchBox, SwitchRow, T, matches } from './index';
 import { radius, useTheme } from '../theme';
 
-export interface RefOption { id: string; name: string; depth?: number }
+export interface RefOption { id: string; name: string; depth?: number; image?: string; hint?: string }
 export type RefOptions = Partial<Record<NonNullable<FieldDef['ref']>, RefOption[]>>;
 
-/** Chips that scroll sideways: None plus every option. */
+/**
+ * Pick one of a world's entries: chips that scroll sideways, None first. With
+ * more than a handful, a search narrows them, and the current pick stays in view.
+ */
 export function RefChips({ value, options, onChange, none = 'None' }: { value: string | null | undefined; options: RefOption[]; onChange: (id: string | null) => void; none?: string }) {
+  const [q, setQ] = useState('');
+  const searching = q.trim().length > 0;
+  const shown = searching ? options.filter((o) => o.id === value || matches(q, o.name, o.hint)) : options;
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
-      <Chip small label={none} selected={!value} onPress={() => onChange(null)} />
-      {options.map((o) => <Chip key={o.id} small label={`${o.depth ? '› '.repeat(o.depth) : ''}${o.name}`} selected={value === o.id} onPress={() => onChange(o.id)} />)}
-    </ScrollView>
+    <View style={{ gap: 6 }}>
+      {options.length > 8 ? <SearchBox small value={q} onChange={setQ} placeholder={`Search ${options.length}`} /> : null}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
+        {!searching ? <Chip small label={none} selected={!value} onPress={() => onChange(null)} /> : null}
+        {shown.map((o) => <Chip key={o.id} small image={o.image} label={`${o.depth && !searching ? '› '.repeat(o.depth) : ''}${o.name}`} selected={value === o.id} onPress={() => { onChange(o.id); setQ(''); }} />)}
+        {searching && shown.length === 0 ? <T v="faint">Nothing matches.</T> : null}
+      </ScrollView>
+    </View>
   );
 }
 

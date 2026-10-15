@@ -16,6 +16,7 @@ import { Banner, Button, Card, Chip, Field, ListItem, MenuItem, Row, Screen, Sec
 import { ModelPicker } from '@/ui/components/ModelPicker';
 import { shortModel } from '@/ui/format';
 import { space } from '@/ui/theme';
+import { imageOf } from '@/core/world/portraits';
 
 export default function SessionSettings() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -163,7 +164,7 @@ export default function SessionSettings() {
           return (
             <>
               <T v="label">Played character</T>
-              <RefChips value={pov.characterId} options={playable.map((c) => ({ id: c.id, name: c.name }))} onChange={(id) => setPov({ characterId: id })} none="Nobody yet" />
+              <RefChips value={pov.characterId} options={playable.map((c) => ({ id: c.id, name: c.name, image: imageOf(c.data as Record<string, unknown>)?.uri }))} onChange={(id) => setPov({ characterId: id })} none="Nobody yet" />
               <Row>{(['story', 'survival', 'hardcore'] as Difficulty[]).map((d) => <Chip key={d} label={d[0]!.toUpperCase() + d.slice(1)} selected={pov.difficulty === d} onPress={() => setPov({ difficulty: d })} />)}</Row>
               <SwitchRow label="Tests of skill" value={pov.checks} onChange={(v) => setPov({ checks: v })} />
               <T v="label">Start at</T>
@@ -177,7 +178,7 @@ export default function SessionSettings() {
       <Section title="Characters">
         {chars.length === 0 ? <T v="faint">No characters yet. Create them in the Library.</T> : null}
         <Row style={{ flexWrap: 'wrap' }}>
-          {chars.map((c) => <Chip key={c.id} label={c.adult ? c.name : `${c.name} ·`} selected={session.characterIds.includes(c.id)} onPress={() => toggleChar(c)} />)}
+          {chars.map((c) => <Chip key={c.id} image={imageOf(c.data as Record<string, unknown>)?.uri} label={c.adult ? c.name : `${c.name} ·`} selected={session.characterIds.includes(c.id)} onPress={() => toggleChar(c)} />)}
         </Row>
       </Section>
 

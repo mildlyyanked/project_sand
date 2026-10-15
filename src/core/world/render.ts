@@ -54,7 +54,7 @@ export function renderCharacterWorld(c: Character, refName: RefName): string[] {
 
 export function worldTemplateEmpty(u: Universe): boolean {
   const d = u.data as unknown as Record<string, unknown>;
-  return !u.description.trim() && WORLD_FIELDS.every((f) => !String(d[f.key] ?? '').trim());
+  return !u.description.trim() && WORLD_FIELDS.filter((f) => f.inContext).every((f) => !String(d[f.key] ?? '').trim());
 }
 
 export function renderWorldTemplate(u: Universe, alwaysOn: LoreEntry[]): string {

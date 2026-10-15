@@ -10,11 +10,12 @@ import { deleteEntity, getEntity, listEntities, newEntity, saveEntity } from '@/
 import { getUniverse, listCharacters } from '@/db/repo/library';
 import { entityDraft } from '@/core/world/drafts';
 import { useEntity } from '@/ui/useEntity';
-import { Button, Field, FieldLabel, ListItem, Screen, Section, T } from '@/ui/components';
+import { Button, Field, FieldLabel, ListItem, Row, Screen, Section, T } from '@/ui/components';
 import { FieldEditor, KeysField, RefChips } from '@/ui/components/World';
 import { useEntryReforge } from '@/ui/components/Reforge';
-import { EntryImage } from '@/ui/components/EntryImage';
+import { Avatar, EntryImage } from '@/ui/components/EntryImage';
 import { ForgeSheet } from '@/ui/components/Forge';
+import { RetconSheet } from '@/ui/components/Retcon';
 import { refOptions, withDescendants } from '@/ui/worldRefs';
 
 /** One place, faction or thing: what it is, where it sits, and every property the writer may need. */
@@ -25,9 +26,12 @@ export default function EntityEditor() {
   const [all, setAll] = useState<WorldEntity[]>([]);
   const [people, setPeople] = useState<Character[]>([]);
   const [forgeOpen, setForgeOpen] = useState(false);
+  const [retconOpen, setRetconOpen] = useState(false);
   const [universe, setUniverse] = useState<Universe | null>(null);
   const universeId = e?.universeId;
-  const rf = useEntryReforge({ db, universeId, row: useCallback(() => (e ? { kind: e.kind, row: e } : null), [e]), onSelf: useCallback((row: unknown) => update(row as WorldEntity), [update]) });
+  const rowOf = useCallback(() => (e ? { kind: e.kind, row: e } : null), [e]);
+  const takeSelf = useCallback((row: unknown) => update(row as WorldEntity), [update]);
+  const rf = useEntryReforge({ db, universeId, row: rowOf, onSelf: takeSelf });
   useFocusEffect(useCallback(() => {
     if (!universeId) return;
     void listEntities(db, universeId).then(setAll);
@@ -49,7 +53,8 @@ export default function EntityEditor() {
 
   return (
     <Screen scroll>
-      <Stack.Screen options={{ title: KIND_LABEL[e.kind] }} />
+      <Stack.Screen options={{ title: KIND_LABEL[e.kind], headerTitle: () => <Row gap={8}><Avatar data={e.data} name={e.name} size={26} /><T v="h" numberOfLines={1}>{e.name}</T></Row> }} />
+        <EntryImage kind={e.kind} name={e.name} data={e.data} world={universe} draft={() => entityDraft(e, { universe, entities: all, characters: people, species: [], lore: [] })} onChange={(image) => update({ data: { ...e.data, image } })} />
       <Section title={KIND_LABEL[e.kind]}>
         <Field label="Name" value={e.name} onChangeText={(v) => update({ name: v })} onForge={() => rf.open('name')} />
         {chain.length ? <T v="faint">Within {chain.map((c) => c.name).join(' › ')}</T> : null}
@@ -62,14 +67,14 @@ export default function EntityEditor() {
           </View>
         ) : null}
       </Section>
-      <Section title="Picture">
-        <EntryImage kind={e.kind} name={e.name} data={e.data} world={universe} draft={() => entityDraft(e, { universe, entities: all, characters: people, species: [], lore: [] })} onChange={(image) => update({ data: { ...e.data, image } })} />
-      </Section>
       <Section title="Details">
         <FieldEditor defs={[...FIELDS_BY_KIND[e.kind]]} data={e.data} refs={refs} onChange={(p) => update({ data: { ...e.data, ...p } })} onForge={(d) => rf.open(d.key)} />
       </Section>
-      <Button kind="outline" icon="git-branch-outline" title="Forge under this" onPress={() => setForgeOpen(true)} />
-      <T v="faint" style={{ marginBottom: 16 }}>{e.kind === 'location' ? 'Places inside it, people who live here, factions based here, things found here, its lore.' : e.kind === 'organization' ? 'Members, branches, places it holds, things it owns, its lore.' : 'People tied to it, places tied to it, its lore.'} Each new entry is linked to this one.</T>
+      <Row>
+        <Button kind="outline" icon="git-branch-outline" title="Forge under this" onPress={() => setForgeOpen(true)} style={{ flex: 1 }} />
+        <Button kind="outline" icon="git-compare-outline" title="Retcon" onPress={() => setRetconOpen(true)} style={{ flex: 1 }} />
+      </Row>
+      <T v="faint" style={{ marginBottom: 16 }}>{e.kind === 'location' ? 'Places inside it, people who live here, factions based here, things found here, its lore.' : e.kind === 'organization' ? 'Members, branches, places it holds, things it owns, its lore.' : 'People tied to it, places tied to it, its lore.'} Each new entry is linked to this one. Retcon changes what is true about it and carries the change, or a new name, through every entry that mentions it.</T>
       {e.kind !== 'item' ? (
         <Section title={e.kind === 'location' ? 'Places inside' : 'Branches'} right={<Button small kind="outline" icon="add" title="Add" onPress={addChild} />}>
           {kids.length ? kids.map((k) => <ListItem key={k.id} title={k.name} subtitle={k.summary || (typeof k.data.type === 'string' ? k.data.type : '')} onPress={() => router.push(`/library/entity/${k.id}`)} />) : <T v="faint">{e.kind === 'location' ? 'Districts, buildings, rooms: anything nested here.' : 'Chapters, cells, departments of this faction.'}</T>}
@@ -77,6 +82,7 @@ export default function EntityEditor() {
       ) : null}
       <ForgeSheet open={forgeOpen} onClose={() => setForgeOpen(false)} kind="location" universeId={e.universeId} anchor={{ kind: e.kind, id: e.id }} onSaved={() => { void listEntities(db, e.universeId).then(setAll); }} />
       {rf.sheet}
+      <RetconSheet open={retconOpen} onClose={() => { setRetconOpen(false); void listEntities(db, e.universeId).then(setAll); }} universeId={e.universeId} row={rowOf} onSelf={takeSelf} />
       <Button kind="danger" title={`Delete ${KIND_LABEL[e.kind].toLowerCase()}`} onPress={() => Alert.alert(`Delete ${e.name}?`, kids.length ? 'What was inside moves up a level.' : undefined, [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { await deleteEntity(db, e.id); router.back(); } }])} />
     </Screen>
   );

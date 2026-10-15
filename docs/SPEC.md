@@ -22,7 +22,7 @@ Mobile-first story writing app on top of OpenRouter. Single user, everything on 
 
 ## Entities
 
-- **Universe** (world template): name, description, `isDefault` (the real world), data {genre, tone, rules, technology, society, themes, currency, calendar}. Empty default world contributes nothing to the prompt.
+- **Universe** (world template): name, description, `isDefault` (the real world), data {genre, tone, rules, technology, society, themes, currency, artStyle, sigilStyle, calendar}. Art direction and sigil style are never in the writer's context. Empty default world contributes nothing to the prompt.
 - **World entity**: universe, kind (location / organization / item), parent (locations nest), name, summary, keys[], data per kind (see `src/core/world/schema.ts`).
 - **Species**: name, adulthood description (free text), notes, data (traits, lifespan, culture, homeland...).
 - **Character**: universe?, name, species?, age or life stage (free text), `adult` flag, voice, tells, relationships, limits, preferences, summary for prompt, data {appearance, lookalike (never sent to the writer or a painter), personality, backstory, goals, fears, secrets, skills, occupation, home, memberships, attributes, inventory, money, image}.
@@ -38,6 +38,14 @@ Mobile-first story writing app on top of OpenRouter. Single user, everything on 
 ## Drafts and Forge
 
 Every library kind converts to a **draft**: a flat record of fields with references held as names (`src/core/world/drafts.ts`). Forge parses replies into drafts, the draft editor edits them, existing entries convert to drafts so the model can read them (`knowledge`: world card, roster, relevant cards within a budget), and `planDrafts` turns drafts into rows: names resolve against the world and the batch, own references first, then links on the other side (seat of → headquarters, leader role → leader, owner → inventory), then older entries whose text names a new one (headquarters, leader, home, controlled by). Field reforge edits one draft field and goes through the same plan. Prompts live in `src/core/world/forge.ts`.
+
+## Spend ledger
+
+`spend` (migration 8) books what is not a writer passage: kind `image` (illustrations, entry pictures; cost from OpenRouter's `usage.cost`, null from other hosts) and `library` (Forge, reforge, retcon, picture prompts). Usage adds it to the writer's beats.
+
+## Retcon
+
+`src/core/world/retcon.ts`: `renameEdits` rewrites a name in every text field (whole word), keyword list and reference by name; `retconPrompt`/`parseRetcon` have the writer model propose field edits on the entries a described change touches (validated against the world and the field schema); `mergeEdits` and `applyEdits` produce drafts that go through `planDrafts`. Event titles and text are renamed in the world's timelines.
 
 ## Vanilla guarantee
 

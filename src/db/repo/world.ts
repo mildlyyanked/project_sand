@@ -158,3 +158,21 @@ export async function defaultWorldId(db: SQLiteDatabase): Promise<Id | null> {
   const r = await db.getFirstAsync<{ id: string }>('SELECT id FROM universes WHERE is_default = 1');
   return r?.id ?? null;
 }
+
+/** A retcon rename reaches the timelines too: event titles and text in every instance of the world. */
+export async function renameInEvents(db: SQLiteDatabase, universeId: Id, from: string, to: string): Promise<number> {
+  if (!from.trim() || from === to) return 0;
+  const esc = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(^|[^\\p{L}\\p{N}])${esc}(?=$|[^\\p{L}\\p{N}])`, 'gu');
+  const rows = await db.getAllAsync<{ id: string; title: string; text: string }>('SELECT e.id, e.title, e.text FROM world_events e JOIN instances i ON i.id = e.instance_id WHERE i.universe_id = ?', universeId);
+  let n = 0;
+  for (const r of rows) {
+    const title = r.title.replace(re, (_m, pre: string) => `${pre}${to}`);
+    const text = r.text.replace(re, (_m, pre: string) => `${pre}${to}`);
+    if (title !== r.title || text !== r.text) {
+      await db.runAsync('UPDATE world_events SET title = ?, text = ? WHERE id = ?', title, text, r.id);
+      n++;
+    }
+  }
+  return n;
+}

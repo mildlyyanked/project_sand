@@ -11,6 +11,7 @@ import { useSettings } from '@/state/settings';
 import { Badge, Banner, Button, Chip, Field, Row, Screen, Section, SwitchRow, T } from '@/ui/components';
 import { RefChips, TimeEditor } from '@/ui/components/World';
 import { refOptions } from '@/ui/worldRefs';
+import { imageOf } from '@/core/world/portraits';
 import { space } from '@/ui/theme';
 
 const DIFFICULTY: { key: Difficulty; label: string; hint: string }[] = [
@@ -129,7 +130,7 @@ export default function Start() {
         <Section title="Who you play">
           {people.length ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-              {people.map((c) => <Chip key={c.id} label={c.name} selected={player === c.id} onPress={() => { setPlayer(c.id); setStartLoc(c.data.homeLocationId ?? null); }} />)}
+              {people.map((c) => <Chip key={c.id} image={imageOf(c.data as Record<string, unknown>)?.uri} label={c.name} selected={player === c.id} onPress={() => { setPlayer(c.id); setStartLoc(c.data.homeLocationId ?? null); }} />)}
             </ScrollView>
           ) : <T v="faint">No characters in this world yet. Add or forge one on the world page, then come back.</T>}
           {playerChar ? <T v="faint">{[playerChar.data.occupation, playerChar.summary].filter(Boolean).join(' · ')}</T> : null}
@@ -147,7 +148,7 @@ export default function Start() {
       <Section title={mode === 'pov' ? 'Others in the story' : 'Characters'}>
         {people.length ? (
           <Row style={{ flexWrap: 'wrap' }}>
-            {people.filter((c) => c.id !== player).map((c) => <Chip key={c.id} small label={c.name} selected={cast.includes(c.id)} onPress={() => setCast((x) => (x.includes(c.id) ? x.filter((y) => y !== c.id) : [...x, c.id]))} />)}
+            {people.filter((c) => c.id !== player).map((c) => <Chip key={c.id} small image={imageOf(c.data as Record<string, unknown>)?.uri} label={c.name} selected={cast.includes(c.id)} onPress={() => setCast((x) => (x.includes(c.id) ? x.filter((y) => y !== c.id) : [...x, c.id]))} />)}
           </Row>
         ) : <T v="faint">None yet. Characters can be added later in session settings.</T>}
       </Section>

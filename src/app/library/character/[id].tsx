@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, View } from 'react-native';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import type { Character, Species, Universe } from '@/core/types';
 import type { Attribute, WorldEntity } from '@/core/world/types';
@@ -12,8 +12,9 @@ import { useEntity } from '@/ui/useEntity';
 import { Button, Chip, Field, IconButton, Row, Screen, Section, Stepper, SwitchRow, T } from '@/ui/components';
 import { FieldEditor, RefChips } from '@/ui/components/World';
 import { useEntryReforge } from '@/ui/components/Reforge';
-import { EntryImage } from '@/ui/components/EntryImage';
+import { Avatar, EntryImage } from '@/ui/components/EntryImage';
 import { ForgeSheet } from '@/ui/components/Forge';
+import { RetconSheet } from '@/ui/components/Retcon';
 import { characterDraft } from '@/core/world/drafts';
 import { refOptions } from '@/ui/worldRefs';
 
@@ -26,7 +27,10 @@ export default function CharacterEditor() {
   const [entities, setEntities] = useState<WorldEntity[]>([]);
   const [people, setPeople] = useState<Character[]>([]);
   const [forgeOpen, setForgeOpen] = useState(false);
-  const rf = useEntryReforge({ db, universeId: c?.universeId, row: useCallback(() => (c ? { kind: 'character' as const, row: c } : null), [c]), onSelf: useCallback((row: unknown) => update(row as Character), [update]) });
+  const [retconOpen, setRetconOpen] = useState(false);
+  const rowOf = useCallback(() => (c ? { kind: 'character' as const, row: c } : null), [c]);
+  const takeSelf = useCallback((row: unknown) => update(row as Character), [update]);
+  const rf = useEntryReforge({ db, universeId: c?.universeId, row: rowOf, onSelf: takeSelf });
   useEffect(() => { void listUniverses(db).then(setUniverses); void listSpecies(db).then(setSpecies); }, [db]);
   const universeId = c?.universeId;
   useFocusEffect(useCallback(() => {
@@ -45,12 +49,11 @@ export default function CharacterEditor() {
 
   return (
     <Screen scroll>
+      <Stack.Screen options={{ headerTitle: () => <Row gap={8}><Avatar data={c.data as Record<string, unknown>} name={c.name} size={26} /><T v="h" numberOfLines={1}>{c.name}</T></Row> }} />
+        <EntryImage kind="character" name={c.name} data={c.data as Record<string, unknown>} world={universes.find((u) => u.id === c.universeId)} draft={() => characterDraft(c, { universe: null, entities, characters: people, species, lore: [] })} onChange={(image) => setData({ image })} />
       <Section title="Identity">
         <Field label="Name" value={c.name} onChangeText={(v) => update({ name: v })} onForge={() => rf.open('name')} />
         <Field label="Summary" hint="One or two lines the writer always sees." value={c.summary} onChangeText={(v) => update({ summary: v })} multiline onForge={() => rf.open('summary')} />
-      </Section>
-      <Section title="Portrait">
-        <EntryImage kind="character" name={c.name} data={c.data as Record<string, unknown>} world={universes.find((u) => u.id === c.universeId)} draft={() => characterDraft(c, { universe: null, entities, characters: people, species, lore: [] })} onChange={(image) => setData({ image })} />
       </Section>
       <Section title="World">
         <Row style={{ flexWrap: 'wrap' }}>
@@ -101,10 +104,14 @@ export default function CharacterEditor() {
         ))}
         <FieldEditor defs={CHARACTER_FIELDS.filter((d) => d.play)} data={c.data as Record<string, unknown>} onChange={setData} onForge={(d) => rf.open(d.key)} />
       </Section>
-      <Button kind="outline" icon="git-branch-outline" title="Forge under this" onPress={() => setForgeOpen(true)} />
-      <T v="faint" style={{ marginBottom: 16 }}>People in their life, belongings, places, groups tied to them, their lore. Each new entry is linked to {c.name}.</T>
+      <Row>
+        <Button kind="outline" icon="git-branch-outline" title="Forge under this" onPress={() => setForgeOpen(true)} style={{ flex: 1 }} />
+        <Button kind="outline" icon="git-compare-outline" title="Retcon" onPress={() => setRetconOpen(true)} style={{ flex: 1 }} />
+      </Row>
+      <T v="faint" style={{ marginBottom: 16 }}>People in their life, belongings, places, groups tied to them, their lore. Each new entry is linked to {c.name}. Retcon changes what is true about them and carries it, or a new name, through every entry that mentions them.</T>
       <ForgeSheet open={forgeOpen} onClose={() => setForgeOpen(false)} kind="character" universeId={c.universeId} anchor={{ kind: 'character', id: c.id }} onSaved={() => { void listCharacters(db).then((cs) => setPeople(cs.filter((x) => x.universeId === c.universeId))); }} />
       {rf.sheet}
+      <RetconSheet open={retconOpen} onClose={() => setRetconOpen(false)} universeId={c.universeId} row={rowOf} onSelf={takeSelf} />
       <Button kind="danger" title="Delete character" onPress={() => Alert.alert('Delete character?', undefined, [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { await deleteCharacter(db, c.id); router.back(); } }])} />
     </Screen>
   );

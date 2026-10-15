@@ -1,5 +1,5 @@
-import React from 'react';
-import { KeyboardAvoidingView as RNKeyboardAvoidingView, Platform, ScrollView, type ScrollViewProps, type ViewStyle, type StyleProp } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { AppState, Keyboard, KeyboardAvoidingView as RNKeyboardAvoidingView, Platform, ScrollView, type ScrollViewProps, type ViewStyle, type StyleProp } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView as KCKeyboardAvoidingView, KeyboardAwareScrollView, KeyboardProvider } from 'react-native-keyboard-controller';
 
@@ -19,10 +19,30 @@ export function KeyboardRoot({ children }: { children: React.ReactNode }) {
   return <KeyboardProvider>{children}</KeyboardProvider>;
 }
 
+/**
+ * After the app comes back from the background the keyboard is gone, but the
+ * avoiding view can miss the hide and keep its padding (a sheet stuck at half
+ * height). On resume, avoidance pauses until the keyboard is next shown.
+ */
+function useResumeGuard(): boolean {
+  const [paused, setPaused] = useState(false);
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const app = AppState.addEventListener('change', (st) => {
+      if (st === 'active') setTimeout(() => setPaused(!Keyboard.isVisible()), 250);
+      else setPaused(true);
+    });
+    const show = Keyboard.addListener('keyboardDidShow', () => setPaused(false));
+    return () => { app.remove(); show.remove(); };
+  }, []);
+  return !paused;
+}
+
 export function KeyboardShift({ children, style, offset = 0 }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; offset?: number }) {
+  const enabled = useResumeGuard();
   if (Platform.OS === 'web') return <RNKeyboardAvoidingView style={style}>{children}</RNKeyboardAvoidingView>;
   return (
-    <KCKeyboardAvoidingView behavior="padding" keyboardVerticalOffset={offset} style={style}>
+    <KCKeyboardAvoidingView behavior="padding" keyboardVerticalOffset={offset} style={style} enabled={enabled}>
       {children}
     </KCKeyboardAvoidingView>
   );
@@ -35,10 +55,11 @@ export function KeyboardShift({ children, style, offset = 0 }: { children: React
  */
 export function KeyboardScroll(props: ScrollViewProps & { bottomOffset?: number; headerOffset?: number }) {
   const header = useHeaderOffset();
+  const enabled = useResumeGuard();
   if (Platform.OS === 'web') return <ScrollView {...props} />;
   const { bottomOffset = 32, headerOffset = header, ...rest } = props;
   return (
-    <KCKeyboardAvoidingView behavior="padding" keyboardVerticalOffset={headerOffset} style={{ flex: 1 }}>
+    <KCKeyboardAvoidingView behavior="padding" keyboardVerticalOffset={headerOffset} style={{ flex: 1 }} enabled={enabled}>
       <KeyboardAwareScrollView bottomOffset={bottomOffset} {...rest} />
     </KCKeyboardAvoidingView>
   );

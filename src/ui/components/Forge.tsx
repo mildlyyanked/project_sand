@@ -11,7 +11,7 @@ import { runInForeground } from '@/state/foreground';
 import { loadLibrary, namesByKind, rowDraft, saveDrafts } from '@/state/library';
 import { Badge, Banner, Button, Card, Chip, Field, FieldLabel, IconButton, Row, Sheet, Stepper, T } from './index';
 import { ModelPicker } from './ModelPicker';
-import { FieldEditor } from './World';
+import { FieldEditor, RefChips } from './World';
 import { ReforgeSheet, type ReforgeTarget } from './Reforge';
 import { shortModel } from '../format';
 
@@ -128,7 +128,7 @@ function ForgeBody({ onClose, kind, universeId, anchor, canon, onSaved }: ForgeS
       const extra = [wish, canon?.excerpts.join(' ') ?? ''].join(' ');
       const messages = forgePrompt(kindSel, { wish, count: n, knowledge: knowledge(pool, focus, extra), anchor: anchorDraft ?? undefined, surprise: surprise ? { hooks: hooks(pool) } : undefined, lookalike: people ? lookalike : undefined, canon: canon ?? undefined });
       const maxTokens = kindSel === 'world' ? 9000 : kindSel === 'mixed' ? 1200 + 1000 * n : 1000 + 900 * n;
-      const { text, finish } = await runInForeground('Forging library entries', () => complete({ model, messages, maxTokens, onText: setProgress }));
+      const { text, finish } = await runInForeground('Forging library entries', () => complete({ model, messages, maxTokens, onText: setProgress, spend: { db, note: canon ? `canonize ${canon.name}` : `forge ${kindSel}` } }));
       let r = parseForgeDrafts(kindSel, text, { lookalike: people ? lookalike : undefined });
       if (!r) {
         const flat = text.trim().replace(/\s+/g, ' ');
@@ -271,15 +271,11 @@ export function DraftEditor({ draft, pool, onChange, onReforge }: { draft: Draft
           const v = typeof draft.fields[def.key] === 'string' ? (draft.fields[def.key] as string) : '';
           const opts = names[def.ref];
           const all = v && !opts.some((o) => normName(o) === normName(v)) ? [v, ...opts] : opts;
+          const picked = all.find((n) => normName(n) === normName(v)) ?? null;
           return (
             <View key={def.key} style={{ gap: 6 }}>
               <FieldLabel label={def.label} onForge={() => onReforge(def.key)} />
-              {all.length ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                  <Chip small label="None" selected={!v} onPress={() => onChange({ fields: { ...draft.fields, [def.key]: '' } })} />
-                  {all.map((n) => <Chip key={n} small label={n} selected={normName(v) === normName(n)} onPress={() => onChange({ fields: { ...draft.fields, [def.key]: n } })} />)}
-                </ScrollView>
-              ) : <T v="faint">Nothing to pick yet.</T>}
+              {all.length ? <RefChips value={picked} options={all.map((n) => ({ id: n, name: n }))} onChange={(n) => onChange({ fields: { ...draft.fields, [def.key]: n ?? '' } })} /> : <T v="faint">Nothing to pick yet.</T>}
             </View>
           );
         }

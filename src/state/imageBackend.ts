@@ -2,7 +2,7 @@ import { fetch as expoFetch } from 'expo/fetch';
 import { imageRequest, parseImageResponse, type ImageBackend } from '@/core/images';
 
 /** One image from a self-chosen host: an OpenAI-shaped images endpoint or a Stable Diffusion web UI. */
-export async function generateViaBackend(b: ImageBackend, apiKey: string, prompt: string, signal?: AbortSignal): Promise<{ dataUrl: string; model: string }> {
+export async function generateViaBackend(b: ImageBackend, apiKey: string, prompt: string, signal?: AbortSignal): Promise<{ dataUrl: string; model: string; costUsd: number | null }> {
   const { url, body } = imageRequest(b, prompt);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
@@ -21,7 +21,7 @@ export async function generateViaBackend(b: ImageBackend, apiKey: string, prompt
     const msg = json ? parseErr(json) : text.slice(0, 200);
     throw new Error(`${res.status} from the image server${msg ? `: ${msg}` : ''}`);
   }
-  return { dataUrl: parseImageResponse(b.kind, json), model: b.model || (b.kind === 'a1111' ? 'sd-webui' : 'images-api') };
+  return { dataUrl: parseImageResponse(b.kind, json), model: b.model || (b.kind === 'a1111' ? 'sd-webui' : 'images-api'), costUsd: null };
 }
 
 function parseErr(j: unknown): string {

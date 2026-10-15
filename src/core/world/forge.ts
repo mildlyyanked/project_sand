@@ -23,7 +23,7 @@ const SHAPE_OF: Record<Exclude<LibKind, 'world'>, string> = { location: PLACE_SH
 const LIST_KEY: Record<Exclude<LibKind, 'world'>, string> = { location: 'places', organization: 'factions', item: 'things', species: 'species', lore: 'lore', character: 'characters' };
 const LIST_ALIASES: Record<Exclude<LibKind, 'world'>, string[]> = { location: ['places', 'locations'], organization: ['factions', 'organizations', 'groups'], item: ['things', 'items', 'objects'], species: ['species', 'peoples', 'races'], lore: ['lore', 'entries'], character: ['characters', 'people', 'persons'] };
 
-const WORLD_SHAPE = `{"name": string (2 to 4 words), "description": string (one paragraph of 120 to 220 words: place, era, what governs life there, what is strange or particular, the texture a writer needs), "genre": string, "tone": string, "rules": string (how the world works: magic, physics, what is possible and its cost), "technology": string, "society": string (who rules, what people fear, what is taboo), "themes": string, "currency": string (name of the money), "calendar": {"kind": "custom" | "gregorian", "yearLabel": string, "startYear": number, "daysPerYear": number, "monthNames": string[], "start": "YYYY-MM-DDTHH:MM" for gregorian}, "places": [${PLACE_SHAPE}] (4 to 7, nested: at least one place inside another), "factions": [${FACTION_SHAPE}] (2 to 4), "species": [${SPECIES_SHAPE}] (0 to 3, only if the world calls for them), "lore": [${LORE_SHAPE}] (2 to 4)}`;
+const WORLD_SHAPE = `{"name": string (2 to 4 words), "description": string (one paragraph of 120 to 220 words: place, era, what governs life there, what is strange or particular, the texture a writer needs), "genre": string, "tone": string, "rules": string (how the world works: magic, physics, what is possible and its cost), "technology": string, "society": string (who rules, what people fear, what is taboo), "themes": string, "currency": string (name of the money), "artStyle": string (one line of art direction for every picture of this world: medium, palette, light, influences), "sigilStyle": string (how its faction emblems are drawn), "calendar": {"kind": "custom" | "gregorian", "yearLabel": string, "startYear": number, "daysPerYear": number, "monthNames": string[], "start": "YYYY-MM-DDTHH:MM" for gregorian}, "places": [${PLACE_SHAPE}] (4 to 7, nested: at least one place inside another), "factions": [${FACTION_SHAPE}] (2 to 4), "species": [${SPECIES_SHAPE}] (0 to 3, only if the world calls for them), "lore": [${LORE_SHAPE}] (2 to 4)}`;
 const MIXED_SHAPE = `{"places": [${PLACE_SHAPE}], "factions": [${FACTION_SHAPE}], "characters": [${CHARACTER_SHAPE}], "things": [${ITEM_SHAPE}], "species": [${SPECIES_SHAPE}], "lore": [${LORE_SHAPE}]} (leave out the lists you do not use)`;
 
 export function forgeShape(kind: ForgeKind): string {
@@ -116,7 +116,7 @@ const str = (v: unknown) => (typeof v === 'string' ? v.trim() : typeof v === 'nu
 const keyList = (v: unknown) => (Array.isArray(v) ? v.map(str) : str(v).split(',')).map((k) => k.trim().toLowerCase()).filter(Boolean);
 const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object') : v && typeof v === 'object' ? [v as Record<string, unknown>] : []);
 
-function fieldValue(def: FieldDef, v: unknown): unknown {
+export function fieldValue(def: FieldDef, v: unknown): unknown {
   if (v === undefined || v === null) return undefined;
   switch (def.type) {
     case 'number': {
@@ -249,23 +249,53 @@ export function parseFieldValue(def: FieldDef, text: string, options: string[] =
 // ---------------------------------------------------------------------------
 // Pictures of entries
 
-const PICTURE: Record<LibKind, string> = {
-  character: 'a portrait: head and shoulders or half figure, the face and bearing exactly as the appearance describes, clothing and adornment that fit the world, its era and technology; a background that hints at where they live; the light and mood of their personality',
-  location: 'an establishing view of the place: wide, from where a traveller would first see it, its architecture or terrain, weather and light, scale shown by small figures if any',
-  organization: 'the emblem or sigil of the faction: a single heraldic or symbolic device on a plain field, flat and graphic, as it would appear on a banner, seal or badge, drawn from their symbols and ideals',
-  item: 'a study of the object alone: centred, three-quarter view, its materials, wear and craft clear, plain background',
-  species: 'a full-figure study of a typical member of this people, in their usual dress, against a plain background, showing what makes their body distinct',
-  lore: 'an illustration of the lore: its central image or scene',
-  world: 'a sweeping view that captures the world',
+/** What the helper describes for each kind: the subject only. Style and framing are fixed separately. */
+const SUBJECT: Record<LibKind, string> = {
+  character: 'the person: face, age, build, colouring, hair, expression and bearing exactly as the appearance says, and clothing and adornment that fit the world, its era and technology',
+  location: 'the place as a traveller first sees it: architecture or terrain, materials, weather, time of day, signs of who lives or works there',
+  organization: "the faction's device: one central symbol and at most two supporting elements, drawn from their symbols, ideals and history, with its colours",
+  item: 'the object: shape, size, materials, wear and craft, any markings as shapes',
+  species: 'a typical member of this people: body, skin or covering, features and typical dress',
+  lore: 'the central image of the lore',
+  world: 'the world at a glance',
 };
 
-/** A prompt for an image model that pictures a library entry. */
-export function entryImagePrompt(o: { draft: Draft; world: string; style?: string }): ChatMessage[] {
+export const DEFAULT_ART_STYLE = 'Painterly digital illustration, restrained natural palette, soft directional light, fine detail, grounded and cinematic';
+export const DEFAULT_SIGIL_STYLE = 'Flat heraldic emblem, two or three solid colours, bold simple shapes, centred and symmetrical on a plain field, like a seal or banner device';
+
+/** Framing per kind, so every portrait sits the same way, every view is shot the same way. */
+const FRAME: Record<LibKind, string> = {
+  character: 'Portrait, head and shoulders, three-quarter view, eye level, softly blurred background',
+  location: 'Wide establishing view at eye level, natural perspective, a sense of scale',
+  organization: '',
+  item: 'Object study, centred, three-quarter view, plain neutral background',
+  species: 'Full-figure study of one individual, standing, plain neutral background',
+  lore: 'Narrative illustration',
+  world: 'Panoramic view',
+};
+
+export interface ArtDirection { art?: string; sigil?: string }
+
+const clause = (s: string) => s.trim().replace(/[.\s]+$/, '');
+
+/**
+ * The final picture prompt: the world's art direction, then the framing for
+ * the kind, then the helper's description of the subject. The same art
+ * direction and framing every time is what makes a world's pictures match.
+ */
+export function composePicture(kind: LibKind, subject: string, style: ArtDirection = {}): string {
+  if (kind === 'organization') return [clause(style.sigil || DEFAULT_SIGIL_STYLE), `The device: ${clause(subject)}`, 'No text, letters or words'].filter(Boolean).join('. ') + '.';
+  return [clause(style.art || DEFAULT_ART_STYLE), FRAME[kind], clause(subject), 'No text or lettering'].filter(Boolean).join('. ') + '.';
+}
+
+/** The helper's half of a picture prompt: what the entry looks like, nothing about style. */
+export function entryImagePrompt(o: { draft: Draft; world: string }): ChatMessage[] {
   const d = { ...o.draft, fields: { ...o.draft.fields } };
   delete d.fields.lookalike;
+  delete d.fields.image;
   return [
-    { role: 'system', content: `You write prompts for an image model. Describe ${PICTURE[d.kind]}. Use only what the entry gives, made concrete: shapes, colours, materials, light, composition, medium and style (painterly, ink, photographic...) suited to the world. ${d.kind === 'organization' ? 'No words, letters or mottos in the image.' : 'No text or lettering in the image.'} Describe people by appearance, never by name. 50 to 110 words, one paragraph, output only the prompt.` },
-    { role: 'user', content: [o.world ? `World: ${o.world}` : '', o.style ? `Picture style the writer prefers: ${o.style}` : '', draftCard(d, { maxField: 700 })].filter(Boolean).join('\n\n') },
+    { role: 'system', content: `You describe ${SUBJECT[d.kind]}, for an image model. Use only what the entry gives, made concrete and visible: shapes, colours, materials, textures. Do not mention art medium, style, lighting, camera, framing or composition: those are fixed separately so every picture of this world matches. Describe people by appearance, never by name. No text or lettering. 40 to 90 words, one paragraph, output only the description.` },
+    { role: 'user', content: [o.world ? `World: ${o.world}` : '', draftCard(d, { maxField: 700 })].filter(Boolean).join('\n\n') },
   ];
 }
 

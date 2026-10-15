@@ -9,15 +9,17 @@ import { formatShort, formatTime } from '@/core/world/calendar';
 import { deleteLore, deleteSpecies, deleteUniverse, getUniverse, listCharacters, listLore, listSpecies, newCharacter, newLore, newSpecies, saveCharacter, saveLore, saveSpecies, saveUniverse } from '@/db/repo/library';
 import { instanceClock, listEntities, listInstances, newEntity, newInstance, saveEntity, saveInstance, sessionsInInstance } from '@/db/repo/world';
 import { useEntity } from '@/ui/useEntity';
-import { Badge, Button, Card, Chip, Field, ListItem, Row, Screen, Section, Sheet, Stepper, SwitchRow, T } from '@/ui/components';
+import { Badge, Button, Card, Chip, Field, ListItem, Row, Screen, SearchBox, Section, Sheet, Stepper, SwitchRow, T, matches } from '@/ui/components';
 import { FieldEditor, KeysField } from '@/ui/components/World';
 import { useEntryReforge } from '@/ui/components/Reforge';
 import type { LibKind, Library } from '@/core/world/drafts';
-import { rowDraft } from '@/state/library';
+import { rowDraft, type LibraryRow } from '@/state/library';
+import { RetconSheet } from '@/ui/components/Retcon';
 import { Avatar, EntryImage } from '@/ui/components/EntryImage';
 import { ForgeSheet } from '@/ui/components/Forge';
 import type { ForgeKind } from '@/core/world/forge';
 import { refOptions } from '@/ui/worldRefs';
+import { EntityTree } from '@/ui/components/Tree';
 import { space } from '@/ui/theme';
 
 type Tab = 'overview' | 'places' | 'factions' | 'things' | 'people' | 'peoples' | 'lore' | 'instances';
@@ -31,7 +33,9 @@ export default function WorldHub() {
   const { id, tab: initialTab } = useLocalSearchParams<{ id: string; tab?: Tab }>();
   const db = useSQLiteContext();
   const [u, update] = useEntity<Universe>(() => getUniverse(db, id!), (v) => saveUniverse(db, v), [id]);
-  const [tab, setTab] = useState<Tab>(initialTab ?? 'overview');
+  const [tab, setTabRaw] = useState<Tab>(initialTab ?? 'overview');
+  const [q, setQ] = useState('');
+  const setTab = (t: Tab) => { setTabRaw(t); setQ(''); };
   const [entities, setEntities] = useState<WorldEntity[]>([]);
   const [people, setPeople] = useState<Character[]>([]);
   const [species, setSpecies] = useState<Species[]>([]);
@@ -39,10 +43,17 @@ export default function WorldHub() {
   const [instances, setInstances] = useState<(WorldInstance & { clock: number; stories: number })[]>([]);
   const [edit, setEdit] = useState<{ kind: 'species'; v: Species } | { kind: 'lore'; v: LoreEntry } | null>(null);
   const [forge, setForge] = useState<{ kind: ForgeKind; anchor?: { kind: LibKind; id: string } } | null>(null);
+  const [retcon, setRetcon] = useState<LibraryRow | null>(null);
   const [newInst, setNewInst] = useState<{ name: string; description: string } | null>(null);
 
   const worldRf = useEntryReforge({ db, universeId: id, row: useCallback(() => (u ? { kind: 'world' as const, row: u } : null), [u]), onSelf: useCallback((row: unknown) => update(row as Universe), [update]) });
   const editRf = useEntryReforge({ db, universeId: id, row: useCallback(() => (edit ? (edit.kind === 'species' ? { kind: 'species' as const, row: edit.v } : { kind: 'lore' as const, row: edit.v }) : null), [edit]), onSelf: useCallback((row: unknown) => setEdit((e) => (e ? ({ kind: e.kind, v: row } as typeof e) : e)), []) });
+
+  const retconRow = useCallback(() => retcon, [retcon]);
+  const retconSelf = useCallback(async (row: unknown) => {
+    if (retcon?.kind === 'species') await saveSpecies(db, row as Species);
+    else if (retcon?.kind === 'lore') await saveLore(db, row as LoreEntry);
+  }, [db, retcon]);
 
   const reload = useCallback(() => {
     if (!id) return;
@@ -92,7 +103,6 @@ export default function WorldHub() {
     router.push(`/world/instance/${i.id}`);
   }
 
-  const tree = (kind: EntityKind) => (refs[kind] ?? []).map((o) => entities.find((e) => e.id === o.id)!).filter(Boolean).map((e) => ({ e, depth: (refs[kind] ?? []).find((o) => o.id === e.id)?.depth ?? 0 }));
   const forgeButton = (k: ForgeKind) => <Button small kind="ghost" icon="sparkles-outline" title="Forge" onPress={() => setForge({ kind: k })} />;
 
   return (
@@ -142,32 +152,37 @@ export default function WorldHub() {
 
       {tab === 'places' || tab === 'factions' || tab === 'things' ? (() => {
         const kind: EntityKind = tab === 'places' ? 'location' : tab === 'factions' ? 'organization' : 'item';
-        const rows = tree(kind);
         const empty = { location: 'Realms, cities, districts, rooms. Nest them: a market inside a quarter inside a city. The writer gets where the scene is and what is nearby.', organization: 'Governments, guilds, churches, gangs, families. Goals, methods, leaders, enemies.', item: 'Weapons, relics, documents, food. In play, things with effects can be used from the inventory.' }[kind];
+        const items = entities.filter((e) => e.kind === kind);
         return (
-          <Section title={tab === 'places' ? 'Places' : tab === 'factions' ? 'Factions' : 'Things'} right={<Row gap={4}>{forgeButton(kind)}<Button small kind="outline" icon="add" title="Add" onPress={() => addEntity(kind)} /></Row>}>
-            {rows.length ? rows.map(({ e, depth }) => <ListItem key={e.id} title={`${'   '.repeat(depth)}${depth ? '› ' : ''}${e.name}`} subtitle={[typeof e.data.type === 'string' ? e.data.type : '', e.summary].filter(Boolean).join(' · ')} onPress={() => router.push(`/library/entity/${e.id}`)} />) : <T v="faint">{empty}</T>}
+          <Section title={`${tab === 'places' ? 'Places' : tab === 'factions' ? 'Factions' : 'Things'}${items.length ? ` · ${items.length}` : ''}`} right={<Row gap={4}>{forgeButton(kind)}<Button small kind="outline" icon="add" title="Add" onPress={() => addEntity(kind)} /></Row>}>
+            {items.length > 5 ? <SearchBox value={q} onChange={setQ} placeholder={`Search ${tab}`} /> : null}
+            {items.length ? <EntityTree items={items} query={q} onOpen={(e) => router.push(`/library/entity/${e.id}`)} /> : <T v="faint">{empty}</T>}
+            {items.length && !q ? <T v="faint">{kind === 'item' ? '' : 'Tap the arrow to open what sits inside.'}</T> : null}
           </Section>
         );
       })() : null}
 
       {tab === 'people' ? (
-        <Section title="People" right={<Row gap={4}>{forgeButton('character')}<Button small kind="outline" icon="add" title="Add" onPress={addPerson} /></Row>}>
-          {people.length ? people.map((c) => <ListItem key={c.id} left={<Avatar data={c.data as Record<string, unknown>} name={c.name} />} title={c.name} subtitle={[c.data.occupation, c.summary].filter(Boolean).join(' · ')} right={!c.adult ? <Badge label="not adult" tone="warn" /> : undefined} onPress={() => router.push(`/library/character/${c.id}`)} />) : <T v="faint">Characters who belong to this world. The same people appear in every story set here, kept consistent by each instance’s timeline.</T>}
+        <Section title={`Characters${people.length ? ` · ${people.length}` : ''}`} right={<Row gap={4}>{forgeButton('character')}<Button small kind="outline" icon="add" title="Add" onPress={addPerson} /></Row>}>
+          {people.length > 5 ? <SearchBox value={q} onChange={setQ} placeholder="Search characters" /> : null}
+          {people.length ? people.filter((c) => matches(q, c.name, c.summary, c.data.occupation, c.lifeStage)).map((c) => <ListItem key={c.id} left={<Avatar data={c.data as Record<string, unknown>} name={c.name} />} title={c.name} subtitle={[c.data.occupation, c.summary].filter(Boolean).join(' · ')} right={!c.adult ? <Badge label="not adult" tone="warn" /> : undefined} onPress={() => router.push(`/library/character/${c.id}`)} />) : <T v="faint">Characters who belong to this world. The same people appear in every story set here, kept consistent by each instance’s timeline.</T>}
         </Section>
       ) : null}
 
       {tab === 'peoples' ? (
         <Section title="Peoples" right={<Row gap={4}>{forgeButton('species')}<Button small kind="outline" icon="add" title="Add" onPress={() => setEdit({ kind: 'species', v: newSpecies(u.id) })} /></Row>}>
           <T v="faint">Races and species. Each defines adulthood in its own terms; character cards show it next to their adult flag.</T>
-          {species.map((s) => <ListItem key={s.id} title={s.name} subtitle={s.adulthood} onPress={() => setEdit({ kind: 'species', v: s })} />)}
+          {species.length > 5 ? <SearchBox value={q} onChange={setQ} placeholder="Search peoples" /> : null}
+          {species.filter((x) => matches(q, x.name, x.notes, String(x.data.traits ?? ''))).map((x) => <ListItem key={x.id} left={<Avatar data={x.data} name={x.name} />} title={x.name} subtitle={x.adulthood} onPress={() => setEdit({ kind: 'species', v: x })} />)}
         </Section>
       ) : null}
 
       {tab === 'lore' ? (
         <Section title="Lore" right={<Row gap={4}>{forgeButton('lore')}<Button small kind="outline" icon="add" title="Add" onPress={() => setEdit({ kind: 'lore', v: newLore(u.id) })} /></Row>}>
           <T v="faint">Sent when one of its keywords appears in the recent passages. Always-on entries ride with the world description.</T>
-          {lore.map((l) => <ListItem key={l.id} title={l.title} subtitle={[l.category !== 'other' ? l.category : '', l.alwaysOn ? 'always on' : l.keys.join(', ') || 'no keywords'].filter(Boolean).join(' · ')} right={l.priority ? <Badge label={`p${l.priority}`} /> : undefined} onPress={() => setEdit({ kind: 'lore', v: l })} />)}
+          {lore.length > 5 ? <SearchBox value={q} onChange={setQ} placeholder="Search lore" /> : null}
+          {lore.filter((l) => matches(q, l.title, l.text, l.keys.join(' '), l.category)).map((l) => <ListItem key={l.id} title={l.title} subtitle={[l.category !== 'other' ? l.category : '', l.alwaysOn ? 'always on' : l.keys.join(', ') || 'no keywords'].filter(Boolean).join(' · ')} right={l.priority ? <Badge label={`p${l.priority}`} /> : undefined} onPress={() => setEdit({ kind: 'lore', v: l })} />)}
         </Section>
       ) : null}
 
@@ -186,6 +201,7 @@ export default function WorldHub() {
 
       <ForgeSheet open={!!forge} onClose={() => setForge(null)} kind={forge?.kind ?? 'species'} anchor={forge?.anchor} universeId={u.id} onSaved={reload} />
       {worldRf.sheet}
+      <RetconSheet open={!!retcon} onClose={() => { setRetcon(null); reload(); }} universeId={u.id} row={retconRow} onSelf={retconSelf} />
       {editRf.sheet}
       <Sheet open={!!newInst} onClose={() => setNewInst(null)} title="New instance">
         <Field label="Name" value={newInst?.name ?? ''} onChangeText={(v) => setNewInst((x) => (x ? { ...x, name: v } : x))} placeholder="e.g. The Long Winter, What if the duke lived" autoFocus />
@@ -214,7 +230,12 @@ export default function WorldHub() {
             <Row between><T>Priority</T><Stepper value={edit.v.priority} min={0} max={10} onChange={(v) => setEdit({ kind: 'lore', v: { ...edit.v, priority: v } })} /></Row>
           </>
         ) : null}
-        {edit ? <Button kind="outline" icon="git-branch-outline" title="Forge under this" onPress={async () => { const e = edit; await saveEdit(); setForge({ kind: e.kind === 'species' ? 'character' : 'lore', anchor: { kind: e.kind, id: e.v.id } }); }} /> : null}
+        {edit ? (
+          <Row>
+            <Button kind="outline" icon="git-branch-outline" title="Forge under this" onPress={async () => { const e = edit; await saveEdit(); setForge({ kind: e.kind === 'species' ? 'character' : 'lore', anchor: { kind: e.kind, id: e.v.id } }); }} style={{ flex: 1 }} />
+            <Button kind="outline" icon="git-compare-outline" title="Retcon" onPress={async () => { const e = edit; await saveEdit(); setRetcon(e.kind === 'species' ? { kind: 'species', row: e.v } : { kind: 'lore', row: e.v }); }} style={{ flex: 1 }} />
+          </Row>
+        ) : null}
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Button title="Done" onPress={saveEdit} style={{ flex: 1 }} />
           <Button kind="danger" title="Delete" onPress={removeEdit} />

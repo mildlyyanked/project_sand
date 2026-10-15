@@ -149,3 +149,40 @@ describe('who a passage names', () => {
     expect(namedIn('Al waited.', 'Al Brook')).toBe(false);
   });
 });
+
+describe('retcon', () => {
+  it('renames an entry everywhere it stands, and re-links by the new name', async () => {
+    const { renameEdits, applyEdits } = await import('../world/retcon');
+    const l = lib();
+    l.characters.push(character({ id: 'c2', universeId: 'u1', name: 'Hester Crane', data: { memberships: [{ orgId: 'g', role: 'Guildmaster' }] } }));
+    const pool = libraryDrafts(l);
+    const guild = pool.find((d) => d.name === 'Millers Guild')!;
+    const edits = renameEdits(pool, guild, 'Grinders Guild');
+    expect(edits.map((e) => `${e.name}.${e.key}`)).toEqual(expect.arrayContaining(['Millers Guild.name', 'Hester Crane.faction']));
+    const plan = planDrafts(applyEdits(pool, edits), l, 'u1');
+    expect(plan.entities.find((e) => e.id === 'g')!.name).toBe('Grinders Guild');
+    expect(plan.characters.find((c) => c.id === 'c2')!.data.memberships).toEqual([{ orgId: 'g', role: 'Guildmaster' }]);
+  });
+  it('rewrites mentions in text by whole word only', async () => {
+    const { renameEdits } = await import('../world/retcon');
+    const pool = libraryDrafts(lib());
+    const city = { id: 'x', kind: 'location' as const, name: 'Baker City', fields: {} };
+    const e = renameEdits([...pool, city], city, 'Flourhaven').find((x) => x.name === 'Baker Kingdom')!;
+    expect(e.after).toBe('Ruled from its capital, Flourhaven, by the Flour Queen.');
+  });
+  it('keeps only model edits that fit the world', async () => {
+    const { parseRetcon } = await import('../world/retcon');
+    const pool = libraryDrafts(lib());
+    const edits = parseRetcon('{"edits":[{"entry":"Tom Sedge","kind":"character","field":"summary","value":"A carter turned informer."},{"entry":"Nobody","field":"summary","value":"x"},{"entry":"Tom Sedge","field":"wings","value":"x"},{"entry":"Tom Sedge","field":"summary","value":"A carter."}]}', pool);
+    expect(edits).toHaveLength(1);
+    expect(edits[0]).toMatchObject({ name: 'Tom Sedge', key: 'summary', before: 'A carter.', after: 'A carter turned informer.' });
+  });
+});
+
+describe('picture prompts', () => {
+  it('put the art direction and framing in front of the subject, the same way every time', async () => {
+    const { composePicture } = await import('../world/forge');
+    expect(composePicture('character', 'A grey-eyed woman in oilskins.', { art: 'Ink and wash.' })).toBe('Ink and wash. Portrait, head and shoulders, three-quarter view, eye level, softly blurred background. A grey-eyed woman in oilskins. No text or lettering.');
+    expect(composePicture('organization', 'a millstone under a crown', { sigil: 'Woodcut seal' })).toMatch(/^Woodcut seal\. The device: a millstone under a crown\. No text/);
+  });
+});

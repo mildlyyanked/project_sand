@@ -127,12 +127,12 @@ export function createClient(fetchImpl: FetchLike) {
    * One image from a chat-completions call with image output. OpenRouter returns
    * images on the message as data URLs; the first one is what we keep.
    */
-  async function generateImage(o: { apiKey: string; model: string; prompt: string; zdr: boolean; signal?: AbortSignal; references?: string[] }): Promise<{ dataUrl: string; model: string }> {
+  async function generateImage(o: { apiKey: string; model: string; prompt: string; zdr: boolean; signal?: AbortSignal; references?: string[] }): Promise<{ dataUrl: string; model: string; costUsd: number | null }> {
     const provider: Record<string, unknown> = { data_collection: 'deny', allow_fallbacks: true };
     if (o.zdr) provider.zdr = true;
     // Reference images (portraits of the people in the picture) ride along as image parts, for models that take them.
     const content = o.references?.length ? [{ type: 'text', text: o.prompt }, ...o.references.map((url) => ({ type: 'image_url', image_url: { url } }))] : o.prompt;
-    const body = { model: o.model, messages: [{ role: 'user', content }], modalities: ['image', 'text'], stream: false, provider };
+    const body = { model: o.model, messages: [{ role: 'user', content }], modalities: ['image', 'text'], stream: false, provider, usage: { include: true } };
     const res = await fetchImpl(`${OPENROUTER_BASE}/chat/completions`, { method: 'POST', headers: headers(o.apiKey), body: JSON.stringify(body), signal: o.signal });
     const text = await res.text();
     if (!res.ok) {
@@ -146,7 +146,8 @@ export function createClient(fetchImpl: FetchLike) {
     if (j.error) throw new OpenRouterError(j.error.message ?? 'Image generation failed', res.status);
     const found = extractImage(j);
     if (!found.url) throw new OpenRouterError(found.reason, res.status);
-    return { dataUrl: found.url, model: j.model ?? o.model };
+    const cost = j.usage?.cost;
+    return { dataUrl: found.url, model: j.model ?? o.model, costUsd: typeof cost === 'number' ? cost : null };
   }
 
   return { stream, listModels, listZdrModelIds, keyInfo, generateImage };
@@ -190,6 +191,7 @@ function usageFrom(j: CompletionJson): Usage | null {
 
 interface ImageCompletionJson {
   model?: string;
+  usage?: { cost?: number };
   error?: { message?: string };
   choices?: {
     finish_reason?: string | null;

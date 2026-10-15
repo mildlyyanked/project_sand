@@ -29,6 +29,10 @@ export interface WorldData {
   themes: string;
   /** Name of the money, for POV play ("crowns", "credits"). */
   currency: string;
+  /** Art direction for every picture of the world; not part of the writer's context. */
+  artStyle?: string;
+  /** How faction sigils are drawn. */
+  sigilStyle?: string;
   calendar: WorldCalendar;
 }
 
