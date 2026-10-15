@@ -142,6 +142,8 @@ function crossed(before: Record<Resource, number>, after: Record<Resource, numbe
 export interface PovDelta {
   resources?: Partial<Record<Resource, number>>;
   money?: number;
+  /** What the money was, as the passage put it ("two wafers of transit-scrip"). */
+  moneyNote?: string;
   gained?: InventoryItem[];
   lost?: InventoryItem[];
   conditionsAdded?: string[];
@@ -217,4 +219,19 @@ export function renderPov(state: PovState, o: { name: string; currency: string; 
 
 export function sceneOf(state: SceneState | null | undefined): SceneState {
   return state ?? { locationId: null, locationName: '' };
+}
+
+/** What a passage did to the player's sheet, in a few words: money, things, conditions. */
+export function sheetDiff(before: PovState | null | undefined, after: PovState | null | undefined, currency = 'coins'): string[] {
+  if (!before || !after) return [];
+  const out: string[] = [];
+  const dm = after.money - before.money;
+  if (dm) out.push(`${dm > 0 ? '+' : '−'}${Math.abs(dm)} ${currency}`);
+  const qty = (s: PovState) => new Map(s.inventory.map((i) => [i.name.toLowerCase(), { name: i.name, qty: i.qty }]));
+  const a = qty(before);
+  const b = qty(after);
+  for (const [k, v] of b) { const d = v.qty - (a.get(k)?.qty ?? 0); if (d) out.push(`${d > 0 ? '+' : '−'}${Math.abs(d) > 1 ? `${Math.abs(d)} ` : ''}${v.name}`); }
+  for (const [k, v] of a) if (!b.has(k)) out.push(`−${v.qty > 1 ? `${v.qty} ` : ''}${v.name}`);
+  for (const c of after.conditions) if (!before.conditions.includes(c)) out.push(c);
+  return out;
 }

@@ -232,3 +232,18 @@ describe('time fields', () => {
     expect(fromParts(c, { day: 4, hour: 2, minute: 5 })).toBe(1200 * 3 + 125);
   });
 });
+
+describe('sheet bookkeeping', () => {
+  it('says what a passage did to the sheet', async () => {
+    const { sheetDiff, initialPov, applyDelta } = await import('../world/survival');
+    const a = initialPov({ money: 100, inventory: 'wallet\n2 × ration bar' });
+    const b = applyDelta(a, { money: 40, gained: [{ name: 'transit-scrip wafer', qty: 2 }], lost: [{ name: 'ration bar', qty: 1 }], conditionsAdded: ['bruised ribs'] }).state;
+    expect(sheetDiff(a, b, 'credits')).toEqual(['+40 credits', '−ration bar', '+2 transit-scrip wafer', 'bruised ribs']);
+  });
+  it('asks the chronicle to count money as money, in the world currency', () => {
+    const m = chroniclePrompt({ worldName: 'W', now: 'x', location: '', known: [], passage: 'p', pov: { name: 'Ora', sheet: 's', action: 'a', ruling: '', currency: 'credits' } })[0]!.content;
+    expect(m).toContain('in credits');
+    expect(m).toContain('never in "gained"');
+    expect(parseChronicle('{"elapsed":"2 minutes","player":{"money":60,"moneyNote":"two wafers of scrip"}}')?.player).toMatchObject({ money: 60, moneyNote: 'two wafers of scrip' });
+  });
+});

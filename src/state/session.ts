@@ -5,7 +5,8 @@ import { indexBeats, pathTo, type BeatIndex, descendants, leafOf, stepSibling } 
 import { assembleContext, splitPath, summaryPrompt, type AssembleInput, type WorldContext } from '@/core/context/assemble';
 import type { CheckResult, SceneState } from '@/core/world/types';
 import { rollCheck } from '@/core/world/dice';
-import { useItem as spendItem, parseEffects } from '@/core/world/survival';
+import { applyDelta, sheetDiff, useItem as spendItem, parseEffects, type PovDelta } from '@/core/world/survival';
+import { formatDuration as formatDurationShort } from '@/core/world/calendar';
 import { sceneAt } from '@/core/world/timeline';
 import { DEFAULT_ART_STYLE, newcomersPrompt, parseNewcomers, type Newcomer } from '@/core/world/forge';
 import { normName } from '@/core/world/drafts';
@@ -23,6 +24,7 @@ import { imageDataUrl, removeImage, saveImage } from './images';
 import { generateViaBackend } from './imageBackend';
 import { useSettings } from './settings';
 import { recordSpend } from '@/db/repo/spend';
+import { deleteEventsForBeat } from '@/db/repo/world';
 import { deleteBeats, getSession, insertBeat, listBeats, makeBeat, patchSession, updateBeatText, updateBeatWorld, upsertSession } from '@/db/repo/sessions';
 import { deleteIllustration, getCharacters, getStyle, getUniverse, listIllustrations, listLore, listModelStats, listSpecies, recordAttempt, saveIllustration } from '@/db/repo/library';
 
@@ -105,6 +107,10 @@ interface SessionState {
   act(text: string): Promise<void>;
   /** Set the in-world time at the current beat (or the story's opening time when empty). */
   setClock(minutes: number): Promise<void>;
+  /** Correct the player's sheet by hand: applied to the latest passage, so undo and branches keep their own books. */
+  adjustSheet(delta: PovDelta): Promise<void>;
+  /** Run the chronicle again for a passage (the latest one): its time, place, events and the sheet, from the moment before it. */
+  rechronicle(beatId: Id): Promise<void>;
   streaming: Streaming | null;
   drafts: Draft[];
   illustrations: Illustration[];
@@ -865,6 +871,50 @@ export const useSession = create<SessionState>((set, get) => {
       await updateBeatWorld(db, tip.id, m, tip.state);
       set(recompute(get().beats.map((b) => (b.id === tip.id ? { ...b, at: m } : b)), session));
       await get().refreshWorld();
+    },
+    async adjustSheet(delta) {
+      const { db, session, path, wb } = get();
+      if (!db || !session || session.mode !== 'pov') return;
+      const tip = path[path.length - 1];
+      const scene = sceneAt(path, initialScene(session, wb));
+      if (!scene.pov) return;
+      const next = applyDelta(scene.pov, delta).state;
+      if (!tip) {
+        set({ notice: 'Write or play the opening first; the sheet is kept on passages.' });
+        return;
+      }
+      const state = { ...scene, pov: next };
+      await updateBeatWorld(db, tip.id, tip.at, state);
+      set(recompute(get().beats.map((b) => (b.id === tip.id ? { ...b, state } : b)), session));
+      await get().refreshWorld();
+    },
+    async rechronicle(beatId) {
+      const { db, session, path, index, wb, bundle } = get();
+      const { apiKey } = useSettings.getState();
+      const beat = index.byId.get(beatId);
+      const at = path.findIndex((b) => b.id === beatId);
+      if (!db || !session || !beat || at < 0 || get().streaming) return;
+      if (!apiKey) return set({ error: 'Add your OpenRouter key in Settings first.' });
+      const parentPath = path.slice(0, at);
+      const lastProse = parentPath.map((b, i) => ({ b, i })).filter((x) => x.b.role === 'prose').pop()?.i ?? -1;
+      const action = parentPath.slice(lastProse + 1).filter((b) => b.role === 'instruction').map((b) => b.text).join('\n');
+      const before = sceneAt(parentPath, initialScene(session, wb)).pov;
+      const abort = new AbortController();
+      set({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'chronicling', startedAt: now(), parentId: beat.parentId } });
+      try {
+        await deleteEventsForBeat(db, beat.id);
+        const out = await chronicle({ db, apiKey, model: session.models.helper, zdr: session.zdr, signal: abort.signal, session, universe: bundle.universe, species: bundle.species, wb, beat, parentPath, action, check: beat.state?.pov?.lastCheck ?? null });
+        if (!out) throw new Error('The chronicle could not be read. Try again, or correct the sheet by hand.');
+        set({ survivalNotes: out.notes, ...recompute(get().beats.map((b) => (b.id === beat.id ? { ...b, at: out.at, state: out.scene } : b)), get().session!) });
+        if (out.newcomers.length) await get().addNewcomers(out.newcomers);
+        const diff = sheetDiff(before, out.scene.pov, bundle.universe?.data.currency || 'coins');
+        set({ notice: `Recorded again: ${formatDurationShort(out.minutes)}${diff.length ? `; ${diff.join(', ')}` : '; no change to the sheet'}.` });
+        await get().refreshWorld();
+      } catch (e) {
+        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
+      } finally {
+        set({ streaming: null, abort: null });
+      }
     },
     clearRefusal: () => set({ refusal: null, clinic: null }),
     ackClinic: () => set((st) => (st.refusal ? { refusal: { ...st.refusal, auto: false } } : {})),

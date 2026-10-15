@@ -28,10 +28,10 @@ export function chroniclePrompt(o: {
   location: string;
   known: string[];
   passage: string;
-  pov?: { name: string; sheet: string; action: string; ruling: string } | null;
+  pov?: { name: string; sheet: string; action: string; ruling: string; currency?: string } | null;
 }): ChatMessage[] {
   const player = o.pov
-    ? `, "player": {"resources": {"health": 0, "energy": 0, "satiety": 0, "hydration": 0, "morale": 0} (only what the passage itself did: a wound, a meal eaten, a drink, exertion, a blow to the spirit; integers, negative for loss), "money": 0 (spent negative, gained positive), "gained": [{"name": string, "qty": number}], "lost": [{"name": string, "qty": number}], "conditionsAdded": string[] (lasting afflictions like "sprained ankle", "fever"), "conditionsRemoved": string[], "objectivesAdded": string[] (aims the player took on or was given), "objectivesDone": string[], "relations": [{"name": string, "delta": -2..2, "note": string}]}`
+    ? `, "player": {"resources": {"health": 0, "energy": 0, "satiety": 0, "hydration": 0, "morale": 0} (only what the passage itself did: a wound, a meal eaten, a drink, exertion, a blow to the spirit; integers, negative for loss), "money": 0 (in ${o.pov?.currency || 'the world\'s money'}: received, paid, found or stolen positive; spent, paid out or lost negative), "moneyNote": string (what the money was, as the passage puts it, or ""), "gained": [{"name": string, "qty": number}], "lost": [{"name": string, "qty": number}], "conditionsAdded": string[] (lasting afflictions like "sprained ankle", "fever"), "conditionsRemoved": string[], "objectivesAdded": string[] (aims the player took on or was given), "objectivesDone": string[], "relations": [{"name": string, "delta": -2..2, "note": string}]}`
     : '';
   return [
     { role: 'system', content: [
@@ -39,7 +39,7 @@ export function chroniclePrompt(o: {
       `Output only JSON: {"elapsed": string (how much in-world time the passage itself covers: "40 seconds", "20 minutes", "3 hours", "2 days"), "resting": boolean (true only if the passage is mostly sleep or rest), "location": string or null (where the scene is at the end, by its most specific name; null if unchanged), "events": [{"title": string (at most 8 words), "text": string (one sentence), "importance": 1 | 2 | 3, "kind": "event" | "death" | "travel" | "item" | "relation" | "discovery", "who": string[] (names involved)}], "changes": [{"who": string, "change": string (one line: a lasting change to that person, place, faction or thing), "kind": "state" | "death" | "travel" | "relation" | "item"}], "newcomers": [{"name": string, "kind": "character" | "location" | "organization" | "item", "note": string (one line from the passage)}] (named people, places, factions or things the passage treats as real that are not in the known names; [] if none)${player}}.`,
       'Most passages have zero to two events. Importance 3 is for what the whole world would remember: deaths of named people, wars, coronations, destructions, irreversible turns. Importance 1 is for small but concrete facts worth keeping (a promise made, a door left open). Do not record mood, description or conversation that changes nothing.',
       'Changes are lasting: injuries, deaths, new allegiances, someone moving house, an object changing hands, a place burned. Use the names exactly as given in the known list when they match.',
-      o.pov ? 'Player bookkeeping: hunger, thirst and fatigue from time passing are handled by the app; record only direct effects in the passage. The ruling on the player’s action is already decided; record its consequences. Inventory changes only for what is clearly picked up, bought, given, used up, broken or lost.' : '',
+      o.pov ? `Player bookkeeping: hunger, thirst and fatigue from time passing are handled by the app; record only direct effects in the passage. The ruling on the player’s action is already decided; record its consequences. Every change to what the player has must be recorded, because the app keeps their sheet from this and nothing else. Money: anything that works as money (${o.pov.currency || 'coins'}, scrip, credits, chits, notes, tokens, a payment, a payout, a purse handed over, money put into a wallet or account) goes in "money", never in "gained"; when the passage gives no amount, estimate a sensible one from the world and the scene and say what it was in "moneyNote". Spending, paying, bribes and losses are negative. Things: whatever the player picks up, takes, pockets, is given, buys, loots or makes goes in "gained"; whatever they use up, give away, sell, drop, break or have taken goes in "lost". Use the names already on their sheet for things they had.` : '',
     ].filter(Boolean).join('\n\n') },
     { role: 'user', content: [
       `World: ${o.worldName}. Time before the passage: ${o.now}. Location before the passage: ${o.location || 'unknown'}.`,
@@ -76,6 +76,7 @@ export function parseChronicle(text: string): ChronicleResult | null {
     player = {
       resources: res,
       money: Math.round(Number(p.money) || 0),
+      moneyNote: str(p.moneyNote),
       gained: items(p.gained),
       lost: items(p.lost),
       conditionsAdded: strs(p.conditionsAdded),

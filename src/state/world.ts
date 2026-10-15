@@ -120,7 +120,7 @@ export async function chronicle(o: {
   const cal = o.universe?.data.calendar;
   const known = [...wb.people.map((c) => c.name), ...wb.entities.map((e) => e.name), ...o.species.map((x) => x.name)];
   const pov = s.mode === 'pov' && wb.player && prevScene.pov
-    ? { name: wb.player.name, sheet: renderPov(prevScene.pov, { name: wb.player.name, currency: o.universe?.data.currency ?? '', difficulty: s.pov?.difficulty ?? 'survival' }), action: o.action, ruling: o.check ? renderCheck(o.check) : '' }
+    ? { name: wb.player.name, sheet: renderPov(prevScene.pov, { name: wb.player.name, currency: o.universe?.data.currency ?? '', difficulty: s.pov?.difficulty ?? 'survival' }), action: o.action, ruling: o.check ? renderCheck(o.check) : '', currency: o.universe?.data.currency || 'coins' }
     : null;
   const text = await helperJson({ apiKey: o.apiKey, model: o.model, zdr: o.zdr, signal: o.signal, maxTokens: 900, messages: chroniclePrompt({ worldName: o.universe?.name ?? 'the world', now: formatTime(cal, prevAt), location: prevScene.locationName, known, passage: o.beat.text, pov }) });
   const r = parseChronicle(text);

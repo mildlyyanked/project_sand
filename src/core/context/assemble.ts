@@ -230,7 +230,7 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   const tail: string[] = [];
   const opening = !recent.some((b) => b.role === 'prose') && !session.summary.trim();
   if (opening) tail.push(pov ? `Open the game: set ${pov.name} in the opening scene with something to want, something to fear and a way in. Describe only the world; end where ${pov.name} can act.` : tpl.opening);
-  if (pov) tail.push(`This is interactive. The player plays ${pov.name}. Never decide, speak, think or act for ${pov.name}; narrate the world's response to their action, the people around them and its consequences, then stop at a moment where ${pov.name} can act again.`);
+  if (pov) tail.push(`This is interactive. The player plays ${pov.name}. Never decide, speak, think or act for ${pov.name}; narrate the world's response to their action, the people around them and its consequences, then stop at a moment where ${pov.name} can act again. When money or goods change hands for ${pov.name}, say what and how much ("forty crowns", "two ration bars"), so their sheet can be kept.`);
   if (world?.check) tail.push(renderCheck(world.check));
   if (world?.survivalNotes?.length) tail.push(`Since the last passage: ${world.survivalNotes.join(' ')}`);
   if (input.plan?.trim()) tail.push(`${tpl.planLead}\n${input.plan.trim()}`);

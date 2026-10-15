@@ -10,7 +10,7 @@ import * as Sharing from 'expo-sharing';
 import type { Beat, Illustration } from '@/core/types';
 import type { CheckResult } from '@/core/world/types';
 import { formatDuration, formatShort, formatTime } from '@/core/world/calendar';
-import { RESOURCES, RESOURCE_INFO, parseEffects } from '@/core/world/survival';
+import { RESOURCES, RESOURCE_INFO, parseEffects, parseInventory, sheetDiff } from '@/core/world/survival';
 import { ATTRIBUTE_INFO, OUTCOME_LABEL } from '@/core/world/dice';
 import { childrenOf } from '@/core/world/scan';
 import { chronicleOn } from '@/state/world';
@@ -65,6 +65,8 @@ export default function Manuscript() {
   const [clockOpen, setClockOpen] = useState(false);
   const [travelOpen, setTravelOpen] = useState(false);
   const [canonOpen, setCanonOpen] = useState(false);
+  const [adjMoney, setAdjMoney] = useState('');
+  const [adjItem, setAdjItem] = useState('');
   const [canonize, setCanonize] = useState<Newcomer | null>(null);
   const [menu, setMenu] = useState(false);
   const [beatMenu, setBeatMenu] = useState<Beat | null>(null);
@@ -112,6 +114,22 @@ export default function Manuscript() {
   const usedModels = useMemo(() => Array.from(new Set(s.beats.map((b) => b.model).filter((m): m is string => !!m))), [s.beats]);
   /** Everyone in the story or its world who has a portrait: shown beside the passages that name them. */
   const portraitPeople = useMemo(() => [...s.bundle.characters, ...s.wb.people, ...(s.wb.player ? [s.wb.player] : [])].filter((c, i, a) => a.findIndex((x) => x.id === c.id) === i && imageOf(c.data as Record<string, unknown>)), [s.bundle.characters, s.wb.people, s.wb.player]);
+  /** What each passage did to the player's sheet, for the line under it. */
+  const sheetChanges = useMemo(() => {
+    const m = new Map<string, string[]>();
+    if (session?.mode !== 'pov') return m;
+    let prev = path.find((b) => b.state?.pov)?.state?.pov ?? null;
+    let seen = false;
+    for (const b of path) {
+      const pov = b.state?.pov;
+      if (!pov) continue;
+      if (seen && b.role === 'prose') { const d = sheetDiff(prev, pov, currency); if (d.length) m.set(b.id, d); }
+      prev = pov;
+      seen = true;
+    }
+    return m;
+  }, [path, session?.mode, currency]);
+  const lastProseId = useMemo(() => [...path].reverse().find((b) => b.role === 'prose')?.id, [path]);
   const illustrationsByBeat = useMemo(() => {
     const m = new Map<string, Illustration[]>();
     for (const i of s.illustrations) if (i.beatId) m.set(i.beatId, [...(m.get(i.beatId) ?? []), i]);
@@ -217,7 +235,8 @@ export default function Manuscript() {
     const sibs = pos.of > 1 ? siblings(s.index, b.id) : [];
     const multiModel = sibs.length > 1 && new Set(sibs.map((x) => x.model)).size > 1;
     const faces = b.role === 'prose' ? portraitPeople.filter((c) => namedIn(b.text, c.name)).slice(0, 5) : [];
-    const meta = b.role === 'prose' && (pos.of > 1 || b.model || faces.length);
+    const changed = sheetChanges.get(b.id);
+    const meta = b.role === 'prose' && (pos.of > 1 || b.model || faces.length || changed);
     const pics = illustrationsByBeat.get(b.id) ?? [];
     return (
       <Pressable onPress={() => setBeatMenu(b)} style={({ pressed }) => ({ paddingHorizontal: space.lg, paddingVertical: 8, opacity: pressed ? 0.7 : 1 })}>
@@ -261,6 +280,7 @@ export default function Manuscript() {
             ) : b.model ? <T v="small">{shortModel(b.model)}{b.direction ? ` · ${b.direction}` : ''}</T> : null}
             {b.at != null && clockShown ? <T v="small" style={{ color: t.faint }}>{formatShort(calendar, b.at)}</T> : null}
             {b.state?.pov?.lastCheck ? <CheckChip c={b.state.pov.lastCheck} /> : null}
+            {changed ? <T v="small" style={{ color: t.accent }}>{changed.join(' · ')}</T> : null}
           </Row>
         ) : null}
       </Pressable>
@@ -474,6 +494,7 @@ export default function Manuscript() {
             {beatMenu.role === 'prose' && beatMenu.model ? <MenuItem icon="glasses-outline" label="Critique and redo" hint="The helper marks up this passage; the writer rewrites it against the notes" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.critiqueAndRedo(b.id); }} /> : null}
             {beatMenu.role === 'prose' && imageBackend.kind !== 'prompt' ? <MenuItem icon="image-outline" label="Illustrate" hint="The helper describes the strongest moment; the image model paints it" onPress={() => { const b = beatMenu; setBeatMenu(null); void askNotificationPermission(); void s.illustrate(b.id); }} /> : null}
             {beatMenu.role === 'prose' ? <MenuItem icon="color-palette-outline" label="Picture prompt" hint="Only the image prompt, to paste into Perchance or any generator" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.illustrate(b.id, { promptOnly: true }); }} /> : null}
+            {beatMenu.role === 'prose' && beatMenu.id === lastProseId && chronicleOn(session) ? <MenuItem icon="git-commit-outline" label="Record again" hint="Run the chronicle for this passage again: time, place, events and the sheet" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.rechronicle(b.id); }} /> : null}
             {beatMenu.role === 'prose' ? <MenuItem icon="person-add-outline" label="Find new names" hint="People, places, factions and things in this passage that the library lacks, to canonize" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.findNewcomers(b.id); }} /> : null}
             {beatMenu.plan ? <MenuItem icon="map-outline" label="Show the plan it followed" onPress={() => { const b = beatMenu; setBeatMenu(null); s.setNotice(`Plan: ${b.plan}`); }} /> : null}
             {beatMenu.id !== session.currentBeatId ? <MenuItem icon="cut-outline" label="Continue from here" hint="Later beats stay on their branch" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.setCurrent(b.id); }} /> : null}
@@ -625,6 +646,20 @@ export default function Manuscript() {
                   );
                 }) : <T v="faint">Carrying nothing.</T>}
                 <T v="faint">Things with effects in the world’s Things list (food, medicine) apply them at once; anything else is acted out.</T>
+                <View style={{ gap: 8, marginTop: 8 }}>
+                  <T v="label">Correct the books</T>
+                  <Row>
+                    <View style={{ flex: 1 }}><Field value={adjMoney} onChangeText={setAdjMoney} placeholder={`Amount of ${currency}`} keyboardType="numeric" /></View>
+                    <Button small title="Add" onPress={() => { const n = Math.round(Number(adjMoney)); if (n > 0) { void s.adjustSheet({ money: n }); setAdjMoney(''); } }} />
+                    <Button small kind="outline" title="Take" onPress={() => { const n = Math.round(Number(adjMoney)); if (n > 0) { void s.adjustSheet({ money: -n }); setAdjMoney(''); } }} />
+                  </Row>
+                  <Row>
+                    <View style={{ flex: 1 }}><Field value={adjItem} onChangeText={setAdjItem} placeholder="A thing, e.g. 2 × ration bar" /></View>
+                    <Button small title="Add" onPress={() => { const items = parseInventory(adjItem); if (items.length) { void s.adjustSheet({ gained: items }); setAdjItem(''); } }} />
+                    <Button small kind="outline" title="Remove" onPress={() => { const items = parseInventory(adjItem); if (items.length) { void s.adjustSheet({ lost: items }); setAdjItem(''); } }} />
+                  </Row>
+                  <T v="faint">For when the story and the sheet disagree. Changes sit on the latest passage, so undo takes them back too. The latest passage’s menu also has Record again.</T>
+                </View>
               </>
             ) : sheetTab === 'aims' ? (
               <>
