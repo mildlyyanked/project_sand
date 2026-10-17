@@ -11,21 +11,34 @@ export function styleCardEmpty(s: Style): boolean {
   return !s.pointOfView && !s.tense && !s.proseDensity && !s.dialogueRatio && !s.vocabulary && !s.influences && !s.bannedPhrases.length && !s.samples.some((p) => p.trim());
 }
 
-export function renderStyle(s: Style): string {
+/**
+ * The voice card. In play the game master's rules own perspective, tense,
+ * density and length, so only the voice's texture goes in: register,
+ * vocabulary, influences, banned phrases and the sample passages.
+ */
+export function renderStyle(s: Style, o: { play?: boolean } = {}): string {
   if (styleCardEmpty(s)) return '';
-  const lines = [
-    `# Style: ${s.name}`,
-    field('Point of view', s.pointOfView),
-    field('Tense', s.tense),
-    field('Prose density', s.proseDensity),
-    field('Dialogue ratio', s.dialogueRatio),
-    field('Register', s.register),
-    field('Vocabulary', s.vocabulary),
-    field('Influences', s.influences),
-    s.bannedPhrases.length ? `Never use: ${s.bannedPhrases.join('; ')}` : '',
-  ].filter(Boolean);
+  const lines = o.play
+    ? [
+        `# Voice: ${s.name} (diction and texture; the game's rules set perspective and length)`,
+        field('Register', s.register),
+        field('Vocabulary', s.vocabulary),
+        field('Influences', s.influences),
+        s.bannedPhrases.length ? `Never use: ${s.bannedPhrases.join('; ')}` : '',
+      ].filter(Boolean)
+    : [
+        `# Style: ${s.name}`,
+        field('Point of view', s.pointOfView),
+        field('Tense', s.tense),
+        field('Prose density', s.proseDensity),
+        field('Dialogue ratio', s.dialogueRatio),
+        field('Register', s.register),
+        field('Vocabulary', s.vocabulary),
+        field('Influences', s.influences),
+        s.bannedPhrases.length ? `Never use: ${s.bannedPhrases.join('; ')}` : '',
+      ].filter(Boolean);
   if (s.samples.length) {
-    lines.push('', 'Sample passages in this voice:');
+    lines.push('', o.play ? 'Sample passages in this voice (for word choice and rhythm only):' : 'Sample passages in this voice:');
     for (const p of s.samples) lines.push('---', p.trim());
     lines.push('---');
   }

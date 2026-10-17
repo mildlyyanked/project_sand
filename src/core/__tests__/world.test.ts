@@ -8,7 +8,7 @@ import { parseChronicle, parseRuling, chroniclePrompt } from '../world/chronicle
 import { renderEntity, worldTemplateEmpty } from '../world/render';
 import { assembleContext } from '../context/assemble';
 import type { WorldEntity, WorldEvent } from '../world/types';
-import { beat, character, session, universe } from './fixtures';
+import { beat, character, session, style, universe } from './fixtures';
 
 const ent = (p: Partial<WorldEntity> & { id: string; name: string }): WorldEntity => ({ universeId: 'u1', kind: 'location', parentId: null, summary: '', keys: [], data: {}, createdAt: 0, updatedAt: 0, ...p });
 const ev = (p: Partial<WorldEvent> & { id: string; at: number; title: string }): WorldEvent => ({ instanceId: 'i1', sessionId: null, beatId: null, kind: 'event', text: '', entities: [], importance: 1, createdAt: p.at, ...p });
@@ -217,6 +217,8 @@ describe('assembling with a world', () => {
     const post = ctx.layers.find((l) => l.key === 'post')!.text;
     expect(post).toMatch(/Never decide, speak, think or act for Ora/);
     expect(post).toMatch(/DISASTER.*they laugh/);
+    expect(ctx.layers.find((l) => l.key === 'gm')!.text).toContain('1. Resolve.');
+    expect(ctx.layers.some((l) => l.key === 'system')).toBe(false);
     expect(worldTemplateEmpty(universe())).toBe(true);
   });
 });
@@ -245,5 +247,45 @@ describe('sheet bookkeeping', () => {
     expect(m).toContain('in credits');
     expect(m).toContain('never in "gained"');
     expect(parseChronicle('{"elapsed":"2 minutes","player":{"money":60,"moneyNote":"two wafers of scrip"}}')?.player).toMatchObject({ money: 60, moneyNote: 'two wafers of scrip' });
+  });
+});
+
+describe('game master', () => {
+  it('reads a turn: intent, the world answering, what changes, and a check only when checks are on', async () => {
+    const { parseGmRead, renderGmRead } = await import('../world/gm');
+    const text = '{"intent":"to get paid before the buyer arrives","feasible":"partly","why":"the seal only opens for the courier","check":{"attribute":"wits","difficulty":12,"why":"fiddly lock","success":"the tray slides out","failure":"the seal locks for an hour"},"reaction":"The second buyer reaches the hold and calls up the ramp.","turn":"The scrip is in hand, but the buyer has seen the open hatch.","thread":"The Fog Tithe"}';
+    const r = parseGmRead(text, true)!;
+    expect(r).toMatchObject({ feasible: 'partly', thread: 'The Fog Tithe', ruling: { attribute: 'wits', difficulty: 12 } });
+    expect(parseGmRead(text, false)!.ruling).toBeNull();
+    const t = renderGmRead(r, [{ name: 'The Fog Tithe', kind: 'threat', hook: 'h', signs: 'a toll-mark chalked on the pier', next: 'n', clock: 1, size: 4, status: 'open', surfaced: false }]);
+    expect(t).toContain('The player is trying to get paid before the buyer arrives.');
+    expect(t).toContain('It can only partly work: the seal only opens for the courier.');
+    expect(t).toContain('Touch lightly on "The Fog Tithe": a toll-mark chalked on the pier');
+  });
+  it('moves thread clocks, lands full ones, and takes a strong new thread', async () => {
+    const { applyThreadUpdates, parseThreads, parseThreadUpdates, newThread } = await import('../world/gm');
+    const threads = parseThreads('{"threads":[{"name":"The Fog Tithe","kind":"threat","hook":"The harbour guild skims the fog-runners.","signs":"chalk marks","next":"collectors come to the pad","size":4},{"name":"","hook":"x"}]}');
+    expect(threads).toHaveLength(1);
+    const once = applyThreadUpdates(threads, parseThreadUpdates([{ name: 'the fog tithe', advance: 2, surfaced: true }]));
+    expect(once.threads[0]).toMatchObject({ clock: 2, surfaced: true, status: 'open' });
+    const landed = applyThreadUpdates(once.threads, parseThreadUpdates([{ name: 'The Fog Tithe', advance: 2, outcome: 'Collectors seize the pad.' }]), newThread({ name: 'A Debt Called In', kind: 'personal', hook: 'Old crew wants paying.' }));
+    expect(landed.closed[0]).toMatchObject({ status: 'done', outcome: 'Collectors seize the pad.' });
+    expect(landed.threads.map((t) => t.name)).toEqual(['The Fog Tithe', 'A Debt Called In']);
+  });
+  it('plays by the game rules while free writing stays as it was', () => {
+    const base = { path: [beat({ id: 'b1', parentId: null, text: 'The pad was wet.' })], style: null, species: [], lore: [], model: 'x' };
+    const ora = character({ id: 'c2', name: 'Ora' });
+    const voice = style({ pointOfView: 'third close', tense: 'past', vocabulary: 'salt and rope words' });
+    const s = session({ mode: 'pov', pov: { characterId: 'c2', difficulty: 'survival', checks: true, startLocationId: null, turnLength: 'brisk' } });
+    const sheet = { ...initialPov({ money: 3 }), threads: [{ name: 'The Fog Tithe', kind: 'threat' as const, hook: 'The guild skims.', signs: 'chalk', next: 'collectors', clock: 0, size: 4, status: 'open' as const, surfaced: false }] };
+    const ctx = assembleContext({ ...base, style: voice, session: s, characters: [ora], universe: null, world: { entities: [], instance: null, events: [], siblings: [], now: 0, scene: { locationId: null, locationName: '', pov: sheet }, player: ora } });
+    const styleText = ctx.layers.find((l) => l.key === 'style')!.text;
+    expect(styleText).toContain('Vocabulary: salt and rope words');
+    expect(styleText).not.toContain('third close');
+    expect(ctx.layers.find((l) => l.key === 'gm')!.text).toContain('Length: 60 to 140 words');
+    expect(ctx.layers.find((l) => l.key === 'threads')!.text).toContain('The Fog Tithe');
+    const writer = assembleContext({ ...base, style: voice, session: session(), characters: [ora], universe: null });
+    expect(writer.layers.map((l) => l.key)).not.toContain('gm');
+    expect(writer.layers.find((l) => l.key === 'style')!.text).toContain('Point of view: third close');
   });
 });

@@ -5,6 +5,7 @@ import { parseDuration } from './calendar';
 import type { PovDelta } from './survival';
 import type { Attribute, EventKind, InventoryItem, Minutes } from './types';
 import { parseNewcomers, type Newcomer } from './forge';
+import { newThread as makeThread, parseThreadUpdates, type Thread, type ThreadUpdate } from './gm';
 
 const EVENT_KINDS: EventKind[] = ['event', 'state', 'death', 'travel', 'item', 'relation', 'discovery'];
 
@@ -19,6 +20,9 @@ export interface ChronicleResult {
   player: PovDelta | null;
   /** Named people, places, factions and things the passage brought in that the library does not have. */
   newcomers: Newcomer[];
+  /** POV: how the passage moved the threads behind the screen, and any strong new one it opened. */
+  threads: ThreadUpdate[];
+  newThread: Thread | null;
 }
 
 /** After each passage: how much time passed, what happened, what changed, and in play what it did to the player. */
@@ -28,10 +32,10 @@ export function chroniclePrompt(o: {
   location: string;
   known: string[];
   passage: string;
-  pov?: { name: string; sheet: string; action: string; ruling: string; currency?: string } | null;
+  pov?: { name: string; sheet: string; action: string; ruling: string; currency?: string; threads?: string } | null;
 }): ChatMessage[] {
   const player = o.pov
-    ? `, "player": {"resources": {"health": 0, "energy": 0, "satiety": 0, "hydration": 0, "morale": 0} (only what the passage itself did: a wound, a meal eaten, a drink, exertion, a blow to the spirit; integers, negative for loss), "money": 0 (in ${o.pov?.currency || 'the world\'s money'}: received, paid, found or stolen positive; spent, paid out or lost negative), "moneyNote": string (what the money was, as the passage puts it, or ""), "gained": [{"name": string, "qty": number}], "lost": [{"name": string, "qty": number}], "conditionsAdded": string[] (lasting afflictions like "sprained ankle", "fever"), "conditionsRemoved": string[], "objectivesAdded": string[] (aims the player took on or was given), "objectivesDone": string[], "relations": [{"name": string, "delta": -2..2, "note": string}]}`
+    ? `, "player": {"resources": {"health": 0, "energy": 0, "satiety": 0, "hydration": 0, "morale": 0} (only what the passage itself did: a wound, a meal eaten, a drink, exertion, a blow to the spirit; integers, negative for loss), "money": 0 (in ${o.pov?.currency || 'the world\'s money'}: received, paid, found or stolen positive; spent, paid out or lost negative), "moneyNote": string (what the money was, as the passage puts it, or ""), "gained": [{"name": string, "qty": number}], "lost": [{"name": string, "qty": number}], "conditionsAdded": string[] (lasting afflictions like "sprained ankle", "fever"), "conditionsRemoved": string[], "objectivesAdded": string[] (aims the player took on or was given), "objectivesDone": string[], "relations": [{"name": string, "delta": -2..2, "note": string}]}${o.pov.threads ? ', "threads": [{"name": string (as listed behind the screen), "advance": 0 | 1 | 2 (how far the passage, or the time it took, moved it; 0 if untouched), "surfaced": boolean (the player met a sign of it), "next": string (what it does next, if that changed), "status": "open" | "done" | "dropped", "outcome": string (if done or dropped: how it ended, one line)}] (only threads that moved or surfaced), "newThread": null or {"name", "kind", "hook", "signs", "next", "size": 4 | 6} (only when the passage opened a strong new hook worth following)' : ''}`
     : '';
   return [
     { role: 'system', content: [
@@ -45,6 +49,7 @@ export function chroniclePrompt(o: {
       `World: ${o.worldName}. Time before the passage: ${o.now}. Location before the passage: ${o.location || 'unknown'}.`,
       o.known.length ? `Known names: ${o.known.slice(0, 120).join(', ')}` : '',
       o.pov ? `The player is ${o.pov.name}.\n${o.pov.sheet}\nTheir action: ${o.pov.action || '(continue)'}${o.pov.ruling ? `\nRuling: ${o.pov.ruling}` : ''}` : '',
+      o.pov?.threads ? `Threads behind the screen (hidden from the player; a thread advances when the passage moves it, or when time passes while the player ignores it):\n${o.pov.threads}` : '',
       `Passage:\n${o.passage}`,
     ].filter(Boolean).join('\n\n') },
   ];
@@ -87,7 +92,7 @@ export function parseChronicle(text: string): ChronicleResult | null {
     };
   }
   const loc = str(j.location);
-  return { minutes: parseDuration(j.elapsed ?? j.minutes), resting: j.resting === true, locationName: loc && !/^(null|none|unchanged|same)$/i.test(loc) ? loc : null, events, changes, player, newcomers: parseNewcomers({ newcomers: j.newcomers }, []) };
+  return { minutes: parseDuration(j.elapsed ?? j.minutes), resting: j.resting === true, locationName: loc && !/^(null|none|unchanged|same)$/i.test(loc) ? loc : null, events, changes, player, newcomers: parseNewcomers({ newcomers: j.newcomers }, []), threads: parseThreadUpdates(j.threads), newThread: j.newThread && typeof j.newThread === 'object' ? makeThread(j.newThread as Record<string, unknown>) : null };
 }
 
 export interface Ruling { attribute: Attribute; difficulty: number; why: string; onSuccess: string; onFailure: string }

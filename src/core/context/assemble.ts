@@ -22,6 +22,7 @@ import { renderContinuity, renderSiblings, selectContinuity, type SiblingStory }
 import { timeOfDay } from '../world/calendar';
 import { renderPov } from '../world/survival';
 import { renderCheck } from '../world/dice';
+import { gmContract, gmOpening, renderGmRead, renderThreads, TURN_LENGTH, type GmRead } from '../world/gm';
 
 /** Everything the world adds to a request. Absent: the story is on its own (vanilla). */
 export interface WorldContext {
@@ -39,6 +40,8 @@ export interface WorldContext {
   check?: CheckResult | null;
   /** POV mode: thresholds crossed since the last passage ("Water is low: thirsty."). */
   survivalNotes?: string[];
+  /** POV mode: the game master's read of this turn. */
+  read?: GmRead | null;
 }
 
 export interface AssembleInput {
@@ -126,9 +129,11 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   for (const c of characters) names.set(c.id, c.name);
   const refName = (id: string) => names.get(id);
 
-  push({ key: 'system', label: 'System', role: 'system', text: p.system.trim() || tpl.craft });
-  const styleText = style ? renderStyle(style) : '';
+  // In play the game master's contract replaces the novelist's default prompt; a voice's own prompt stays, overruled on form.
+  if (!pov || p.system.trim()) push({ key: 'system', label: 'System', role: 'system', text: p.system.trim() || tpl.craft });
+  const styleText = style ? renderStyle(style, { play: !!pov }) : '';
   if (style && styleText) push({ key: 'style', label: `Voice · ${style.name}`, role: 'system', text: styleText });
+  if (pov) push({ key: 'gm', label: 'Game master', role: 'system', text: gmContract({ name: pov.name, length: session.pov?.turnLength }) });
   if (characters.length) {
     const text = ['# Characters', ...characters.map((c) => renderCharacter(c, species.find((s) => s.id === c.speciesId), world ? renderCharacterWorld(c, refName) : [], pov?.id === c.id ? " (the player's character)" : ''))].join('\n\n');
     push({ key: 'characters', label: `Characters · ${characters.length}`, role: 'system', text });
@@ -214,6 +219,8 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   }
   if (pov && world?.scene.pov) {
     push({ key: 'pov', label: `Player · ${pov.name}`, role: 'system', text: renderPov(world.scene.pov, { name: pov.name, currency: universe?.data?.currency ?? '', difficulty: session.pov?.difficulty ?? 'survival' }) });
+    const threads = renderThreads(world.scene.pov.threads);
+    if (threads) push({ key: 'threads', label: `Behind the screen · ${(world.scene.pov.threads ?? []).filter((t) => t.status === 'open').length}`, role: 'system', text: threads });
   }
   if (overflow.length) {
     const t = overflow.reduce((n, b) => n + estimateTokens(b.text), 0);
@@ -229,9 +236,10 @@ export function assembleContext(input: AssembleInput): AssembledContext {
 
   const tail: string[] = [];
   const opening = !recent.some((b) => b.role === 'prose') && !session.summary.trim();
-  if (opening) tail.push(pov ? `Open the game: set ${pov.name} in the opening scene with something to want, something to fear and a way in. Describe only the world; end where ${pov.name} can act.` : tpl.opening);
-  if (pov) tail.push(`This is interactive. The player plays ${pov.name}. Never decide, speak, think or act for ${pov.name}; narrate the world's response to their action, the people around them and its consequences, then stop at a moment where ${pov.name} can act again. When money or goods change hands for ${pov.name}, say what and how much ("forty crowns", "two ration bars"), so their sheet can be kept.`);
+  if (opening) tail.push(pov ? gmOpening(pov.name) : tpl.opening);
+  if (pov && world?.read) tail.push(renderGmRead(world.read, world.scene.pov?.threads));
   if (world?.check) tail.push(renderCheck(world.check));
+  if (pov) tail.push(`Narrate this turn by the rules of the game: resolve ${pov.name}'s action, let the world react, change something, hand back at a decision. Second person, present tense, ${TURN_LENGTH[session.pov?.turnLength ?? 'standard'].words}. Never decide, speak, think or act for ${pov.name}.`);
   if (world?.survivalNotes?.length) tail.push(`Since the last passage: ${world.survivalNotes.join(' ')}`);
   if (input.plan?.trim()) tail.push(`${tpl.planLead}\n${input.plan.trim()}`);
   if (p.postHistory.trim()) tail.push(p.postHistory.trim());

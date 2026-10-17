@@ -156,6 +156,10 @@ export interface PovState {
   /** Health reached zero. */
   down: boolean;
   lastCheck?: CheckResult | null;
+  /** The game master's read of the turn that led here: kept so a regenerate answers the same read. */
+  lastRead?: import('./gm').GmRead | null;
+  /** Threads the world runs behind the screen. */
+  threads?: import('./gm').Thread[];
 }
 
 /** Where the scene is, and in POV mode the player's sheet. Stored on beats so branches and undo rewind it. */
@@ -173,4 +177,8 @@ export interface PovSettings {
   /** Roll for risky actions. */
   checks: boolean;
   startLocationId: Id | null;
+  /** How long a narrated turn runs. */
+  turnLength?: import('./gm').TurnLength;
+  /** Threads prepared before the first passage; after that they live on the sheet. */
+  threads?: import('./gm').Thread[];
 }

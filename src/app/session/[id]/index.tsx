@@ -66,6 +66,7 @@ export default function Manuscript() {
   const [travelOpen, setTravelOpen] = useState(false);
   const [canonOpen, setCanonOpen] = useState(false);
   const [adjMoney, setAdjMoney] = useState('');
+  const [peek, setPeek] = useState(false);
   const [adjItem, setAdjItem] = useState('');
   const [canonize, setCanonize] = useState<Newcomer | null>(null);
   const [menu, setMenu] = useState(false);
@@ -287,7 +288,7 @@ export default function Manuscript() {
     );
   };
 
-  const phaseLabel = !streaming ? '' : streaming.phase === 'refereeing' ? 'Weighing the action' : streaming.phase === 'chronicling' ? 'Recording what changed' : streaming.phase === 'summarizing' ? 'Folding older beats into the summary' : streaming.phase === 'reweaving' ? 'Reweaving later passages' : streaming.phase === 'planning' ? 'Planning the passage' : streaming.phase === 'critiquing' ? 'Editor is reading' : streaming.phase === 'proposing' ? 'Planning the next scene' : streaming.phase === 'suggesting' ? 'Thinking of next moves' : streaming.phase === 'illustrating' ? (streaming.text ? `Painting with ${shortModel(streaming.model)}` : 'Describing the picture') : `${shortModel(streaming.model)}${streaming.attempt ? ` · attempt ${streaming.attempt + 1}${streaming.step ? ` · ${streaming.step.kind}` : ''}` : ''}`;
+  const phaseLabel = !streaming ? '' : streaming.phase === 'refereeing' ? 'The game master reads the turn' : streaming.phase === 'chronicling' ? 'Recording what changed' : streaming.phase === 'summarizing' ? 'Folding older beats into the summary' : streaming.phase === 'reweaving' ? 'Reweaving later passages' : streaming.phase === 'planning' ? 'Planning the passage' : streaming.phase === 'critiquing' ? 'Editor is reading' : streaming.phase === 'proposing' ? 'Planning the next scene' : streaming.phase === 'suggesting' ? 'Thinking of next moves' : streaming.phase === 'illustrating' ? (streaming.text ? `Painting with ${shortModel(streaming.model)}` : 'Describing the picture') : `${shortModel(streaming.model)}${streaming.attempt ? ` · attempt ${streaming.attempt + 1}${streaming.step ? ` · ${streaming.step.kind}` : ''}` : ''}`;
   const phaseIcon = !streaming ? 'pencil-outline' : streaming.phase === 'refereeing' ? 'dice-outline' : streaming.phase === 'chronicling' ? 'git-commit-outline' : streaming.phase === 'writing' ? 'pencil-outline' : streaming.phase === 'reweaving' ? 'git-merge-outline' : streaming.phase === 'planning' || streaming.phase === 'proposing' ? 'map-outline' : streaming.phase === 'critiquing' ? 'glasses-outline' : streaming.phase === 'suggesting' ? 'sparkles-outline' : streaming.phase === 'illustrating' ? 'image-outline' : 'albums-outline';
 
   return (
@@ -664,6 +665,20 @@ export default function Manuscript() {
             ) : sheetTab === 'aims' ? (
               <>
                 {sheet.objectives.length ? sheet.objectives.map((o) => <T key={o.text} v={o.done ? 'faint' : 'body'} style={o.done ? { textDecorationLine: 'line-through' } : undefined}>• {o.text}</T>) : <T v="faint">No aims yet. They appear as the story gives you some.</T>}
+                {sheet.threads?.length ? (
+                  <View style={{ gap: 6, marginTop: 12 }}>
+                    <Pressable onPress={() => setPeek((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name={peek ? 'eye-outline' : 'eye-off-outline'} size={14} color={t.dim} />
+                      <T v="small">{peek ? 'Behind the screen' : 'Peek behind the screen (spoilers)'}</T>
+                    </Pressable>
+                    {peek ? sheet.threads.map((th) => (
+                      <View key={th.name} style={{ gap: 2, opacity: th.status === 'open' ? 1 : 0.5 }}>
+                        <T>{th.name} <T v="faint">· {th.kind} · {th.status === 'open' ? `${th.clock}/${th.size}` : th.status}{th.surfaced ? ' · seen' : ''}</T></T>
+                        <T v="faint">{th.status === 'open' ? th.hook : th.outcome}</T>
+                      </View>
+                    )) : null}
+                  </View>
+                ) : null}
               </>
             ) : (
               <>

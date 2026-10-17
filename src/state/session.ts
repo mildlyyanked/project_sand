@@ -11,7 +11,8 @@ import { sceneAt } from '@/core/world/timeline';
 import { DEFAULT_ART_STYLE, newcomersPrompt, parseNewcomers, type Newcomer } from '@/core/world/forge';
 import { normName } from '@/core/world/drafts';
 import { imageOf, namedIn } from '@/core/world/portraits';
-import { buildWorldContext, chronicle, chronicleOn, emptyWorldBundle, initialScene, loadWorldBundle, referee, type WorldBundle } from './world';
+import { buildWorldContext, chronicle, chronicleOn, emptyWorldBundle, gmRead, initialScene, loadWorldBundle, seedThreads, type WorldBundle } from './world';
+import type { GmRead } from '@/core/world/gm';
 import { clinicOpening, clinicSystem, critiquePrompt, imagePromptPrompt, parseClinicReply, parseSuggestions, planPrompt, scenePrompt, suggestPrompt, transcriptOf, type ClinicEdit } from '@/core/helpers';
 import { renderHeat } from '@/core/context/cards';
 import { manuscriptText } from '@/core/beatTree';
@@ -201,6 +202,8 @@ export const useSession = create<SessionState>((set, get) => {
   let clinicStarting = false;
   /** Patches in flight; a reload during one keeps the in-memory session. */
   let patching = 0;
+  /** Sessions whose threads were seeded (or tried) this run, so a failed seed is not retried every turn. */
+  const threadsTried = new Set<string>();
 
   /** One round of the clinic. Runs to completion even if the screen is left; the result lands in the store. */
   async function clinicAsk(history: ChatMessage[]): Promise<void> {
@@ -476,22 +479,48 @@ export const useSession = create<SessionState>((set, get) => {
         const lastBeat = path[path.length - 1];
         const wb = get().wb;
         const playing = sess.mode === 'pov' && !!wb.player;
-        // Play: the referee decides whether the action is tested; the dice are rolled here, not by the model.
+        // Play: the game master reads the turn (what the player is after, how the world answers, what changes),
+        // and if it is tested the dice are rolled here, not by the model. Threads are prepared once, before the first read.
         let check: CheckResult | null = null;
+        let read: GmRead | null = null;
         const action = [lastBeat?.role === 'instruction' ? lastBeat.text : '', o.direction ?? ''].filter(Boolean).join('; ');
-        if (playing && sess.pov?.checks !== false && action && !o.regenerateId) {
+        if (playing && !o.regenerateId) {
           set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'refereeing', model: sess.models.helper } } : {}));
           try {
-            const scene = sceneAt(path, initialScene(sess, wb));
-            const ruling = await referee({ apiKey, model: sess.models.helper, zdr: sess.zdr, signal: abort.signal, action, scene, player: wb.player!, universe: bundle.universe, difficulty: sess.pov?.difficulty ?? 'survival', recent: lastProse?.text ?? '' });
+            let scene = sceneAt(path, initialScene(sess, wb));
+            if (scene.pov && !scene.pov.threads?.length && !threadsTried.has(sess.id)) {
+              threadsTried.add(sess.id);
+              const threads = await seedThreads({ apiKey, model: sess.models.helper, zdr: sess.zdr, signal: abort.signal, session: sess, universe: bundle.universe, species: bundle.species, wb, recent: lastProse?.text ?? '' });
+              if (threads.length) {
+                const tip = path[path.length - 1];
+                if (tip) {
+                  const state = { ...scene, pov: { ...scene.pov, threads } };
+                  await updateBeatWorld(db, tip.id, tip.at, state);
+                  const beats = get().beats.map((b) => (b.id === tip.id ? { ...b, state } : b));
+                  set(recompute(beats, sess));
+                  path = path.map((b) => (b.id === tip.id ? { ...b, state } : b));
+                } else {
+                  sess = { ...sess, pov: sess.pov ? { ...sess.pov, threads } : sess.pov };
+                  await upsertSession(db, sess);
+                  set({ session: sess });
+                }
+                scene = sceneAt(path, initialScene(sess, wb));
+              }
+            }
+            read = await gmRead({ apiKey, model: sess.models.helper, zdr: sess.zdr, signal: abort.signal, action, scene, player: wb.player!, universe: bundle.universe, difficulty: sess.pov?.difficulty ?? 'survival', recent: lastProse?.text ?? '', checks: sess.pov?.checks !== false, wb });
+            const ruling = read?.ruling;
             if (ruling) check = rollCheck({ attribute: ruling.attribute, difficulty: ruling.difficulty, score: wb.player!.data.attributes?.[ruling.attribute], state: scene.pov, why: ruling.why, onSuccess: ruling.onSuccess, onFailure: ruling.onFailure });
           } catch {
             if (abort.signal.aborted) return;
           }
           set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'writing', model } } : {}));
         }
-        if (o.regenerateId && playing) check = index.byId.get(o.regenerateId)?.state?.pov?.lastCheck ?? null;
-        const world = await buildWorldContext(db, sess, path, wb, { check, survivalNotes: get().survivalNotes });
+        if (o.regenerateId && playing) {
+          const prev = index.byId.get(o.regenerateId)?.state?.pov;
+          check = prev?.lastCheck ?? null;
+          read = prev?.lastRead ?? null;
+        }
+        const world = await buildWorldContext(db, sess, path, wb, { check, read, survivalNotes: get().survivalNotes });
         // Plan first: a short, cheap call to the helper that gives the writer a spine to follow. Not in play: the player is the plan.
         let plan = '';
         if (sess.planFirst && !playing) {
@@ -595,16 +624,16 @@ export const useSession = create<SessionState>((set, get) => {
         if (chronicleOn(sess) && !final.refused && finalText.trim()) {
           set((st) => (st.streaming ? { streaming: { ...st.streaming, phase: 'chronicling', model: sess.models.helper } } : {}));
           try {
-            const out = await chronicle({ db, apiKey, model: sess.models.helper, zdr: sess.zdr, signal: abort.signal, session: sess, universe: bundle.universe, species: bundle.species, wb, beat: mainBeat, parentPath: path, action, check });
+            const out = await chronicle({ db, apiKey, model: sess.models.helper, zdr: sess.zdr, signal: abort.signal, session: sess, universe: bundle.universe, species: bundle.species, wb, beat: mainBeat, parentPath: path, action, check, read });
             if (out) {
               const beats = get().beats.map((b) => (b.id === mainBeat.id ? { ...b, at: out.at, state: out.scene } : b));
               set({ survivalNotes: out.notes, ...recompute(beats, get().session!) });
               if (out.newcomers.length) await get().addNewcomers(out.newcomers);
               if (out.scene.pov?.down && !sceneAt(path, initialScene(sess, wb)).pov?.down) set({ notice: sess.pov?.difficulty === 'hardcore' ? `${wb.player?.name ?? 'Your character'} has fallen. Undo to try again from an earlier moment, or play out the end.` : `${wb.player?.name ?? 'Your character'} is down. The story goes on, at a cost.` });
-            } else if (check) {
+            } else if (check || read) {
               // Keep the roll on the passage even when the chronicle could not be read.
               const scene = sceneAt(path, initialScene(sess, wb));
-              const state = { ...scene, pov: scene.pov ? { ...scene.pov, lastCheck: check } : undefined };
+              const state = { ...scene, pov: scene.pov ? { ...scene.pov, lastCheck: check, lastRead: read } : undefined };
               await updateBeatWorld(db, mainBeat.id, null, state);
               set(recompute(get().beats.map((b) => (b.id === mainBeat.id ? { ...b, state } : b)), get().session!));
             }
@@ -903,7 +932,7 @@ export const useSession = create<SessionState>((set, get) => {
       set({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'chronicling', startedAt: now(), parentId: beat.parentId } });
       try {
         await deleteEventsForBeat(db, beat.id);
-        const out = await chronicle({ db, apiKey, model: session.models.helper, zdr: session.zdr, signal: abort.signal, session, universe: bundle.universe, species: bundle.species, wb, beat, parentPath, action, check: beat.state?.pov?.lastCheck ?? null });
+        const out = await chronicle({ db, apiKey, model: session.models.helper, zdr: session.zdr, signal: abort.signal, session, universe: bundle.universe, species: bundle.species, wb, beat, parentPath, action, check: beat.state?.pov?.lastCheck ?? null, read: beat.state?.pov?.lastRead ?? null });
         if (!out) throw new Error('The chronicle could not be read. Try again, or correct the sheet by hand.');
         set({ survivalNotes: out.notes, ...recompute(get().beats.map((b) => (b.id === beat.id ? { ...b, at: out.at, state: out.scene } : b)), get().session!) });
         if (out.newcomers.length) await get().addNewcomers(out.newcomers);

@@ -13,6 +13,7 @@ import { RefChips, TimeEditor } from '@/ui/components/World';
 import { refOptions } from '@/ui/worldRefs';
 import { imageOf } from '@/core/world/portraits';
 import { space } from '@/ui/theme';
+import { TURN_LENGTH, type TurnLength } from '@/core/world/gm';
 
 const DIFFICULTY: { key: Difficulty; label: string; hint: string }[] = [
   { key: 'story', label: 'Story', hint: 'No hunger or thirst; health and money still count.' },
@@ -36,6 +37,7 @@ export default function Start() {
   const [cast, setCast] = useState<string[]>([]);
   const [player, setPlayer] = useState<string | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>('survival');
+  const [turnLength, setTurnLength] = useState<TurnLength>('standard');
   const [checks, setChecks] = useState(true);
   const [startLoc, setStartLoc] = useState<string | null>(null);
   const [clock, setClock] = useState(0);
@@ -93,7 +95,7 @@ export default function Start() {
         brief: brief.trim(),
         explicit: everyone.every((c) => c.adult),
         planFirst: mode !== 'pov',
-        pov: mode === 'pov' ? { characterId: player, difficulty, checks, startLocationId: startLoc ?? playerChar?.data.homeLocationId ?? null } : null,
+        pov: mode === 'pov' ? { characterId: player, difficulty, checks, startLocationId: startLoc ?? playerChar?.data.homeLocationId ?? null, turnLength } : null,
       });
       await upsertSession(db, s);
       router.replace(`/session/${s.id}`);
@@ -138,6 +140,9 @@ export default function Start() {
           <T v="label">Difficulty</T>
           <Row>{DIFFICULTY.map((d) => <Chip key={d.key} label={d.label} selected={difficulty === d.key} onPress={() => setDifficulty(d.key)} />)}</Row>
           <T v="faint">{DIFFICULTY.find((d) => d.key === difficulty)!.hint}</T>
+          <T v="label">Turn length</T>
+          <Row>{(Object.keys(TURN_LENGTH) as TurnLength[]).map((k) => <Chip key={k} label={TURN_LENGTH[k].label} selected={turnLength === k} onPress={() => setTurnLength(k)} />)}</Row>
+          <T v="faint">{TURN_LENGTH[turnLength].hint} About {TURN_LENGTH[turnLength].words} a turn.</T>
           <SwitchRow label="Tests of skill" hint="Risky actions are tested against your attributes with a d20; the outcome is decided before the narrator writes." value={checks} onChange={setChecks} />
           <T v="label">Start at</T>
           {refs.location?.length ? <RefChips value={startLoc} options={refs.location} onChange={setStartLoc} none="Let the story decide" /> : <T v="faint">No places in this world yet.</T>}

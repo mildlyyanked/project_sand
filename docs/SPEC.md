@@ -47,6 +47,10 @@ Every library kind converts to a **draft**: a flat record of fields with referen
 
 `src/core/world/retcon.ts`: `renameEdits` rewrites a name in every text field (whole word), keyword list and reference by name; `retconPrompt`/`parseRetcon` have the writer model propose field edits on the entries a described change touches (validated against the world and the field schema); `mergeEdits` and `applyEdits` produce drafts that go through `planDrafts`. Event titles and text are renamed in the world's timelines.
 
+## Play (POV) game master
+
+`src/core/world/gm.ts`. Play only, never free writing: `gmContract` (system layer `gm`; replaces the default craft prompt, a voice's own prompt stays; the voice card is rendered for texture only), `gmReadPrompt`/`parseGmRead` (the per-turn read, folded with the referee: intent, feasibility, optional check, the world's reaction, what changes, a thread to touch), threads (`seedThreadsPrompt`, `applyThreadUpdates`; stored on `PovState.threads`, seeded once into the tip beat or `session.pov.threads`, advanced by the chronicle, closed threads become timeline events), `TurnLength` on `PovSettings`.
+
 ## Vanilla guarantee
 
 A story in the default world, writer mode, Continuity and Chronicle off, with an empty real-world card, assembles exactly the messages it did before worlds existed and makes no extra calls (`assemble.test.ts` asserts this).

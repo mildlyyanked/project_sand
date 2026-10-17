@@ -17,6 +17,7 @@ import { ModelPicker } from '@/ui/components/ModelPicker';
 import { shortModel } from '@/ui/format';
 import { space } from '@/ui/theme';
 import { imageOf } from '@/core/world/portraits';
+import { TURN_LENGTH, type TurnLength } from '@/core/world/gm';
 
 export default function SessionSettings() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -166,6 +167,9 @@ export default function SessionSettings() {
               <T v="label">Played character</T>
               <RefChips value={pov.characterId} options={playable.map((c) => ({ id: c.id, name: c.name, image: imageOf(c.data as Record<string, unknown>)?.uri }))} onChange={(id) => setPov({ characterId: id })} none="Nobody yet" />
               <Row>{(['story', 'survival', 'hardcore'] as Difficulty[]).map((d) => <Chip key={d} label={d[0]!.toUpperCase() + d.slice(1)} selected={pov.difficulty === d} onPress={() => setPov({ difficulty: d })} />)}</Row>
+              <T v="label">Turn length</T>
+              <Row>{(Object.keys(TURN_LENGTH) as TurnLength[]).map((k) => <Chip key={k} label={TURN_LENGTH[k].label} selected={(pov.turnLength ?? 'standard') === k} onPress={() => setPov({ turnLength: k })} />)}</Row>
+              <T v="faint">{TURN_LENGTH[pov.turnLength ?? 'standard'].hint} About {TURN_LENGTH[pov.turnLength ?? 'standard'].words} a turn. In play the game master’s rules set perspective, structure and length; the voice keeps its word choice and texture.</T>
               <SwitchRow label="Tests of skill" value={pov.checks} onChange={(v) => setPov({ checks: v })} />
               <T v="label">Start at</T>
               <RefChips value={pov.startLocationId} options={refOptions(entities, []).location ?? []} onChange={(id) => setPov({ startLocationId: id })} none="Home, or let the story decide" />
