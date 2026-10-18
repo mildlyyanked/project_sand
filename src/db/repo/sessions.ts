@@ -3,6 +3,7 @@ import type { Beat, Id, Session } from '@/core/types';
 import { DEFAULT_PARAMS, DEFAULT_STRATEGY } from '@/core/types';
 import { newId, now } from '@/core/ids';
 import { b, ib, j, pj } from './map';
+import { misfiledBeats } from '@/core/repair';
 
 interface Row {
   id: string; title: string; universe_id: string | null; style_id: string | null; character_ids_json: string; models_json: string; params_json: string; strategy_json: string;
@@ -155,4 +156,35 @@ export async function usageStats(db: SQLiteDatabase): Promise<UsageStats> {
   const bySession = (await db.getAllAsync<{ session_id: string; title: string | null; n: number; cost: number | null }>('SELECT b.session_id, s.title, COUNT(*) as n, SUM(b.cost_usd) as cost FROM beats b LEFT JOIN sessions s ON s.id = b.session_id WHERE b.model IS NOT NULL GROUP BY b.session_id ORDER BY cost DESC, n DESC')).map((r) => ({ sessionId: r.session_id, title: r.title ?? 'Deleted story', requests: r.n, costUsd: r.cost ?? 0, words: wordsBySession.get(r.session_id) ?? 0 }));
   const byDay = (await db.getAllAsync<{ day: string; n: number; cost: number | null }>("SELECT date(created_at / 1000, 'unixepoch', 'localtime') as day, COUNT(*) as n, SUM(cost_usd) as cost FROM beats WHERE model IS NOT NULL GROUP BY day ORDER BY day DESC LIMIT 30")).map((r) => ({ day: r.day, requests: r.n, costUsd: r.cost ?? 0 }));
   return { total: { requests: tot?.n ?? 0, promptTokens: tot?.p ?? 0, completionTokens: tot?.c ?? 0, costUsd: tot?.cost ?? 0, words }, byModel, bySession, byDay };
+}
+
+/**
+ * Repair stories hit by passages that were saved into whichever story was
+ * open when they finished, instead of the story that started them. A passage
+ * belongs to the story its tree starts in: misfiled passages (and anything
+ * written under them) move back there, with their pictures and timeline
+ * events, and a story whose current position is not one of its own passages
+ * goes back to its latest. Cheap enough to run on every launch.
+ */
+type BeatRowLite = { id: string; parent_id: string | null; session_id: string };
+
+export async function repairMisfiledBeats(db: SQLiteDatabase): Promise<{ moved: number; reset: number }> {
+  const misfiled = misfiledBeats(await db.getAllAsync<BeatRowLite>('SELECT id, parent_id, session_id FROM beats'));
+  if (misfiled.length) {
+    await db.withTransactionAsync(async () => {
+      for (const r of misfiled) {
+        await db.runAsync('UPDATE beats SET session_id = ? WHERE id = ?', r.owner, r.id);
+        await db.runAsync('UPDATE illustrations SET session_id = ? WHERE beat_id = ?', r.owner, r.id);
+        await db.runAsync('UPDATE world_events SET session_id = ? WHERE beat_id = ?', r.owner, r.id);
+      }
+      // The story the passage was meant for moves on to it, if it had not moved since.
+      for (const r of misfiled.filter((x) => x.top)) await db.runAsync('UPDATE sessions SET current_beat_id = ? WHERE id = ? AND current_beat_id = ?', r.id, r.owner, r.parentId);
+    });
+  }
+  const bad = await db.getAllAsync<{ id: string }>('SELECT s.id FROM sessions s WHERE s.current_beat_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM beats b WHERE b.id = s.current_beat_id AND b.session_id = s.id)');
+  for (const r of bad) {
+    const latest = await db.getFirstAsync<{ id: string }>('SELECT id FROM beats WHERE session_id = ? ORDER BY created_at DESC LIMIT 1', r.id);
+    await db.runAsync('UPDATE sessions SET current_beat_id = ? WHERE id = ?', latest?.id ?? null, r.id);
+  }
+  return { moved: misfiled.length, reset: bad.length };
 }

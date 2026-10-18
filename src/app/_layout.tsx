@@ -11,6 +11,7 @@ import { seedIfEmpty } from '@/db/seed';
 import { useSettings } from '@/state/settings';
 import { dark, light, useScheme, useTheme } from '@/ui/theme';
 import { KeyboardRoot } from '@/ui/keyboard';
+import { repairMisfiledBeats } from '@/db/repo/sessions';
 
 function Boot({ children }: { children: React.ReactNode }) {
   const db = useSQLiteContext();
@@ -41,6 +42,7 @@ function Spinner() {
 const initDatabase = async (db: SQLiteDatabase) => {
   await migrate(db);
   await seedIfEmpty(db);
+  await repairMisfiledBeats(db).catch(() => undefined);
 };
 
 /** Shown instead of a hard crash, with the message so it can be reported. */

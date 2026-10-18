@@ -157,7 +157,8 @@ interface SessionState {
   toggleDropped(key: string): void;
   clearError(): void;
   setNotice(n: string | null): void;
-  insertGenerated(o: { parentId: Id | null; text: string; model: string; direction?: string; reasoning?: string; plan?: string | null; usage?: { promptTokens: number; completionTokens: number; costUsd: number | null } | null; keepCurrent?: boolean }): Promise<Beat>;
+  /** sessionId: the story the passage belongs to (the one that started the run), whichever story is open now. */
+  insertGenerated(o: { sessionId?: Id; parentId: Id | null; text: string; model: string; direction?: string; reasoning?: string; plan?: string | null; usage?: { promptTokens: number; completionTokens: number; costUsd: number | null } | null; keepCurrent?: boolean }): Promise<Beat>;
   critiqueAndRedo(beatId: Id): Promise<void>;
   /** Ask the helper for a scene plan; the result waits in sceneProposal. */
   proposeScene(wish: string): Promise<void>;
@@ -168,7 +169,7 @@ interface SessionState {
   /** Passage to image prompt to picture, one tap. With promptOnly, or the prompt-only backend, it stops at the prompt. */
   illustrate(beatId: Id, o?: { promptOnly?: boolean }): Promise<void>;
   /** Names the story brought in that the library lacks: kept on the session until canonized or dismissed. */
-  addNewcomers(list: Newcomer[]): Promise<void>;
+  addNewcomers(list: Newcomer[], sessionId?: Id): Promise<void>;
   /** Ask the helper which names in a passage are new to the library. */
   findNewcomers(beatId: Id): Promise<void>;
   dismissNewcomer(name: string): Promise<void>;
@@ -202,8 +203,31 @@ export const useSession = create<SessionState>((set, get) => {
   let clinicStarting = false;
   /** Patches in flight; a reload during one keeps the in-memory session. */
   let patching = 0;
+  /** The story most recently asked to open. */
+  let opening: string | null = null;
   /** Sessions whose threads were seeded (or tried) this run, so a failed seed is not retried every turn. */
   const threadsTried = new Set<string>();
+
+  /**
+   * Work in flight belongs to the story that started it. A story's progress
+   * (streaming text, its abort) is kept here by story, and shown in the store
+   * only while that story is the one open; switching stories never carries a
+   * run, or its results, into the other one.
+   */
+  const runs = new Map<string, { streaming: Streaming | null; abort: AbortController | null }>();
+  const mine = (sid: string) => !!sid && get().session?.id === sid;
+  type Patch = Partial<SessionState> | ((s: SessionState) => Partial<SessionState>);
+  const setFor = (sid: string, p: Patch) => {
+    const run = runs.get(sid) ?? { streaming: null, abort: null };
+    const live = mine(sid);
+    const partial = typeof p === 'function' ? p(live ? get() : { ...get(), streaming: run.streaming, abort: run.abort }) : p;
+    if ('streaming' in partial || 'abort' in partial) {
+      const next = { streaming: 'streaming' in partial ? partial.streaming ?? null : run.streaming, abort: 'abort' in partial ? partial.abort ?? null : run.abort };
+      if (next.streaming || next.abort) runs.set(sid, next);
+      else runs.delete(sid);
+    }
+    if (live) set(partial);
+  };
 
   /** One round of the clinic. Runs to completion even if the screen is left; the result lands in the store. */
   async function clinicAsk(history: ChatMessage[]): Promise<void> {
@@ -250,8 +274,13 @@ export const useSession = create<SessionState>((set, get) => {
       // A reload must never undo a change that is newer in memory than in the row it just read.
       const inMemory = get().session;
       const session = !fresh && inMemory && (patching > 0 || inMemory.updatedAt > row.updatedAt) ? inMemory : row;
+      opening = id;
       const [beats, bundle, illustrations, wb] = await Promise.all([listBeats(db, id), loadBundle(db, session), listIllustrations(db, id), loadWorldBundle(db, session)]);
-      set({ db, session, bundle, wb, illustrations, error: null, dropped: fresh ? new Set() : get().dropped, ...(fresh ? { suggestions: [], sceneProposal: null, drafts: [], refusal: null, clinic: null, survivalNotes: [], world: null } : {}), ...recompute(beats, session) });
+      // Another story was opened while this one loaded: that one wins.
+      if (opening !== id) return;
+      // The opened story's own run, if one is in flight; never the previous story's.
+      const run = runs.get(id);
+      set({ db, session, bundle, wb, illustrations, error: null, dropped: fresh ? new Set() : get().dropped, ...(fresh ? { suggestions: [], sceneProposal: null, drafts: [], refusal: null, clinic: null, survivalNotes: [], world: null, imagePrompt: null, notice: null, streaming: run?.streaming ?? null, abort: run?.abort ?? null } : {}), ...recompute(beats, session) });
       await get().refreshWorld();
     },
     async refreshWorld() {
@@ -355,19 +384,26 @@ export const useSession = create<SessionState>((set, get) => {
       get().abort?.abort();
     },
 
-    async insertGenerated({ parentId, text, model, direction, reasoning, plan, usage, keepCurrent }) {
-      const { db, session } = get();
-      if (!db || !session) throw new Error('No session');
-      const b = makeBeat({ sessionId: session.id, parentId, role: 'prose', text, model, direction: direction ?? null, reasoning: reasoning || null, plan: plan || null, promptTokens: usage?.promptTokens ?? null, completionTokens: usage?.completionTokens ?? null, costUsd: usage?.costUsd ?? null });
+    async insertGenerated({ sessionId, parentId, text, model, direction, reasoning, plan, usage, keepCurrent }) {
+      const { db } = get();
+      const sid = sessionId ?? get().session?.id;
+      if (!db || !sid) throw new Error('No session');
+      const b = makeBeat({ sessionId: sid, parentId, role: 'prose', text, model, direction: direction ?? null, reasoning: reasoning || null, plan: plan || null, promptTokens: usage?.promptTokens ?? null, completionTokens: usage?.completionTokens ?? null, costUsd: usage?.costUsd ?? null });
       await insertBeat(db, b);
+      // Finished after the story was left: it lands in its own story, which moves on to it; the open story is untouched.
+      if (!mine(sid)) {
+        if (!keepCurrent) await patchSession(db, sid, { currentBeatId: b.id });
+        return b;
+      }
       const beats = [...get().beats, b];
-      const next = keepCurrent ? get().session! : (await patchSession(db, session.id, { currentBeatId: b.id }))!;
+      const next = keepCurrent ? get().session! : (await patchSession(db, sid, { currentBeatId: b.id }))!;
       set({ session: next, ...recompute(beats, next) });
       if (!keepCurrent) void get().refreshWorld();
       return b;
     },
 
     async critiqueAndRedo(beatId) {
+      const sid = get().session?.id ?? '';
       const { db, session, index, bundle } = get();
       const { apiKey } = useSettings.getState();
       if (!db || !session || !apiKey || get().streaming) return;
@@ -376,29 +412,30 @@ export const useSession = create<SessionState>((set, get) => {
       const before = pathTo(index, beat.parentId);
       const previous = [...before].reverse().find((b) => b.role === 'prose')?.text ?? '';
       const abort = new AbortController();
-      set({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'critiquing', startedAt: now(), parentId: beat.parentId } });
+      setFor(sid, { abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'critiquing', startedAt: now(), parentId: beat.parentId } });
       let notes = '';
       try {
         await runInForeground('Critiquing the passage', async () => {
           for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: critiquePrompt({ brief: session.brief, style: bundle.style, previous, passage: beat.text }, useSettings.getState().templates), params: { temperature: 0.3, topP: 0.9, maxTokens: 500, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
             if (ev.type === 'text') {
               notes += ev.text ?? '';
-              set((s) => (s.streaming ? { streaming: { ...s.streaming, text: notes } } : {}));
+              setFor(sid, (s) => (s.streaming ? { streaming: { ...s.streaming, text: notes } } : {}));
             }
             if (ev.type === 'error') throw new Error(ev.error);
           }
         });
       } catch (e) {
-        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
-        set({ streaming: null, abort: null });
+        if (!abort.signal.aborted) setFor(sid, { error: e instanceof Error ? e.message : String(e) });
+        setFor(sid, { streaming: null, abort: null });
         return;
       }
-      set({ streaming: null, abort: null });
-      if (!notes.trim()) return;
+      setFor(sid, { streaming: null, abort: null });
+      if (!notes.trim() || !mine(sid)) return;
       await get().generate({ regenerateId: beatId, direction: `Editor's notes on the previous attempt. Fix every one of them:\n${notes.trim()}` });
     },
 
     async summarizeNow() {
+      const sid = get().session?.id ?? '';
       const { db, session, path } = get();
       const { apiKey } = useSettings.getState();
       if (!db || !session || !apiKey) return;
@@ -406,43 +443,45 @@ export const useSession = create<SessionState>((set, get) => {
       // Summarize everything except the recent window.
       const toFold = overflow.length ? overflow : recent.slice(0, Math.max(0, recent.length - 2));
       if (!toFold.length) {
-        set({ notice: 'Nothing to summarize yet' });
+        setFor(sid, { notice: 'Nothing to summarize yet' });
         return;
       }
       const abort = new AbortController();
-      set({ streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.summarizer, phase: 'summarizing', startedAt: now(), parentId: null }, abort, error: null });
+      setFor(sid, { streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.summarizer, phase: 'summarizing', startedAt: now(), parentId: null }, abort, error: null });
       await runInForeground('Summarizing the story so far', async () => {
       try {
         let text = '';
         for await (const ev of client.stream({ apiKey, model: session.models.summarizer, messages: summaryPrompt(session.summary, toFold, useSettings.getState().templates), params: { temperature: 0.3, topP: 0.9, maxTokens: 1200, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
           if (ev.type === 'text') {
             text += ev.text ?? '';
-            set((s) => (s.streaming ? { streaming: { ...s.streaming, text } } : {}));
+            setFor(sid, (s) => (s.streaming ? { streaming: { ...s.streaming, text } } : {}));
           }
           if (ev.type === 'error') throw new Error(ev.error);
         }
         const upto = toFold[toFold.length - 1]!.id;
-        await get().patch({ summary: text.trim(), summaryUpToBeatId: upto });
-        set({ notice: `Folded ${toFold.length + summarized.length > toFold.length ? toFold.length : toFold.length} beats into the summary` });
+        if (mine(sid)) await get().patch({ summary: text.trim(), summaryUpToBeatId: upto });
+        else await patchSession(db, sid, { summary: text.trim(), summaryUpToBeatId: upto });
+        setFor(sid, { notice: `Folded ${toFold.length + summarized.length > toFold.length ? toFold.length : toFold.length} beats into the summary` });
       } catch (e) {
-        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
+        if (!abort.signal.aborted) setFor(sid, { error: e instanceof Error ? e.message : String(e) });
       } finally {
-        set({ streaming: null, abort: null });
+        setFor(sid, { streaming: null, abort: null });
       }
       });
     },
 
     async generate(o = {}) {
+      const sid = get().session?.id ?? '';
       const { db, session, bundle, index } = get();
       const { apiKey } = useSettings.getState();
       if (!db || !session) return;
       if (!apiKey) {
-        set({ error: 'Add your OpenRouter key in Settings first.' });
+        setFor(sid, { error: 'Add your OpenRouter key in Settings first.' });
         return;
       }
       if (get().streaming) return;
       if (session.explicit && bundle.characters.some((c) => !c.adult)) {
-        set({ error: 'Explicit sessions require every attached character to be flagged adult.' });
+        setFor(sid, { error: 'Explicit sessions require every attached character to be flagged adult.' });
         return;
       }
       const model = o.model ?? session.models.writer;
@@ -455,7 +494,7 @@ export const useSession = create<SessionState>((set, get) => {
       }
       let path = pathTo(index, parentId);
       const abort = new AbortController();
-      set({ abort, error: null, suggestions: [], drafts: [], refusal: null, diagnoseOnStop: false, streaming: { text: '', reasoning: '', attempt: 0, step: null, model, phase: 'writing', startedAt: now(), parentId } });
+      setFor(sid, { abort, error: null, suggestions: [], drafts: [], refusal: null, diagnoseOnStop: false, streaming: { text: '', reasoning: '', attempt: 0, step: null, model, phase: 'writing', startedAt: now(), parentId } });
 
       await runInForeground('Writing the next passage', async () => {
       try {
@@ -463,7 +502,7 @@ export const useSession = create<SessionState>((set, get) => {
         let sess = session;
         const parts = splitPath(path, sess, sess.strategy);
         if (parts.overflow.length) {
-          set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'summarizing', model: sess.models.summarizer } } : {}));
+          setFor(sid, (s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'summarizing', model: sess.models.summarizer } } : {}));
           let text = '';
           for await (const ev of client.stream({ apiKey, model: sess.models.summarizer, messages: summaryPrompt(sess.summary, parts.overflow, useSettings.getState().templates), params: { temperature: 0.3, topP: 0.9, maxTokens: 1200, reasoning: false }, zdr: sess.zdr, signal: abort.signal })) {
             if (ev.type === 'text') text += ev.text ?? '';
@@ -471,9 +510,9 @@ export const useSession = create<SessionState>((set, get) => {
           }
           if (text.trim()) {
             sess = (await patchSession(db, sess.id, { summary: text.trim(), summaryUpToBeatId: parts.overflow[parts.overflow.length - 1]!.id }))!;
-            set({ session: sess });
+            setFor(sid, { session: sess });
           }
-          set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'writing', model } } : {}));
+          setFor(sid, (s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'writing', model } } : {}));
         }
         const lastProse = [...path].reverse().find((b) => b.role === 'prose');
         const lastBeat = path[path.length - 1];
@@ -485,7 +524,7 @@ export const useSession = create<SessionState>((set, get) => {
         let read: GmRead | null = null;
         const action = [lastBeat?.role === 'instruction' ? lastBeat.text : '', o.direction ?? ''].filter(Boolean).join('; ');
         if (playing && !o.regenerateId) {
-          set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'refereeing', model: sess.models.helper } } : {}));
+          setFor(sid, (s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'refereeing', model: sess.models.helper } } : {}));
           try {
             let scene = sceneAt(path, initialScene(sess, wb));
             if (scene.pov && !scene.pov.threads?.length && !threadsTried.has(sess.id)) {
@@ -497,12 +536,12 @@ export const useSession = create<SessionState>((set, get) => {
                   const state = { ...scene, pov: { ...scene.pov, threads } };
                   await updateBeatWorld(db, tip.id, tip.at, state);
                   const beats = get().beats.map((b) => (b.id === tip.id ? { ...b, state } : b));
-                  set(recompute(beats, sess));
+                  setFor(sid, recompute(beats, sess));
                   path = path.map((b) => (b.id === tip.id ? { ...b, state } : b));
                 } else {
                   sess = { ...sess, pov: sess.pov ? { ...sess.pov, threads } : sess.pov };
                   await upsertSession(db, sess);
-                  set({ session: sess });
+                  setFor(sid, { session: sess });
                 }
                 scene = sceneAt(path, initialScene(sess, wb));
               }
@@ -513,7 +552,7 @@ export const useSession = create<SessionState>((set, get) => {
           } catch {
             if (abort.signal.aborted) return;
           }
-          set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'writing', model } } : {}));
+          setFor(sid, (s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'writing', model } } : {}));
         }
         if (o.regenerateId && playing) {
           const prev = index.byId.get(o.regenerateId)?.state?.pov;
@@ -524,7 +563,7 @@ export const useSession = create<SessionState>((set, get) => {
         // Plan first: a short, cheap call to the helper that gives the writer a spine to follow. Not in play: the player is the plan.
         let plan = '';
         if (sess.planFirst && !playing) {
-          set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'planning', model: sess.models.helper } } : {}));
+          setFor(sid, (s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'planning', model: sess.models.helper } } : {}));
           try {
             const instruction = [lastBeat?.role === 'instruction' ? lastBeat.text : '', o.direction ?? ''].filter(Boolean).join('; ');
             for await (const ev of client.stream({ apiKey, model: sess.models.helper, messages: planPrompt({ brief: sess.brief, summary: sess.summary, recent: lastProse?.text ?? '', instruction, opening: !lastProse && !sess.summary, style: bundle.style }, useSettings.getState().templates), params: { temperature: 0.5, topP: 0.9, maxTokens: 260, reasoning: false }, zdr: sess.zdr, signal: abort.signal })) {
@@ -534,14 +573,14 @@ export const useSession = create<SessionState>((set, get) => {
             if (abort.signal.aborted) return;
             plan = '';
           }
-          set((s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'writing', model } } : {}));
+          setFor(sid, (s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'writing', model } } : {}));
         }
         const ctx = assembleContext({ session: sess, path, ...bundle, model, direction: o.direction, dropped: get().dropped, plan: plan.trim() || undefined, templates: useSettings.getState().templates, world });
-        set({ lastLog: ctx.log });
+        setFor(sid, { lastLog: ctx.log });
         // Extra drafts: other models write the same passage as siblings, without the chain, so the writer can compare in place.
         const extra = o.regenerateId ? [] : sess.draftModels.filter((m) => m && m !== model);
         const draftJobs = extra.map(async (dm, i) => {
-          const upd = (p: Partial<Draft>) => set((st) => ({ drafts: st.drafts.map((d, j) => (j === i ? { ...d, ...p } : d)) }));
+          const upd = (p: Partial<Draft>) => setFor(sid, (st) => ({ drafts: st.drafts.map((d, j) => (j === i ? { ...d, ...p } : d)) }));
           try {
             const dctx = model === dm ? ctx : assembleContext({ session: sess, path, ...bundle, model: dm, direction: o.direction, dropped: get().dropped, plan: plan.trim() || undefined, templates: useSettings.getState().templates, world });
             let text = '';
@@ -553,12 +592,12 @@ export const useSession = create<SessionState>((set, get) => {
             }
             const clean = trimDegenerate(text).text.trim();
             upd({ done: true, text: clean });
-            if (clean.length > 40 && !abort.signal.aborted) await get().insertGenerated({ parentId, text: clean, model: dm, direction: o.direction, plan: plan.trim() || null, usage: cost != null ? { promptTokens: 0, completionTokens: 0, costUsd: cost } : null, keepCurrent: true });
+            if (clean.length > 40 && !abort.signal.aborted) await get().insertGenerated({ sessionId: sid, parentId, text: clean, model: dm, direction: o.direction, plan: plan.trim() || null, usage: cost != null ? { promptTokens: 0, completionTokens: 0, costUsd: cost } : null, keepCurrent: true });
           } catch (e) {
             upd({ done: true, error: e instanceof Error ? e.message : String(e) });
           }
         });
-        if (extra.length) set({ drafts: extra.map((m) => ({ model: m, text: '', done: false })) });
+        if (extra.length) setFor(sid, { drafts: extra.map((m) => ({ model: m, text: '', done: false })) });
         const stats = await listModelStats(db);
         const autoModel = (exclude: string[]) => {
           const ranked = stats
@@ -575,27 +614,27 @@ export const useSession = create<SessionState>((set, get) => {
           instructionText: [lastBeat?.role === 'instruction' ? lastBeat.text : '', o.direction ?? ''].filter(Boolean).join('\n') || undefined,
           autoModel,
           softenSystem: useSettings.getState().templates.soften,
-          onAttempt: (attempt, step, m) => set((s) => (s.streaming ? { streaming: { ...s.streaming, attempt, step, model: m, text: '', reasoning: '' } } : {})),
-          onDelta: (_a, text, reasoning) => set((s) => (s.streaming ? { streaming: { ...s.streaming, text, reasoning } } : {})),
+          onAttempt: (attempt, step, m) => setFor(sid, (s) => (s.streaming ? { streaming: { ...s.streaming, attempt, step, model: m, text: '', reasoning: '' } } : {})),
+          onDelta: (_a, text, reasoning) => setFor(sid, (s) => (s.streaming ? { streaming: { ...s.streaming, text, reasoning } } : {})),
         });
         for (const a of attempts) if (!a.skipped && !a.error) void recordAttempt(db, a.model, a.refused);
         const recordRefusal = (att: (typeof attempts)[number], auto: boolean) => {
           const refusedText = att.stripPrefix && att.text.startsWith(att.stripPrefix) ? att.text.slice(att.stripPrefix.length) : att.text;
-          set({ clinic: null, refusal: { text: refusedText.trim(), model: att.model, transcript: transcriptOf(ctx.messages), instruction: lastBeat?.role === 'instruction' ? lastBeat.text : '', instructionBeatId: lastBeat?.role === 'instruction' ? lastBeat.id : null, parentId, regenerateId: o.regenerateId, direction: o.direction, heat: sess.explicit ? renderHeat(sess.heat) : null, auto } });
+          setFor(sid, { clinic: null, refusal: { text: refusedText.trim(), model: att.model, transcript: transcriptOf(ctx.messages), instruction: lastBeat?.role === 'instruction' ? lastBeat.text : '', instructionBeatId: lastBeat?.role === 'instruction' ? lastBeat.id : null, parentId, regenerateId: o.regenerateId, direction: o.direction, heat: sess.explicit ? renderHeat(sess.heat) : null, auto } });
         };
         if (abort.signal.aborted) {
           await Promise.all(draftJobs);
           if (get().diagnoseOnStop) {
             const refused = [...attempts].reverse().find((a) => a.refused && !a.skipped);
             if (refused) recordRefusal(refused, true);
-            else set({ notice: 'Stopped before a refusal was recorded.' });
+            else setFor(sid, { notice: 'Stopped before a refusal was recorded.' });
             return;
           }
           const partial = attempts[attempts.length - 1];
           const partialText = partial && partial.stripPrefix && partial.text.startsWith(partial.stripPrefix) ? partial.text.slice(partial.stripPrefix.length) : partial?.text ?? '';
           if (partial && partialText.trim().length > 40) {
-            await get().insertGenerated({ parentId, text: partialText.trim(), model: partial.model, direction: o.direction, reasoning: partial.reasoning });
-            set({ notice: 'Stopped. Kept the partial passage.' });
+            await get().insertGenerated({ sessionId: sid, parentId, text: partialText.trim(), model: partial.model, direction: o.direction, reasoning: partial.reasoning });
+            setFor(sid, { notice: 'Stopped. Kept the partial passage.' });
           }
           return;
         }
@@ -609,7 +648,7 @@ export const useSession = create<SessionState>((set, get) => {
         }
         if (final.error && !final.text.trim()) {
           await Promise.all(draftJobs);
-          set({ error: final.error });
+          setFor(sid, { error: final.error });
           return;
         }
         const rawText = final.stripPrefix && final.text.startsWith(final.stripPrefix) ? final.text.slice(final.stripPrefix.length) : final.text;
@@ -617,55 +656,56 @@ export const useSession = create<SessionState>((set, get) => {
         const finalText = guarded.text;
         const totalCost = attempts.reduce((n, a) => n + (a.usage?.costUsd ?? 0), 0);
         const usage = final.usage ? { ...final.usage, costUsd: attempts.some((a) => a.usage?.costUsd != null) ? totalCost : null } : null;
-        const mainBeat = await get().insertGenerated({ parentId, text: finalText.trim(), model: final.model, direction: o.direction, reasoning: final.reasoning, plan: plan.trim() || null, usage });
+        const mainBeat = await get().insertGenerated({ sessionId: sid, parentId, text: finalText.trim(), model: final.model, direction: o.direction, reasoning: final.reasoning, plan: plan.trim() || null, usage });
         // The passage is on the page; the footer now only tracks the extra drafts still writing.
-        set((st) => (st.streaming ? { streaming: { ...st.streaming, text: '', reasoning: '' } } : {}));
+        setFor(sid, (st) => (st.streaming ? { streaming: { ...st.streaming, text: '', reasoning: '' } } : {}));
         // The chronicle: time, place, events, and in play the player's books. A refusal is not chronicled.
         if (chronicleOn(sess) && !final.refused && finalText.trim()) {
-          set((st) => (st.streaming ? { streaming: { ...st.streaming, phase: 'chronicling', model: sess.models.helper } } : {}));
+          setFor(sid, (st) => (st.streaming ? { streaming: { ...st.streaming, phase: 'chronicling', model: sess.models.helper } } : {}));
           try {
             const out = await chronicle({ db, apiKey, model: sess.models.helper, zdr: sess.zdr, signal: abort.signal, session: sess, universe: bundle.universe, species: bundle.species, wb, beat: mainBeat, parentPath: path, action, check, read });
             if (out) {
               const beats = get().beats.map((b) => (b.id === mainBeat.id ? { ...b, at: out.at, state: out.scene } : b));
-              set({ survivalNotes: out.notes, ...recompute(beats, get().session!) });
-              if (out.newcomers.length) await get().addNewcomers(out.newcomers);
-              if (out.scene.pov?.down && !sceneAt(path, initialScene(sess, wb)).pov?.down) set({ notice: sess.pov?.difficulty === 'hardcore' ? `${wb.player?.name ?? 'Your character'} has fallen. Undo to try again from an earlier moment, or play out the end.` : `${wb.player?.name ?? 'Your character'} is down. The story goes on, at a cost.` });
+              setFor(sid, { survivalNotes: out.notes, ...recompute(beats, get().session!) });
+              if (out.newcomers.length) await get().addNewcomers(out.newcomers, sid);
+              if (out.scene.pov?.down && !sceneAt(path, initialScene(sess, wb)).pov?.down) setFor(sid, { notice: sess.pov?.difficulty === 'hardcore' ? `${wb.player?.name ?? 'Your character'} has fallen. Undo to try again from an earlier moment, or play out the end.` : `${wb.player?.name ?? 'Your character'} is down. The story goes on, at a cost.` });
             } else if (check || read) {
               // Keep the roll on the passage even when the chronicle could not be read.
               const scene = sceneAt(path, initialScene(sess, wb));
               const state = { ...scene, pov: scene.pov ? { ...scene.pov, lastCheck: check, lastRead: read } : undefined };
               await updateBeatWorld(db, mainBeat.id, null, state);
-              set(recompute(get().beats.map((b) => (b.id === mainBeat.id ? { ...b, state } : b)), get().session!));
+              setFor(sid, recompute(get().beats.map((b) => (b.id === mainBeat.id ? { ...b, state } : b)), get().session!));
             }
           } catch (e) {
-            if (!abort.signal.aborted) set({ notice: `The chronicle could not record this passage (${e instanceof Error ? e.message : String(e)}). The story is unaffected; time and events stand where they were.` });
+            if (!abort.signal.aborted) setFor(sid, { notice: `The chronicle could not record this passage (${e instanceof Error ? e.message : String(e)}). The story is unaffected; time and events stand where they were.` });
           }
           await get().refreshWorld();
         }
         await Promise.all(draftJobs);
         const ran = attempts.filter((a) => !a.skipped);
         const okDrafts = get().drafts.filter((d) => d.done && !d.error && d.text.length > 40).length;
-        if (okDrafts) set({ notice: `${okDrafts + 1} drafts written. Swipe the passage's arrows to compare; the others stay one swipe away.` });
-        if (guarded.trimmed) set({ notice: 'Cut a tail where the prose broke down into a run-on. If this keeps happening, set the style card\'s repetition control to Off; sampler penalties can starve a long passage of articles and punctuation.' });
+        if (okDrafts) setFor(sid, { notice: `${okDrafts + 1} drafts written. Swipe the passage's arrows to compare; the others stay one swipe away.` });
+        if (guarded.trimmed) setFor(sid, { notice: 'Cut a tail where the prose broke down into a run-on. If this keeps happening, set the style card\'s repetition control to Off; sampler penalties can starve a long passage of articles and punctuation.' });
         else if (final.refused) {
           recordRefusal(final, false);
-          set({ notice: `Every step of the refusal chain came back as a refusal (${ran.length} attempts). Kept the last one so you can judge; the clinic can work out why.` });
+          setFor(sid, { notice: `Every step of the refusal chain came back as a refusal (${ran.length} attempts). Kept the last one so you can judge; the clinic can work out why.` });
         }
-        else if (ran.length > 1) set({ notice: `Pushed through on attempt ${ran.length}${final.step ? ` via ${final.step.kind}` : ''}${final.model !== model ? ` on ${final.model.split('/').pop()}` : ''}.` });
+        else if (ran.length > 1) setFor(sid, { notice: `Pushed through on attempt ${ran.length}${final.step ? ` via ${final.step.kind}` : ''}${final.model !== model ? ` on ${final.model.split('/').pop()}` : ''}.` });
       } catch (e) {
-        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
+        if (!abort.signal.aborted) setFor(sid, { error: e instanceof Error ? e.message : String(e) });
       } finally {
-        set({ streaming: null, abort: null, drafts: [], diagnoseOnStop: false });
+        setFor(sid, { streaming: null, abort: null, drafts: [], diagnoseOnStop: false });
       }
       });
     },
 
     async proposeScene(wish) {
+      const sid = get().session?.id ?? '';
       const { session, path, bundle } = get();
       const { apiKey } = useSettings.getState();
       if (!session || !apiKey || get().streaming) return;
       const abort = new AbortController();
-      set({ abort, error: null, sceneProposal: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'proposing', startedAt: now(), parentId: session.currentBeatId } });
+      setFor(sid, { abort, error: null, sceneProposal: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'proposing', startedAt: now(), parentId: session.currentBeatId } });
       try {
         await runInForeground('Planning the next scene', async () => {
           const recent = manuscriptText(path.slice(-3));
@@ -673,26 +713,27 @@ export const useSession = create<SessionState>((set, get) => {
           for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: scenePrompt({ universe: bundle.universe, characters: bundle.characters, style: bundle.style, summary: session.summary, recent, wish }), params: { temperature: 0.9, topP: 0.95, maxTokens: 500, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
             if (ev.type === 'text') {
               text += ev.text ?? '';
-              set((st) => (st.streaming ? { streaming: { ...st.streaming, text } } : {}));
+              setFor(sid, (st) => (st.streaming ? { streaming: { ...st.streaming, text } } : {}));
             }
             if (ev.type === 'error') throw new Error(ev.error);
           }
-          set({ sceneProposal: text.trim() || null });
+          setFor(sid, { sceneProposal: text.trim() || null });
         });
       } catch (e) {
-        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
+        if (!abort.signal.aborted) setFor(sid, { error: e instanceof Error ? e.message : String(e) });
       } finally {
-        set({ streaming: null, abort: null });
+        setFor(sid, { streaming: null, abort: null });
       }
     },
     clearScene: () => set({ sceneProposal: null }),
 
     async suggest() {
+      const sid = get().session?.id ?? '';
       const { session, path, bundle } = get();
       const { apiKey } = useSettings.getState();
       if (!session || !apiKey || get().streaming) return;
       const abort = new AbortController();
-      set({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'suggesting', startedAt: now(), parentId: session.currentBeatId } });
+      setFor(sid, { abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'suggesting', startedAt: now(), parentId: session.currentBeatId } });
       try {
         const recent = [...path].reverse().find((b) => b.role === 'prose')?.text ?? '';
         const interactive = /second person|\byou\b/i.test(bundle.style?.pointOfView ?? '');
@@ -703,32 +744,33 @@ export const useSession = create<SessionState>((set, get) => {
         }
         const list = parseSuggestions(text);
         if (!list.length) throw new Error('The helper did not return suggestions. Try again.');
-        set({ suggestions: list });
+        setFor(sid, { suggestions: list });
       } catch (e) {
-        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
+        if (!abort.signal.aborted) setFor(sid, { error: e instanceof Error ? e.message : String(e) });
       } finally {
-        set({ streaming: null, abort: null });
+        setFor(sid, { streaming: null, abort: null });
       }
     },
     clearSuggestions: () => set({ suggestions: [] }),
 
     clearImagePrompt: () => set({ imagePrompt: null }),
     async illustrate(beatId, o = {}) {
+      const sid = get().session?.id ?? '';
       const { db, session, index, bundle } = get();
       const { apiKey, imageKey, defaults } = useSettings.getState();
       const backend = defaults.imageBackend;
       const promptOnly = o.promptOnly || backend.kind === 'prompt';
       if (!db || !session || get().streaming) return;
       if (!apiKey) {
-        set({ error: 'Add your OpenRouter key in Settings first.' });
+        setFor(sid, { error: 'Add your OpenRouter key in Settings first.' });
         return;
       }
       if (!promptOnly && backend.kind === 'openrouter' && !defaults.imageModel) {
-        set({ error: 'Pick an image model in Settings first.' });
+        setFor(sid, { error: 'Pick an image model in Settings first.' });
         return;
       }
       if (!promptOnly && backend.kind !== 'openrouter' && !backend.baseUrl.trim()) {
-        set({ error: 'Set the image server address in Settings → Illustrations first.' });
+        setFor(sid, { error: 'Set the image server address in Settings → Illustrations first.' });
         return;
       }
       const beat = index.byId.get(beatId);
@@ -742,7 +784,7 @@ export const useSession = create<SessionState>((set, get) => {
       const placeEnt = scene.locationId ? wb.entities.find((e) => e.id === scene.locationId) : undefined;
       const place = placeEnt ? [placeEnt.name, placeEnt.summary, typeof placeEnt.data.description === 'string' ? placeEnt.data.description : ''].filter(Boolean).join('. ').slice(0, 400) : scene.locationName || undefined;
       const abort = new AbortController();
-      set({ abort, error: null, imagePrompt: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'illustrating', startedAt: now(), parentId: beat.parentId } });
+      setFor(sid, { abort, error: null, imagePrompt: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'illustrating', startedAt: now(), parentId: beat.parentId } });
       try {
         await runInForeground(promptOnly ? 'Describing the picture' : 'Illustrating the passage', async () => {
           let prompt = '';
@@ -750,7 +792,7 @@ export const useSession = create<SessionState>((set, get) => {
           for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: imagePromptPrompt({ passage: beat.text, characters: named.length ? named : bundle.characters, universe: bundle.universe, style: bundle.style, brief: session.brief, place, references: refs.length, fixedStyle: true }), params: { temperature: 0.7, topP: 0.95, maxTokens: 3000, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
             if (ev.type === 'text') {
               prompt += ev.text ?? '';
-              set((st) => (st.streaming ? { streaming: { ...st.streaming, text: prompt } } : {}));
+              setFor(sid, (st) => (st.streaming ? { streaming: { ...st.streaming, text: prompt } } : {}));
             }
             if (ev.type === 'error') throw new Error(ev.error);
           }
@@ -760,19 +802,19 @@ export const useSession = create<SessionState>((set, get) => {
           const art = bundle.universe?.data.artStyle?.trim() || defaults.artStyle.trim() || DEFAULT_ART_STYLE;
           prompt = `${art.replace(/[.\s]+$/, '')}. ${prompt}`;
           if (promptOnly || defaults.reviewImagePrompt) {
-            set({ imagePrompt: { beatId, prompt, canPaint } });
+            setFor(sid, { imagePrompt: { beatId, prompt, canPaint } });
             return;
           }
           await paintWith(prompt);
         });
       } catch (e) {
-        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
+        if (!abort.signal.aborted) setFor(sid, { error: e instanceof Error ? e.message : String(e) });
       } finally {
-        set({ streaming: null, abort: null });
+        setFor(sid, { streaming: null, abort: null });
       }
 
       async function paintWith(prompt: string) {
-        set((st) => (st.streaming ? { streaming: { ...st.streaming, model: backend.kind === 'openrouter' ? defaults.imageModel : backend.model || backend.kind, text: prompt } } : {}));
+        setFor(sid, (st) => (st.streaming ? { streaming: { ...st.streaming, model: backend.kind === 'openrouter' ? defaults.imageModel : backend.model || backend.kind, text: prompt } } : {}));
         const references = (await Promise.all(refs.map((c) => imageDataUrl(imageOf(c.data as Record<string, unknown>)!.uri)))).filter((x): x is string => !!x);
         const img = backend.kind === 'openrouter'
           ? await client.generateImage({ apiKey, model: defaults.imageModel, prompt, zdr: session!.zdr, signal: abort.signal, references })
@@ -782,17 +824,18 @@ export const useSession = create<SessionState>((set, get) => {
         const ill = { id, sessionId: session!.id, beatId, prompt, uri, model: img.model, createdAt: now() };
         await saveIllustration(db!, ill);
         await recordSpend(db!, { kind: 'image', model: img.model, sessionId: session!.id, costUsd: img.costUsd, note: 'illustration' });
-        set({ illustrations: [...get().illustrations, ill] });
+        setFor(sid, { illustrations: [...get().illustrations, ill] });
       }
     },
     async paint(beatId, prompt) {
+      const sid = get().session?.id ?? '';
       const { db, session, index } = get();
       const { apiKey, imageKey, defaults } = useSettings.getState();
       const backend = defaults.imageBackend;
       const beat = index.byId.get(beatId);
       if (!db || !session || !beat || get().streaming || !prompt.trim() || backend.kind === 'prompt') return;
       const abort = new AbortController();
-      set({ abort, error: null, imagePrompt: null, streaming: { text: prompt, reasoning: '', attempt: 0, step: null, model: backend.kind === 'openrouter' ? defaults.imageModel : backend.model || backend.kind, phase: 'illustrating', startedAt: now(), parentId: beat.parentId } });
+      setFor(sid, { abort, error: null, imagePrompt: null, streaming: { text: prompt, reasoning: '', attempt: 0, step: null, model: backend.kind === 'openrouter' ? defaults.imageModel : backend.model || backend.kind, phase: 'illustrating', startedAt: now(), parentId: beat.parentId } });
       try {
         await runInForeground('Painting the picture', async () => {
           const { wb, bundle } = get();
@@ -807,34 +850,39 @@ export const useSession = create<SessionState>((set, get) => {
           const ill = { id, sessionId: session.id, beatId, prompt: prompt.trim(), uri, model: img.model, createdAt: now() };
           await saveIllustration(db, ill);
           await recordSpend(db, { kind: 'image', model: img.model, sessionId: session.id, costUsd: img.costUsd, note: 'illustration' });
-          set({ illustrations: [...get().illustrations, ill] });
+          setFor(sid, { illustrations: [...get().illustrations, ill] });
         });
       } catch (e) {
         // Keep the prompt on screen so it can be edited and tried again.
-        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e), imagePrompt: { beatId, prompt, canPaint: true } });
+        if (!abort.signal.aborted) setFor(sid, { error: e instanceof Error ? e.message : String(e), imagePrompt: { beatId, prompt, canPaint: true } });
       } finally {
-        set({ streaming: null, abort: null });
+        setFor(sid, { streaming: null, abort: null });
       }
     },
-    async addNewcomers(list) {
-      const { session } = get();
-      if (!session || !list.length) return;
+    async addNewcomers(list, sessionId) {
+      const { db } = get();
+      const sid = sessionId ?? get().session?.id ?? '';
+      const session = mine(sid) ? get().session : db && sid ? await getSession(db, sid) : null;
+      if (!db || !session || !list.length) return;
       const dismissed = new Set((session.world.dismissed ?? []).map(normName));
       const have = session.world.newcomers ?? [];
       const seen = new Set(have.map((n) => normName(n.name)));
       const add = list.filter((n) => { const k = normName(n.name); if (dismissed.has(k) || seen.has(k)) return false; seen.add(k); return true; });
       if (!add.length) return;
-      await get().patch({ world: { ...session.world, newcomers: [...have, ...add].slice(-20) } });
+      const world = { ...session.world, newcomers: [...have, ...add].slice(-20) };
+      if (mine(sid)) await get().patch({ world });
+      else await patchSession(db, sid, { world });
     },
     async findNewcomers(beatId) {
+      const sid = get().session?.id ?? '';
       const { session, index, wb, bundle } = get();
       const { apiKey } = useSettings.getState();
       const beat = index.byId.get(beatId);
       if (!session || !beat || get().streaming) return;
-      if (!apiKey) return set({ error: 'Add your OpenRouter key in Settings first.' });
+      if (!apiKey) return setFor(sid, { error: 'Add your OpenRouter key in Settings first.' });
       const known = [...wb.people, ...bundle.characters].map((c) => c.name).concat(wb.entities.map((e) => e.name), bundle.species.map((x) => x.name), wb.player ? [wb.player.name] : []);
       const abort = new AbortController();
-      set({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'chronicling', startedAt: now(), parentId: beat.parentId } });
+      setFor(sid, { abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'chronicling', startedAt: now(), parentId: beat.parentId } });
       try {
         let text = '';
         for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: newcomersPrompt({ passage: beat.text, known }), params: { temperature: 0.2, topP: 0.9, maxTokens: 3000, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
@@ -843,13 +891,13 @@ export const useSession = create<SessionState>((set, get) => {
         }
         const found = parseNewcomers(text, known).map((n) => ({ ...n, beatId }));
         const before = get().session?.world.newcomers?.length ?? 0;
-        await get().addNewcomers(found);
+        await get().addNewcomers(found, sid);
         const added = (get().session?.world.newcomers?.length ?? 0) - before;
-        set({ notice: added ? `Found ${added} new name${added === 1 ? '' : 's'}. Canonize them from the bar above the composer.` : 'No names in this passage that the library does not already have.' });
+        setFor(sid, { notice: added ? `Found ${added} new name${added === 1 ? '' : 's'}. Canonize them from the bar above the composer.` : 'No names in this passage that the library does not already have.' });
       } catch (e) {
-        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
+        if (!abort.signal.aborted) setFor(sid, { error: e instanceof Error ? e.message : String(e) });
       } finally {
-        set({ streaming: null, abort: null });
+        setFor(sid, { streaming: null, abort: null });
       }
     },
     async dismissNewcomer(name) {
@@ -918,31 +966,32 @@ export const useSession = create<SessionState>((set, get) => {
       await get().refreshWorld();
     },
     async rechronicle(beatId) {
+      const sid = get().session?.id ?? '';
       const { db, session, path, index, wb, bundle } = get();
       const { apiKey } = useSettings.getState();
       const beat = index.byId.get(beatId);
       const at = path.findIndex((b) => b.id === beatId);
       if (!db || !session || !beat || at < 0 || get().streaming) return;
-      if (!apiKey) return set({ error: 'Add your OpenRouter key in Settings first.' });
+      if (!apiKey) return setFor(sid, { error: 'Add your OpenRouter key in Settings first.' });
       const parentPath = path.slice(0, at);
       const lastProse = parentPath.map((b, i) => ({ b, i })).filter((x) => x.b.role === 'prose').pop()?.i ?? -1;
       const action = parentPath.slice(lastProse + 1).filter((b) => b.role === 'instruction').map((b) => b.text).join('\n');
       const before = sceneAt(parentPath, initialScene(session, wb)).pov;
       const abort = new AbortController();
-      set({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'chronicling', startedAt: now(), parentId: beat.parentId } });
+      setFor(sid, { abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'chronicling', startedAt: now(), parentId: beat.parentId } });
       try {
         await deleteEventsForBeat(db, beat.id);
         const out = await chronicle({ db, apiKey, model: session.models.helper, zdr: session.zdr, signal: abort.signal, session, universe: bundle.universe, species: bundle.species, wb, beat, parentPath, action, check: beat.state?.pov?.lastCheck ?? null, read: beat.state?.pov?.lastRead ?? null });
         if (!out) throw new Error('The chronicle could not be read. Try again, or correct the sheet by hand.');
-        set({ survivalNotes: out.notes, ...recompute(get().beats.map((b) => (b.id === beat.id ? { ...b, at: out.at, state: out.scene } : b)), get().session!) });
-        if (out.newcomers.length) await get().addNewcomers(out.newcomers);
+        setFor(sid, { survivalNotes: out.notes, ...recompute(get().beats.map((b) => (b.id === beat.id ? { ...b, at: out.at, state: out.scene } : b)), get().session!) });
+        if (out.newcomers.length) await get().addNewcomers(out.newcomers, sid);
         const diff = sheetDiff(before, out.scene.pov, bundle.universe?.data.currency || 'coins');
-        set({ notice: `Recorded again: ${formatDurationShort(out.minutes)}${diff.length ? `; ${diff.join(', ')}` : '; no change to the sheet'}.` });
+        setFor(sid, { notice: `Recorded again: ${formatDurationShort(out.minutes)}${diff.length ? `; ${diff.join(', ')}` : '; no change to the sheet'}.` });
         await get().refreshWorld();
       } catch (e) {
-        if (!abort.signal.aborted) set({ error: e instanceof Error ? e.message : String(e) });
+        if (!abort.signal.aborted) setFor(sid, { error: e instanceof Error ? e.message : String(e) });
       } finally {
-        set({ streaming: null, abort: null });
+        setFor(sid, { streaming: null, abort: null });
       }
     },
     clearRefusal: () => set({ refusal: null, clinic: null }),

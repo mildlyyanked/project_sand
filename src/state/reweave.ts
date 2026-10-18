@@ -23,8 +23,10 @@ export async function reweave(beatId: Id, editedText: string): Promise<void> {
   const downstream = path.slice(idx + 1);
   const prose = downstream.filter((b) => b.role === 'prose');
 
+  // Only the story being rewoven shows its progress; switching away leaves the work running in its own story.
+  const put: typeof useSession.setState = (p) => { if (useSession.getState().session?.id === session.id) useSession.setState(p); };
   const abort = new AbortController();
-  useSession.setState({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'reweaving', startedAt: now(), parentId: original.parentId } });
+  put({ abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'reweaving', startedAt: now(), parentId: original.parentId } });
   await runInForeground('Reweaving later passages', async () => {
   try {
     let rewritten: string[] = [];
@@ -34,7 +36,7 @@ export async function reweave(beatId: Id, editedText: string): Promise<void> {
       for await (const ev of client.stream({ apiKey, model: session.models.helper, messages: msgs, params: { temperature: 0.4, topP: 0.9, maxTokens: 6000, reasoning: false }, zdr: session.zdr, signal: abort.signal })) {
         if (ev.type === 'text') {
           text += ev.text ?? '';
-          useSession.setState((s) => (s.streaming ? { streaming: { ...s.streaming, text } } : {}));
+          put((s) => (s.streaming ? { streaming: { ...s.streaming, text } } : {}));
         }
         if (ev.type === 'error') throw new Error(ev.error);
       }
@@ -55,12 +57,12 @@ export async function reweave(beatId: Id, editedText: string): Promise<void> {
       parentId = nb.id;
     }
     await patchSession(db, session.id, { currentBeatId: parentId });
-    await st.reload();
-    useSession.setState({ notice: rewritten.length ? `Reweaved ${prose.length} later passage${prose.length === 1 ? '' : 's'} on a new branch.` : downstream.length ? 'Edited on a new branch. Later passages were copied unchanged.' : 'Edited on a new branch.' });
+    if (useSession.getState().session?.id === session.id) await useSession.getState().reload();
+    put({ notice: rewritten.length ? `Reweaved ${prose.length} later passage${prose.length === 1 ? '' : 's'} on a new branch.` : downstream.length ? 'Edited on a new branch. Later passages were copied unchanged.' : 'Edited on a new branch.' });
   } catch (e) {
-    if (!abort.signal.aborted) useSession.setState({ error: e instanceof Error ? e.message : String(e) });
+    if (!abort.signal.aborted) put({ error: e instanceof Error ? e.message : String(e) });
   } finally {
-    useSession.setState({ streaming: null, abort: null });
+    put({ streaming: null, abort: null });
   }
   });
 }
