@@ -152,14 +152,15 @@ export function renderPins(pins: LensPin[] | undefined): string {
   return ['# Details established in this story (keep to them)', ...pins.map((p) => `- ${p.name}: ${p.text}`)].join('\n');
 }
 
-export interface Segment { text: string; point?: number }
+export interface Segment { text: string; point?: number; link?: string }
 
 /**
  * A passage cut into plain text and highlights: the first appearance of each
- * point's span, longest first so "the iron key" wins over "key", never overlapping.
+ * point's span, longest first so "the iron key" wins over "key", never
+ * overlapping; then entry links (from `findMentions`) wherever the Lens left room.
  */
-export function segments(text: string, points: LensPoint[]): Segment[] {
-  const taken: { start: number; end: number; point: number }[] = [];
+export function segments(text: string, points: LensPoint[], links: { start: number; end: number; id: string }[] = []): Segment[] {
+  const taken: { start: number; end: number; point?: number; link?: string }[] = [];
   const order = points.map((p, i) => ({ p, i })).filter((x) => x.p.span).sort((a, b) => b.p.span.length - a.p.span.length);
   for (const { p, i } of order) {
     let from = 0;
@@ -174,12 +175,13 @@ export function segments(text: string, points: LensPoint[]): Segment[] {
       from = at + 1;
     }
   }
+  for (const l of links) if (!taken.some((t) => l.start < t.end && l.end > t.start)) taken.push({ start: l.start, end: l.end, link: l.id });
   taken.sort((a, b) => a.start - b.start);
   const out: Segment[] = [];
   let pos = 0;
   for (const t of taken) {
     if (t.start > pos) out.push({ text: text.slice(pos, t.start) });
-    out.push({ text: text.slice(t.start, t.end), point: t.point });
+    out.push(t.link ? { text: text.slice(t.start, t.end), link: t.link } : { text: text.slice(t.start, t.end), point: t.point });
     pos = t.end;
   }
   if (pos < text.length) out.push({ text: text.slice(pos) });

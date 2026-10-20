@@ -23,6 +23,8 @@ export interface Defaults {
   sigilStyle: string;
   /** The Lens: explore a passage's people, places and things. Experimental. */
   lens: boolean;
+  /** In play, library entries named in a passage link to a quick card. */
+  entryTips: boolean;
   zdr: boolean;
   fontSize: number;
   styleId: string | null;
@@ -39,6 +41,7 @@ const DEFAULTS: Defaults = {
   artStyle: '',
   sigilStyle: '',
   lens: true,
+  entryTips: true,
   zdr: false,
   fontSize: 17,
   styleId: null,

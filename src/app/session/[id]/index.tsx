@@ -19,12 +19,14 @@ import { Avatar, worldLine } from '@/ui/components/EntryImage';
 import { LensDrawer } from '@/ui/components/Lens';
 import { useLens } from '@/state/lens';
 import { segments } from '@/core/lens';
+import { entryTip, findMentions } from '@/core/world/mentions';
+import { EntryTipCard } from '@/ui/components/EntryTip';
 import { composePicture, entryImagePrompt } from '@/core/world/forge';
 import { complete, paintReady } from '@/state/paint';
 import { ForgeSheet } from '@/ui/components/Forge';
 import { imageOf, namedIn } from '@/core/world/portraits';
 import { excerptsFor, type Newcomer } from '@/core/world/forge';
-import { KIND_NOUN } from '@/core/world/drafts';
+import { KIND_NOUN, libraryDrafts, normName } from '@/core/world/drafts';
 import { HEAT_LABELS } from '@/core/types';
 import { leafOf, siblingPosition, siblings } from '@/core/beatTree';
 import { voiceDrift } from '@/core/voiceDrift';
@@ -64,6 +66,7 @@ export default function Manuscript() {
   const fontSize = useSettings((x) => x.defaults.fontSize);
   const imageBackend = useSettings((x) => x.defaults.imageBackend);
   const lensOn = useSettings((x) => x.defaults.lens);
+  const tipsOn = useSettings((x) => x.defaults.entryTips);
   const lens = useLens();
   const [text, setText] = useState('');
   const [rawMode, setMode] = useState<Mode>('direct');
@@ -76,6 +79,7 @@ export default function Manuscript() {
   const [peek, setPeek] = useState(false);
   const [adjItem, setAdjItem] = useState('');
   const [canonize, setCanonize] = useState<Newcomer | null>(null);
+  const [tip, setTip] = useState<{ id: string; beatId: string; y: number } | null>(null);
   const [menu, setMenu] = useState(false);
   const [beatMenu, setBeatMenu] = useState<Beat | null>(null);
   const [edit, setEdit] = useState<{ beat: Beat; text: string } | null>(null);
@@ -144,6 +148,19 @@ export default function Manuscript() {
     for (const i of s.illustrations) if (i.beatId) m.set(i.beatId, [...(m.get(i.beatId) ?? []), i]);
     return m;
   }, [s.illustrations]);
+  /** In play in a world of your own: the library entries a passage names become links to a quick card. */
+  const tipsHere = tipsOn && session?.mode === 'pov' && !!session.universeId && !!s.bundle.universe && !s.bundle.universe.isDefault;
+  const { bundle, wb } = s;
+  const tipPool = useMemo(() => {
+    if (!tipsHere) return [];
+    const characters = [...bundle.characters, ...wb.people].filter((c, i, a) => c.id !== wb.player?.id && a.findIndex((x) => x.id === c.id) === i);
+    return libraryDrafts({ universe: null, entities: wb.entities, characters, species: bundle.species, lore: bundle.lore });
+  }, [tipsHere, bundle, wb]);
+  const mentionsByBeat = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof findMentions>>();
+    if (tipPool.length) for (const b of path) if (b.role === 'prose') m.set(b.id, findMentions(b.text, tipPool));
+    return m;
+  }, [path, tipPool]);
 
   useEffect(() => {
     if (pinned) setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
@@ -262,8 +279,10 @@ export default function Manuscript() {
       <Pressable onPress={() => setBeatMenu(b)} style={({ pressed }) => ({ paddingHorizontal: space.lg, paddingVertical: 8, opacity: pressed ? 0.7 : 1 })}>
         {b.role === 'prose' ? (
           <T style={{ fontFamily: serif, fontSize, lineHeight: fontSize * 1.6 }}>
-            {lensOn && lens.data[b.id]
-              ? segments(b.text, lens.data[b.id]!.points).map((seg, i) => (seg.point == null
+            {(lensOn && lens.data[b.id]) || mentionsByBeat.get(b.id)?.length
+              ? segments(b.text, lensOn ? lens.data[b.id]?.points ?? [] : [], mentionsByBeat.get(b.id) ?? []).map((seg, i) => (seg.link
+                ? <T key={i} onPress={(e) => setTip({ id: seg.link!, beatId: b.id, y: e.nativeEvent.pageY })} style={{ fontFamily: serif, fontSize, lineHeight: fontSize * 1.6, textDecorationLine: 'underline', textDecorationColor: t.faint }}>{seg.text}</T>
+                : seg.point == null
                 ? seg.text
                 : <T key={i} onPress={() => void lens.show(b.id, [seg.point!])} style={{ fontFamily: serif, fontSize, lineHeight: fontSize * 1.6, textDecorationLine: 'underline', textDecorationStyle: 'dotted', textDecorationColor: t.accent }}>{seg.text}</T>))
               : b.text}
@@ -600,6 +619,23 @@ export default function Manuscript() {
         ))}
         {!session.world.newcomers?.length ? <T v="faint">Nothing waiting. With the chronicle on, new names are noticed after each passage; any passage’s menu has Find new names.</T> : null}
       </Sheet>
+      {tip ? (() => {
+        const d = tipPool.find((x) => x.id === tip.id);
+        if (!d) return null;
+        const row = d.kind === 'character' ? [...s.bundle.characters, ...s.wb.people].find((c) => c.id === d.id) : d.kind === 'species' ? s.bundle.species.find((x) => x.id === d.id) : s.wb.entities.find((e) => e.id === d.id);
+        const points = lens.data[tip.beatId]?.points ?? [];
+        const at = points.findIndex((p) => normName(p.ref || p.name) === normName(d.name));
+        return (
+          <EntryTipCard
+            tip={entryTip(d, { pov: sheet, currency })}
+            data={row?.data as Record<string, unknown> | undefined}
+            at={{ y: tip.y }}
+            onClose={() => setTip(null)}
+            onOpen={() => { setTip(null); router.push(d.kind === 'character' ? `/library/character/${d.id}` : d.kind === 'species' || d.kind === 'lore' ? `/library/universe/${session.universeId}` : `/library/entity/${d.id}`); }}
+            onLens={lensOn ? () => { setTip(null); void lens.show(tip.beatId, at >= 0 ? [at] : []); } : undefined}
+          />
+        );
+      })() : null}
       {lensOn ? (
         <LensDrawer
           actions={{
