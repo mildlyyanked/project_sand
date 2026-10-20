@@ -154,7 +154,7 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   const { summarized, overflow, recent, recentTokens } = splitPath(path, session, strategy);
 
   // The scene: where we are, and what of the world the recent passages bring up.
-  const scanText = [...recent.slice(-strategy.loreScanBeats).map((b) => b.text), input.direction ?? '', world?.scene.locationName ?? ''].join('\n');
+  const scanText = [...recent.slice(-strategy.loreScanBeats).map((b) => b.text), input.direction ?? '', world?.scene.locationName ?? '', ...(world?.scene.present ?? [])].join('\n');
   const chain = world ? locationChain(world.scene.locationId, entities) : [];
   const here = chain[chain.length - 1];
   const focusIds = new Set<string>([...characters.map((c) => c.id), ...chain.map((c) => c.id)]);
@@ -166,6 +166,7 @@ export function assembleContext(input: AssembleInput): AssembledContext {
       const exits = [...childrenOf(here.id, entities), ...(here.parentId ? childrenOf(here.parentId, entities).filter((x) => x.id !== here.id) : [])].filter((x) => x.kind === 'location').slice(0, 12);
       if (exits.length) lines.push(`Nearby: ${exits.map((x) => x.name).join(', ')}.`);
     } else lines.push(`# Where the scene is: ${world.scene.locationName.trim()}`);
+    if (world.scene.present?.length) lines.push(`Also in the scene: ${world.scene.present.join(', ')}.`);
     push({ key: 'place', label: `Place · ${here?.name ?? world.scene.locationName}`, role: 'system', text: lines.join('\n\n') });
   }
   if (world && (entities.length || species.length)) {

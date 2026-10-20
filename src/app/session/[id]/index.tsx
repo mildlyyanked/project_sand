@@ -92,6 +92,7 @@ export default function Manuscript() {
   const [viewing, setViewing] = useState<Illustration | null>(null);
   const [promptDraft, setPromptDraft] = useState<string | null>(null);
   const listRef = useRef<FlatList<Beat>>(null);
+  const inputRef = useRef<TextInput>(null);
   const atBottom = useRef(true);
   /** False once the reader scrolls up; auto-scroll pauses until they return to the end or tap the button. */
   const [pinned, setPinned] = useState(true);
@@ -483,6 +484,7 @@ export default function Manuscript() {
         </Row>
         <Row style={{ alignItems: 'flex-end' }}>
           <TextInput
+            ref={inputRef}
             value={text}
             onChangeText={setText}
             placeholder={[...MODES, ...POV_MODES].find((m) => m.key === mode)!.placeholder}
@@ -640,7 +642,9 @@ export default function Manuscript() {
       {lensOn ? (
         <LensDrawer
           actions={{
-            compose: (v) => { setMode(playing ? 'do' : 'direct'); setText(v); },
+            compose: (v) => { setMode(playing ? 'do' : 'direct'); setText(v); setTimeout(() => inputRef.current?.focus(), 350); },
+            steer: (d) => { void askNotificationPermission(); void s.generate({ direction: d }); },
+            expand: (w) => { void askNotificationPermission(); void s.proposeScene(w); },
             canonize: (name, kind) => setCanonize({ name, kind, note: '' }),
             illustrate: (beatId, name, description) => void lensPicture(beatId, name, description),
           }}

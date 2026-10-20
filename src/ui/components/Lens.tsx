@@ -6,7 +6,7 @@ import { normName } from '@/core/world/drafts';
 import { namedIn } from '@/core/world/portraits';
 import { formatShort } from '@/core/world/calendar';
 import { useSession } from '@/state/session';
-import { pointAt, useLens } from '@/state/lens';
+import { pointAt, scenePresence, useLens } from '@/state/lens';
 import { Banner, Button, Chip, Field, Ionicons, Row, T } from './index';
 import { Avatar } from './EntryImage';
 import { MapPanel } from './StoryMap';
@@ -18,6 +18,10 @@ const GROUPS: { kind: PointKind; label: string }[] = [{ kind: 'person', label: '
 /** What the drawer can ask the story screen to do: put words in the composer, canonize, illustrate. */
 export interface LensActions {
   compose: (text: string) => void;
+  /** Writing: continue now with this direction. */
+  steer: (direction: string) => void;
+  /** Writing: plan a scene around this. */
+  expand: (wish: string) => void;
   canonize: (name: string, kind: 'character' | 'location' | 'organization' | 'item') => void;
   illustrate: (beatId: string, name: string, description: string) => void;
 }
@@ -49,16 +53,16 @@ export function LensDrawer({ actions }: { actions: LensActions }) {
               <Ionicons name="scan-outline" size={18} color={t.accent} />
               <T v="h">Lens</T>
             </Row>
-            <Row gap={6}>
-              <Chip small label="Scene" selected={lens.tab === 'scene'} onPress={() => lens.setTab('scene')} />
-              <Chip small label="Map" selected={lens.tab === 'map'} onPress={() => lens.setTab('map')} />
-              {playing ? <Chip small label={`Clues${s.session?.world.clues?.filter((c) => !c.solved).length ? ` · ${s.session.world.clues.filter((c) => !c.solved).length}` : ''}`} selected={lens.tab === 'clues'} onPress={() => lens.setTab('clues')} /> : null}
-              <Pressable onPress={lens.close} hitSlop={10}><Ionicons name="close" size={20} color={t.dim} /></Pressable>
-            </Row>
+            <Pressable onPress={lens.close} hitSlop={12}><Ionicons name="close" size={22} color={t.dim} /></Pressable>
+          </Row>
+          <Row gap={6} style={{ paddingHorizontal: space.lg, paddingBottom: space.sm }}>
+            <Chip label="Scene" selected={lens.tab === 'scene'} onPress={() => lens.setTab('scene')} />
+            <Chip label="Map" selected={lens.tab === 'map'} onPress={() => lens.setTab('map')} />
+            {playing ? <Chip label={`Clues${s.session?.world.clues?.filter((c) => !c.solved).length ? ` · ${s.session.world.clues.filter((c) => !c.solved).length}` : ''}`} selected={lens.tab === 'clues'} onPress={() => lens.setTab('clues')} /> : null}
           </Row>
           <ScrollView contentContainerStyle={{ padding: space.lg, paddingTop: 4, gap: space.md, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
             {lens.error ? <Banner text={lens.error} onClose={lens.clearError} /> : null}
-            {lens.tab === 'map' ? <MapPanel width={width - space.lg * 2} /> : lens.tab === 'clues' && playing ? <ClueBoard /> : point ? <CardView point={point} actions={actions} playing={playing} /> : <SceneView actions={actions} playing={playing} />}
+            {lens.tab === 'map' ? <MapPanel width={width - space.lg * 2} actions={actions} /> : lens.tab === 'clues' && playing ? <ClueBoard /> : point ? <CardView point={point} actions={actions} playing={playing} /> : <SceneView actions={actions} playing={playing} />}
             {lens.tab === 'scene' && !point && beat && data ? <Button small kind="ghost" icon="refresh-outline" title="Look again" onPress={() => lens.scan(beat.id)} loading={lens.busy === 'scan'} /> : null}
           </ScrollView>
         </View>
@@ -75,12 +79,14 @@ function SceneView({ playing }: { actions: LensActions; playing: boolean }) {
   const beat = lens.beatId ? s.index.byId.get(lens.beatId) : undefined;
   const pins = s.session?.world.pins ?? [];
 
-  // Who is here: people the passage names, from the cast and the world, with how they stand.
-  const people = useMemo(() => {
-    if (!beat) return [] as Character[];
-    const pool = [...s.bundle.characters, ...s.wb.people].filter((c, i, a) => a.findIndex((x) => x.id === c.id) === i && c.id !== s.wb.player?.id);
-    return pool.filter((c) => namedIn(beat.text, c.name) || data?.points.some((p) => p.kind === 'person' && p.ref && normName(p.ref) === normName(c.name)));
-  }, [beat, data, s.bundle.characters, s.wb.people, s.wb.player]);
+  // Who is here: everyone in the scene at this passage (the chronicle's list, or whoever has been named since the scene moved), not only who the passage names.
+  const { path } = s;
+  const presence = useMemo(() => {
+    if (!beat) return { people: [] as Character[], others: [] as string[] };
+    const at = path.findIndex((b) => b.id === beat.id);
+    return scenePresence(at >= 0 ? path.slice(0, at + 1) : path);
+  }, [beat, path]);
+  const people = presence.people;
   const scene = beat?.state ?? s.world?.scene;
   const placeId = scene?.locationId ?? null;
   const history = useMemo(() => {
@@ -95,7 +101,7 @@ function SceneView({ playing }: { actions: LensActions; playing: boolean }) {
 
   return (
     <>
-      {people.length ? (
+      {people.length || presence.others.length ? (
         <View style={{ gap: 8 }}>
           <T v="label">Who’s here</T>
           {people.map((c) => {
@@ -111,6 +117,12 @@ function SceneView({ playing }: { actions: LensActions; playing: boolean }) {
               </Pressable>
             );
           })}
+          {presence.others.map((n) => (
+            <Row key={n} gap={10}>
+              <Avatar data={null} name={n} size={34} />
+              <T v="dim" style={{ flex: 1 }}>{n}</T>
+            </Row>
+          ))}
         </View>
       ) : null}
       {GROUPS.map((g) => {
@@ -223,8 +235,8 @@ function CardView({ point, actions, playing }: { point: LensPoint; actions: Lens
           </Row>
         ) : (
           <Row style={{ flexWrap: 'wrap' }}>
-            <Button small icon="compass-outline" title="Steer" onPress={() => say(`Bring ${point.name} to the fore in the next passage.`)} />
-            <Button small kind="outline" icon="expand-outline" title="Expand into a scene" onPress={() => say(`Write a scene that centres on ${point.name}.`)} />
+            <Button small icon="compass-outline" title="Steer" onPress={() => { lens.close(); actions.steer(`Bring ${point.name} to the fore in this passage.`); }} />
+            <Button small kind="outline" icon="expand-outline" title="Expand into a scene" onPress={() => { lens.close(); actions.expand(`A scene that centres on ${point.name}.`); }} />
           </Row>
         )}
         <Row style={{ flexWrap: 'wrap' }}>

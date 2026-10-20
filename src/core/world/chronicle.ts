@@ -15,6 +15,8 @@ export interface ChronicleResult {
   minutes: Minutes;
   resting: boolean;
   locationName: string | null;
+  /** Everyone in the scene at the end of the passage, mentioned in it or not; null when the reply leaves it out. */
+  present: string[] | null;
   events: ChronicleEvent[];
   changes: ChronicleChange[];
   player: PovDelta | null;
@@ -30,6 +32,8 @@ export function chroniclePrompt(o: {
   worldName: string;
   now: string;
   location: string;
+  /** Who was in the scene before the passage. */
+  present?: string[];
   known: string[];
   passage: string;
   pov?: { name: string; sheet: string; action: string; ruling: string; currency?: string; threads?: string } | null;
@@ -40,13 +44,14 @@ export function chroniclePrompt(o: {
   return [
     { role: 'system', content: [
       'You keep the chronicle of a story world. You read the newest passage and record, as JSON, what it did to the world. You are a clerk, not a critic: record only what the passage shows, never what might follow.',
-      `Output only JSON: {"elapsed": string (how much in-world time the passage itself covers: "40 seconds", "20 minutes", "3 hours", "2 days"), "resting": boolean (true only if the passage is mostly sleep or rest), "location": string or null (where the scene is at the end, by its most specific name; null if unchanged), "events": [{"title": string (at most 8 words), "text": string (one sentence), "importance": 1 | 2 | 3, "kind": "event" | "death" | "travel" | "item" | "relation" | "discovery", "who": string[] (names involved)}], "changes": [{"who": string, "change": string (one line: a lasting change to that person, place, faction or thing), "kind": "state" | "death" | "travel" | "relation" | "item"}], "newcomers": [{"name": string, "kind": "character" | "location" | "organization" | "item", "note": string (one line from the passage)}] (named people, places, factions or things the passage treats as real that are not in the known names; [] if none)${player}}.`,
+      `Output only JSON: {"elapsed": string (how much in-world time the passage itself covers: "40 seconds", "20 minutes", "3 hours", "2 days"), "resting": boolean (true only if the passage is mostly sleep or rest), "location": string or null (where the scene is at the end, by its most specific name; null if unchanged), "present": string[] (everyone physically in the scene at the end of the passage${o.pov ? `, besides ${o.pov.name}` : ''}, by name, or a short description for the unnamed: keep those who were already there and have not left, even if this passage does not mention them; drop those who left or died; never people only remembered, imagined, dreamed or talked about), "events": [{"title": string (at most 8 words), "text": string (one sentence), "importance": 1 | 2 | 3, "kind": "event" | "death" | "travel" | "item" | "relation" | "discovery", "who": string[] (names involved)}], "changes": [{"who": string, "change": string (one line: a lasting change to that person, place, faction or thing), "kind": "state" | "death" | "travel" | "relation" | "item"}], "newcomers": [{"name": string, "kind": "character" | "location" | "organization" | "item", "note": string (one line from the passage)}] (named people, places, factions or things the passage treats as real that are not in the known names; [] if none)${player}}.`,
       'Most passages have zero to two events. Importance 3 is for what the whole world would remember: deaths of named people, wars, coronations, destructions, irreversible turns. Importance 1 is for small but concrete facts worth keeping (a promise made, a door left open). Do not record mood, description or conversation that changes nothing.',
+      'Record what happens in the passage\'s present. Memories, flashbacks, dreams, stories told and plans are not events now: record them only when they reveal a lasting fact, and never as the present whereabouts or doings of anyone.',
       'Changes are lasting: injuries, deaths, new allegiances, someone moving house, an object changing hands, a place burned. Use the names exactly as given in the known list when they match.',
       o.pov ? `Player bookkeeping: hunger, thirst and fatigue from time passing are handled by the app; record only direct effects in the passage. The ruling on the player’s action is already decided; record its consequences. Every change to what the player has must be recorded, because the app keeps their sheet from this and nothing else. Money: anything that works as money (${o.pov.currency || 'coins'}, scrip, credits, chits, notes, tokens, a payment, a payout, a purse handed over, money put into a wallet or account) goes in "money", never in "gained"; when the passage gives no amount, estimate a sensible one from the world and the scene and say what it was in "moneyNote". Spending, paying, bribes and losses are negative. Things: whatever the player picks up, takes, pockets, is given, buys, loots or makes goes in "gained"; whatever they use up, give away, sell, drop, break or have taken goes in "lost". Use the names already on their sheet for things they had.` : '',
     ].filter(Boolean).join('\n\n') },
     { role: 'user', content: [
-      `World: ${o.worldName}. Time before the passage: ${o.now}. Location before the passage: ${o.location || 'unknown'}.`,
+      `World: ${o.worldName}. Time before the passage: ${o.now}. Location before the passage: ${o.location || 'unknown'}. In the scene before the passage: ${o.present?.length ? o.present.join(', ') : 'unknown'}.`,
       o.known.length ? `Known names: ${o.known.slice(0, 120).join(', ')}` : '',
       o.pov ? `The player is ${o.pov.name}.\n${o.pov.sheet}\nTheir action: ${o.pov.action || '(continue)'}${o.pov.ruling ? `\nRuling: ${o.pov.ruling}` : ''}` : '',
       o.pov?.threads ? `Threads behind the screen (hidden from the player; a thread advances when the passage moves it, or when time passes while the player ignores it):\n${o.pov.threads}` : '',
@@ -92,7 +97,7 @@ export function parseChronicle(text: string): ChronicleResult | null {
     };
   }
   const loc = str(j.location);
-  return { minutes: parseDuration(j.elapsed ?? j.minutes), resting: j.resting === true, locationName: loc && !/^(null|none|unchanged|same)$/i.test(loc) ? loc : null, events, changes, player, newcomers: parseNewcomers({ newcomers: j.newcomers }, []), threads: parseThreadUpdates(j.threads), newThread: j.newThread && typeof j.newThread === 'object' ? makeThread(j.newThread as Record<string, unknown>) : null };
+  return { minutes: parseDuration(j.elapsed ?? j.minutes), resting: j.resting === true, locationName: loc && !/^(null|none|unchanged|same)$/i.test(loc) ? loc : null, present: Array.isArray(j.present) ? strs(j.present).slice(0, 30) : null, events, changes, player, newcomers: parseNewcomers({ newcomers: j.newcomers }, []), threads: parseThreadUpdates(j.threads), newThread: j.newThread && typeof j.newThread === 'object' ? makeThread(j.newThread as Record<string, unknown>) : null };
 }
 
 export interface Ruling { attribute: Attribute; difficulty: number; why: string; onSuccess: string; onFailure: string }

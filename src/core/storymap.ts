@@ -47,8 +47,10 @@ export interface MapInputs {
   locationName: string;
   /** Play: how named people feel about the player. */
   relations?: Record<string, { attitude: number; note: string }>;
-  /** Recent passages, newest last: who is named in the last one is here. */
+  /** Recent passages, newest last. */
   recent: string[];
+  /** Who is in the scene (see `inScene`); without it, whoever the last passage names. */
+  present?: string[];
   /** The story's own cast, always on the map. */
   castIds: string[];
 }
@@ -61,13 +63,13 @@ export function baseMap(o: MapInputs): StoryMap {
   const named = (c: Character) => namedIn(last, c.name) || namedIn(earlier, c.name);
   const others = o.characters.filter((c) => c.id !== o.player?.id);
   const rel = o.relations ?? {};
-  const cast = others.filter((c) => o.castIds.includes(c.id) || named(c) || Object.keys(rel).some((k) => same(k, c.name)));
+  const cast = others.filter((c) => o.castIds.includes(c.id) || named(c) || o.present?.some((n) => same(n, c.name)) || Object.keys(rel).some((k) => same(k, c.name)));
 
   const here = o.locationId ? byId.get(o.locationId)?.name ?? o.locationName : o.locationName;
   const people: MapPerson[] = [];
   if (o.player) people.push({ name: o.player.name, ref: o.player.name, at: here, presence: 'here', doing: '' });
   for (const c of cast) {
-    const inScene = namedIn(last, c.name);
+    const inScene = o.present ? o.present.some((n) => same(n, c.name)) : namedIn(last, c.name);
     const home = c.data.homeLocationId ? byId.get(c.data.homeLocationId)?.name ?? '' : '';
     people.push({ name: c.name, ref: c.name, at: inScene ? here : home, presence: inScene ? 'here' : home ? 'away' : 'unknown', doing: '' });
   }
@@ -133,18 +135,21 @@ function guessTone(s: string): number {
 
 const PERCEIVE = (name: string) => `This is interactive; the player is ${name}. Show only what ${name} knows or could reasonably know: whereabouts they have seen or been told (otherwise "unknown", with where they were last seen in "doing"), and ties between other people only when ${name} has seen or heard of them. ${name}'s own place is where the scene is.`;
 
-export function mapPrompt(o: { base: StoryMap; library: string; recent: string; events: string; pov?: { name: string } | null }): ChatMessage[] {
+export function mapPrompt(o: { base: StoryMap; library: string; summary?: string; now?: string; present?: string[]; recent: string; events: string; pov?: { name: string } | null }): ChatMessage[] {
   return [
     { role: 'system', content: [
       'You keep the map of a story as it stands at its latest passage: the places that matter and which is inside which, where each person is now, and how the people stand with each other. Start from the map the library gives (below) and update it from what the story has shown: people move, meet, fall out, die; new places and people appear. Keep places and people that still matter; drop the irrelevant. Use library names exactly where they apply.',
+      'Everything is as of the END of the latest passage. Memories, flashbacks, dreams, stories told, rumours and plans describe other times or other people\'s words: never use them as anyone\'s present place or doing. Where the latest passages say nothing of someone, carry their state forward from the summary and the timeline. People in the scene stay in it until the story shows them leave, even when the latest passage does not mention them.',
       o.pov ? PERCEIVE(o.pov.name) : 'You see everything the story and the library say.',
       'Output only JSON: {"here": string (where the scene is), "places": [{"name": string, "within": string (the place it is inside, or ""), "note": string (one short line: what is going on there now, or "")}], "people": [{"name": string, "at": string (a place name, or ""), "presence": "here" (in the scene) | "near" (close by) | "away" | "unknown" | "gone" (dead or out of the story), "doing": string (one short line)}], "ties": [{"a": string, "b": string, "kind": "family" | "romance" | "friend" | "ally" | "work" | "rival" | "enemy" | "debt" | "other", "label": string (a few words: how a stands with b, as of now), "tone": number (-3 hostile to 3 devoted)}]}. At most 40 places, 24 people, 40 ties.',
     ].join('\n\n') },
     { role: 'user', content: [
       o.library ? `# The library\n${o.library}` : '',
       `# The map so far\n${JSON.stringify({ here: o.base.here, places: o.base.places.map(({ name, within, note }) => ({ name, within, note })), people: o.base.people.map(({ name, at, presence, doing }) => ({ name, at, presence, doing })), ties: o.base.ties.map(({ a, b, kind, label, tone }) => ({ a, b, kind, label, tone })) })}`,
-      o.events ? `# What has happened\n${o.events}` : '',
-      `# The story, latest passages last\n${o.recent}`,
+      o.summary ? `# The story so far, in brief\n${o.summary}` : '',
+      o.events ? `# Timeline\n${o.events}` : '',
+      o.now || o.present?.length ? `# Now\n${[o.now ? `Time: ${o.now}` : '', o.base.here ? `Place: ${o.base.here}` : '', o.present?.length ? `In the scene: ${o.present.join(', ')}` : ''].filter(Boolean).join('\n')}` : '',
+      `# The latest passages, oldest first; the last one is now\n${o.recent}`,
     ].filter(Boolean).join('\n\n') },
   ];
 }
@@ -263,6 +268,6 @@ export function mapLibrary(o: { entities: WorldEntity[]; characters: Character[]
   return [places.length ? `Places:\n${places.join('\n')}` : '', people.length ? `People:\n${people.join('\n')}` : ''].filter(Boolean).join('\n\n');
 }
 
-export function mapEvents(events: WorldEvent[]): string {
-  return events.filter((e) => e.kind === 'travel' || e.kind === 'relation' || e.kind === 'death' || e.importance >= 2).slice(-24).map((e) => `- ${e.title}${e.text && e.text !== e.title ? `. ${brief(e.text, 160)}` : ''}`).join('\n');
+export function mapEvents(events: WorldEvent[], when: (at: number) => string = () => ''): string {
+  return events.filter((e) => e.kind === 'travel' || e.kind === 'relation' || e.kind === 'death' || e.kind === 'state' || e.importance >= 2).slice(-30).map((e) => `- ${when(e.at) ? `${when(e.at)}: ` : ''}${e.title}${e.text && e.text !== e.title ? `. ${brief(e.text, 160)}` : ''}`).join('\n');
 }

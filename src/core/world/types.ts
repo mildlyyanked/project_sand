@@ -166,6 +166,8 @@ export interface PovState {
 export interface SceneState {
   locationId: Id | null;
   locationName: string;
+  /** Who is in the scene besides the player, as the chronicle last had it. */
+  present?: string[];
   pov?: PovState;
 }
 

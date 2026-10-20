@@ -141,12 +141,12 @@ export async function chronicle(o: {
   const pov = s.mode === 'pov' && wb.player && prevScene.pov
     ? { name: wb.player.name, sheet: renderPov(prevScene.pov, { name: wb.player.name, currency: o.universe?.data.currency ?? '', difficulty: s.pov?.difficulty ?? 'survival' }), action: o.action, ruling: o.check ? renderCheck(o.check) : '', currency: o.universe?.data.currency || 'coins', threads: threadsForChronicle(prevScene.pov.threads) }
     : null;
-  const text = await helperJson({ apiKey: o.apiKey, model: o.model, zdr: o.zdr, signal: o.signal, maxTokens: 900, messages: chroniclePrompt({ worldName: o.universe?.name ?? 'the world', now: formatTime(cal, prevAt), location: prevScene.locationName, known, passage: o.beat.text, pov }) });
+  const text = await helperJson({ apiKey: o.apiKey, model: o.model, zdr: o.zdr, signal: o.signal, maxTokens: 900, messages: chroniclePrompt({ worldName: o.universe?.name ?? 'the world', now: formatTime(cal, prevAt), location: prevScene.locationName, present: prevScene.present, known, passage: o.beat.text, pov }) });
   const r = parseChronicle(text);
   if (!r) return null;
   const minutes = r.minutes > 0 ? r.minutes : 5;
   const at = prevAt + minutes;
-  let scene: SceneState = { ...prevScene };
+  let scene: SceneState = { ...prevScene, ...(r.present ? { present: r.present } : {}) };
   if (r.locationName) {
     const loc = wb.entities.find((e) => e.kind === 'location' && (e.name.toLowerCase() === r.locationName!.toLowerCase() || mentions(r.locationName!, e.name)));
     scene = { ...scene, locationId: loc?.id ?? null, locationName: loc?.name ?? r.locationName };

@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
+import { router } from 'expo-router';
+import type { LensActions } from './Lens';
 import type { Character } from '@/core/types';
 import { line, placeTree, ring, tiesOf, unplaced, webOrder, type MapPerson, type PlaceNode, type Presence, type StoryMap, type TieKind } from '@/core/storymap';
 import { normName } from '@/core/world/drafts';
@@ -23,7 +25,15 @@ const toneColor = (tone: number, t: Theme) => (tone > 0 ? t.ok : tone < 0 ? t.da
  * Drawn from the library at once; "Read the story" has the helper redraw it as
  * things stand now.
  */
-export function MapPanel({ width }: { width: number }) {
+/** What a tap on the map can lead to: an entry's page, or an action for the story. */
+interface MapActs {
+  playing: boolean;
+  open: (name: string) => (() => void) | undefined;
+  actions: LensActions;
+  close: () => void;
+}
+
+export function MapPanel({ width, actions }: { width: number; actions: LensActions }) {
   const t = useTheme();
   const lens = useLens();
   const s = useSession();
@@ -38,6 +48,17 @@ export function MapPanel({ width }: { width: number }) {
     const all = [...bundle.characters, ...wb.people, ...(wb.player ? [wb.player] : [])];
     return (name: string): Character | undefined => all.find((c) => normName(c.name) === normName(name));
   }, [bundle.characters, wb.people, wb.player]);
+  const acts: MapActs = {
+    playing,
+    actions,
+    close: lens.close,
+    open: (name) => {
+      const c = people(name);
+      const e = wb.entities.find((x) => normName(x.name) === normName(name));
+      const to = c ? `/library/character/${c.id}` : e ? `/library/entity/${e.id}` : null;
+      return to ? () => { lens.close(); router.push(to); } : undefined;
+    },
+  };
 
   return (
     <View style={{ gap: 12 }}>
@@ -54,8 +75,8 @@ export function MapPanel({ width }: { width: number }) {
           : stale ? 'Drawn a few passages back. Update to catch up.' : `As of the latest passage${playing ? ', as far as you know' : ''}.`}
       </T>
       {lens.mapView === 'places'
-        ? <Places map={map} face={people} playing={playing} onPerson={(n) => lens.setMapView('people', n)} />
-        : <Web map={map} face={people} playing={playing} width={width} focus={lens.mapFocus ?? (playing ? wb.player!.name : map.people[0]?.name ?? '')} onFocus={(n) => lens.setMapView('people', n)} />}
+        ? <Places map={map} face={people} playing={playing} acts={acts} onPerson={(n) => lens.setMapView('people', n)} />
+        : <Web map={map} face={people} playing={playing} acts={acts} width={width} focus={lens.mapFocus ?? (playing ? wb.player!.name : map.people[0]?.name ?? '')} onFocus={(n) => lens.setMapView('people', n)} />}
       {!map.people.length && !map.places.length ? <T v="faint">Nothing on the map yet. Write a passage or two, then read the story.</T> : null}
       <T v="faint" style={{ color: t.faint }}>{lens.mapView === 'places' ? 'Tap someone to see how they stand with everyone.' : 'Tap anyone to put them in the middle.'}</T>
     </View>
@@ -76,13 +97,13 @@ function PersonChip({ p, face, playing, onPress }: { p: MapPerson; face: (n: str
   );
 }
 
-function Places({ map, face, playing, onPerson }: { map: StoryMap; face: (n: string) => Character | undefined; playing: boolean; onPerson: (n: string) => void }) {
+function Places({ map, face, playing, acts, onPerson }: { map: StoryMap; face: (n: string) => Character | undefined; playing: boolean; acts: MapActs; onPerson: (n: string) => void }) {
   const t = useTheme();
   const tree = useMemo(() => placeTree(map), [map]);
   const loose = useMemo(() => unplaced(map), [map]);
   return (
     <View style={{ gap: 8 }}>
-      {tree.map((n) => <PlaceBox key={n.place.name} node={n} here={map.here} face={face} playing={playing} onPerson={onPerson} />)}
+      {tree.map((n) => <PlaceBox key={n.place.name} node={n} here={map.here} face={face} playing={playing} acts={acts} onPerson={onPerson} />)}
       {loose.length ? (
         <View style={{ gap: 6, marginTop: 4 }}>
           <T v="label">Elsewhere</T>
@@ -101,19 +122,31 @@ function Places({ map, face, playing, onPerson }: { map: StoryMap; face: (n: str
   );
 }
 
-function PlaceBox({ node, here, face, playing, onPerson }: { node: PlaceNode; here: string; face: (n: string) => Character | undefined; playing: boolean; onPerson: (n: string) => void }) {
+function PlaceBox({ node, here, face, playing, acts, onPerson }: { node: PlaceNode; here: string; face: (n: string) => Character | undefined; playing: boolean; acts: MapActs; onPerson: (n: string) => void }) {
   const t = useTheme();
+  const s = useSession();
   const [open, setOpen] = useState(false);
   const isHere = normName(node.place.name) === normName(here);
   const wide = node.depth >= 1;
+  const entry = s.wb.entities.find((e) => normName(e.name) === normName(node.place.name));
+  const openEntry = acts.open(node.place.name);
+  const name = node.place.name;
   return (
-    <View style={{ borderWidth: isHere ? 1.5 : 1, borderColor: isHere ? t.accent : t.border, borderStyle: node.depth === 0 && !isHere ? 'dashed' : 'solid', borderRadius: radius.md, padding: 8, gap: 6, backgroundColor: node.depth % 2 ? t.surface : t.surface2 }}>
-      <Pressable onPress={() => setOpen(!open)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+    <Pressable onPress={() => setOpen(!open)} style={({ pressed }) => ({ borderWidth: isHere || open ? 1.5 : 1, borderColor: isHere || open ? t.accent : t.border, borderStyle: node.depth === 0 && !isHere && !open ? 'dashed' : 'solid', borderRadius: radius.md, padding: 8, gap: 6, backgroundColor: node.depth % 2 ? t.surface : t.surface2, opacity: pressed ? 0.85 : 1 })}>
+      <Row gap={6}>
         <Ionicons name={isHere ? 'navigate' : node.children.length ? 'map-outline' : 'location-outline'} size={13} color={isHere ? t.accent : t.dim} />
-        <T v="small" numberOfLines={1} style={{ flex: 1, fontWeight: '600', color: t.text }}>{node.place.name}</T>
-        {isHere ? <T v="small" style={{ color: t.accent }}>{playing ? 'you are here' : 'the scene'}</T> : null}
-      </Pressable>
-      {node.place.note ? <T v="faint" numberOfLines={open ? undefined : 2} onPress={() => setOpen(!open)}>{node.place.note}</T> : null}
+        <T v="small" numberOfLines={open ? undefined : 1} style={{ flex: 1, fontWeight: '600', color: t.text }}>{name}</T>
+        {isHere ? <T v="small" style={{ color: t.accent }}>{playing ? 'you are here' : 'the scene'}</T> : <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={12} color={t.faint} />}
+      </Row>
+      {node.place.note ? <T v="faint" numberOfLines={open ? undefined : 2}>{node.place.note}</T> : null}
+      {open && entry ? <T v="small">{[entry.data.type ? String(entry.data.type) : '', entry.summary || String(entry.data.description ?? '').slice(0, 200)].filter(Boolean).join(' · ')}</T> : null}
+      {open ? (
+        <Row gap={6} style={{ flexWrap: 'wrap' }}>
+          {openEntry ? <Button small kind="ghost" icon="open-outline" title="Open entry" onPress={openEntry} /> : null}
+          {!isHere && playing ? <Button small kind="outline" icon="navigate-outline" title="Go there" onPress={() => { acts.close(); acts.actions.compose(`You make your way to ${name}.`); }} /> : null}
+          {!playing ? <Button small kind="outline" icon="film-outline" title="Set a scene here" onPress={() => { acts.close(); acts.actions.expand(`A scene at ${name}.`); }} /> : null}
+        </Row>
+      ) : null}
       {node.people.length ? (
         <Row gap={10} style={{ flexWrap: 'wrap' }}>
           {node.people.map((p) => <PersonChip key={p.name} p={p} face={face} playing={playing} onPress={() => onPerson(p.name)} />)}
@@ -124,16 +157,16 @@ function PlaceBox({ node, here, face, playing, onPerson }: { node: PlaceNode; he
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
           {node.children.map((c) => (
             <View key={c.place.name} style={{ flexGrow: 1, flexBasis: wide || normName(c.place.name) === normName(here) ? '100%' : '46%' }}>
-              <PlaceBox node={c} here={here} face={face} playing={playing} onPerson={onPerson} />
+              <PlaceBox node={c} here={here} face={face} playing={playing} acts={acts} onPerson={onPerson} />
             </View>
           ))}
         </View>
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 
-function Web({ map, face, playing, width, focus, onFocus }: { map: StoryMap; face: (n: string) => Character | undefined; playing: boolean; width: number; focus: string; onFocus: (n: string) => void }) {
+function Web({ map, face, playing, acts, width, focus, onFocus }: { map: StoryMap; face: (n: string) => Character | undefined; playing: boolean; acts: MapActs; width: number; focus: string; onFocus: (n: string) => void }) {
   const t = useTheme();
   const size = Math.max(220, width);
   const others = useMemo(() => webOrder(map, focus, 10), [map, focus]);
@@ -176,6 +209,14 @@ function Web({ map, face, playing, width, focus, onFocus }: { map: StoryMap; fac
         <T v="h">{meName && normName(focus) === normName(meName) ? `You (${focus})` : focus}</T>
         {me ? <T v="small" style={{ color: presenceColor(me.presence, t) }}>{[presenceLabel(me.presence, playing), me.presence !== 'unknown' && me.presence !== 'here' ? me.at : ''].filter(Boolean).join(' · ')}</T> : null}
         {me?.doing ? <T v="dim">{me.doing}</T> : null}
+        {!(meName && normName(focus) === normName(meName)) ? (
+          <Row gap={6} style={{ flexWrap: 'wrap', marginTop: 4 }}>
+            {acts.open(focus) ? <Button small kind="ghost" icon="open-outline" title="Open entry" onPress={acts.open(focus)!} /> : null}
+            {playing && me?.presence === 'here' ? <Button small kind="outline" icon="chatbubble-outline" title="Talk" onPress={() => { acts.close(); acts.actions.compose(`You speak to ${focus}.`); }} /> : null}
+            {playing && me && me.presence !== 'here' && me.presence !== 'gone' && me.at ? <Button small kind="outline" icon="navigate-outline" title="Find them" onPress={() => { acts.close(); acts.actions.compose(`You go looking for ${focus}${me.presence === 'unknown' ? '' : ` at ${me.at}`}.`); }} /> : null}
+            {!playing ? <Button small kind="outline" icon="compass-outline" title="Steer" onPress={() => { acts.close(); acts.actions.steer(`Bring ${focus} to the fore in this passage.`); }} /> : null}
+          </Row>
+        ) : null}
       </View>
       {ties.length ? (
         <View style={{ gap: 8 }}>

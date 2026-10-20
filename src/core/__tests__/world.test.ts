@@ -173,6 +173,9 @@ describe('chronicle and referee', () => {
     expect(r?.player?.gained).toEqual([{ name: 'ferry token', qty: 1 }]);
     expect(r?.player?.relations?.[0]!.delta).toBe(2);
     expect(parseChronicle('{"elapsed": 5, "location": "unchanged"}')?.locationName).toBeNull();
+    expect(parseChronicle('{"elapsed": 5, "location": "unchanged"}')?.present).toBeNull();
+    expect(parseChronicle('{"elapsed": 5, "present": ["Mara", "a hooded stranger"]}')?.present).toEqual(['Mara', 'a hooded stranger']);
+    expect(chroniclePrompt({ worldName: 'W', now: 'dawn', location: 'Gull', present: ['Mara'], known: [], passage: 'x' })[1]!.content).toContain('In the scene before the passage: Mara');
   });
   it('parses a ruling or none', () => {
     expect(parseRuling('{"check": null}')).toBeNull();

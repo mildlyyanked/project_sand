@@ -59,6 +59,7 @@ export function scanPrompt(o: { passage: string; known: string[]; pov?: { name: 
     { role: 'system', content: [
       'You mark the points of interest in a passage of fiction for a reader who wants to explore it: the people, places, things and groups it brings up, and the small concrete details worth a closer look (a scar, a smell, a mark on a wall). Choose 5 to 12 that would reward a second look; skip the trivial.',
       o.pov ? `This is interactive; the player is ${o.pov.name}. ${PERCEIVE(o.pov.name)} Never list ${o.pov.name} themself.` : '',
+      'Keep apart what is in the scene now from what is only remembered, imagined, dreamed or talked about: those can be points too, but their blurb starts with "Remembered:", "Imagined:" or "Mentioned:".',
       'Output only JSON: {"points": [{"name": string (a short name for it), "kind": "person" | "place" | "thing" | "faction" | "detail", "span": string (the exact words in the passage that refer to it, copied verbatim, at most six words), "blurb": string (one line: what it is and why it is interesting), "ref": string (the exact name of a known entry it is, or "")}]}.',
     ].filter(Boolean).join('\n\n') },
     { role: 'user', content: [o.known.length ? `Known entries: ${o.known.slice(0, 200).join(', ')}` : '', `Passage:\n${o.passage}`].filter(Boolean).join('\n\n') },
@@ -91,18 +92,21 @@ function findLoose(passage: string, words: string): string {
   return i >= 0 ? passage.slice(i, i + words.length) : '';
 }
 
-export function cardPrompt(o: { point: LensPoint; trail: string[]; passage: string; knowledge: string; history: string; pov?: { name: string; sheet: string } | null; threads?: string }): ChatMessage[] {
+export function cardPrompt(o: { point: LensPoint; trail: string[]; passage: string; knowledge: string; history: string; summary?: string; present?: string[]; pov?: { name: string; sheet: string } | null; threads?: string }): ChatMessage[] {
   const play = o.pov;
   return [
     { role: 'system', content: [
       `You write the card for one point of interest in a story, for a reader exploring it: ${o.point.name} (${o.point.kind}). Ground it in the passage, the library entries and the history given; where they are silent, add plausible, specific texture that fits, never contradicting them. Concrete and sensory, 60 to 140 words, no headings.`,
+      'Write it as things stand at the end of the passage. What the passage only remembers, imagines or reports happened at another time or elsewhere: say so plainly ("once", "years ago", "she remembers"), never as if it were happening now. Where the passage is silent, the story so far and the history say how things stand.',
       play ? `This is interactive; the player is ${play.name}. ${PERCEIVE(play.name)} Write the card as what ${play.name} notices and knows.` : '',
       play && o.threads ? 'Threads run behind the screen (below). If one of them would plausibly leave a trace on this, include that trace as one small, concrete detail in the card and name the thread in "clue"; otherwise "clue" is null. Never explain the thread or name it in the text.' : '',
       `Output only JSON: {"text": string, "facts": string[] (2 to 4 short, specific facts a writer could pin), "unknown": string (${play ? `what ${play.name} cannot tell yet and how they might find out; ""` : '""'} if nothing), "closer": [{"name": string, "kind": "person" | "place" | "thing" | "faction" | "detail", "blurb": string}] (2 to 4 parts or details worth looking closer at), "clue": null${play && o.threads ? ' or {"text": string (the detail), "thread": string (the thread\'s name)}' : ''}}.`,
     ].filter(Boolean).join('\n\n') },
     { role: 'user', content: [
       o.knowledge,
+      o.summary ? `# The story so far, in brief\n${o.summary}` : '',
       o.history ? `# What has happened\n${o.history}` : '',
+      o.present?.length ? `# In the scene now\n${o.present.join(', ')}` : '',
       play ? `# The player\n${play.sheet}` : '',
       play && o.threads ? `# Behind the screen (hidden)\n${o.threads}` : '',
       `# The passage\n${o.passage}`,

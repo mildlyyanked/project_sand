@@ -4,7 +4,9 @@ import { cardPrompt, guessPrompt, parseCard, parseGuess, parseScan, scanPrompt, 
 import { characterDraft, draftCard, entityDraft, knowledge, libraryDrafts, normName, speciesDraft, type Library } from '@/core/world/drafts';
 import { threadsForChronicle } from '@/core/world/gm';
 import { renderPov } from '@/core/world/survival';
-import { sceneAt } from '@/core/world/timeline';
+import { clockAt, sceneAt } from '@/core/world/timeline';
+import { inScene } from '@/core/world/presence';
+import type { Beat, Character } from '@/core/types';
 import { formatShort } from '@/core/world/calendar';
 import { newId, now } from '@/core/ids';
 import { getLens, listLens, saveLens } from '@/db/repo/lens';
@@ -126,11 +128,15 @@ export const useLens = create<LensState>((set, get) => ({
       const lib = libraryOf();
       const playing = session.mode === 'pov' && !!ss.wb.player;
       const prose = ss.path.filter((b) => b.role === 'prose');
-      const recent = [session.summary ? `(Earlier, in brief) ${session.summary}` : '', ...prose.slice(-6).map((b) => b.text)].filter(Boolean).join('\n\n').slice(-9000);
+      // Newest passages first in the budget, so the present is never the part cut.
+      const recent: string[] = [];
+      let room = 9000;
+      for (const b of [...prose].reverse().slice(0, 6)) { if (room <= 0) break; recent.unshift(b.text.slice(-room)); room -= b.text.length; }
+      const cal = ss.bundle.universe?.data.calendar;
       const known = [...lib.entities.map((e) => e.name), ...lib.characters.map((c) => c.name), ...(ss.wb.player ? [ss.wb.player.name] : [])];
       const { text } = await complete({
         model: session.models.helper,
-        messages: mapPrompt({ base, library: mapLibrary({ entities: lib.entities, characters: lib.characters, base }), recent, events: mapEvents(ss.world?.events ?? []), pov: playing ? { name: ss.wb.player!.name } : null }),
+        messages: mapPrompt({ base, library: mapLibrary({ entities: lib.entities, characters: lib.characters, base }), summary: session.summary, now: ss.world ? formatShort(cal, clockAt(ss.path, session.clockStart)) : '', present: scenePresence().names, recent: recent.join('\n\n---\n\n'), events: mapEvents(ss.world?.events ?? [], (at) => formatShort(cal, at)), pov: playing ? { name: ss.wb.player!.name } : null }),
         maxTokens: 5000, temperature: 0.3, spend: { db, note: 'lens map', sessionId: sid },
       });
       const map = parseMap(text, { player: playing ? ss.wb.player!.name : undefined, known });
@@ -212,7 +218,7 @@ export const useLens = create<LensState>((set, get) => ({
       const pov = scene?.pov && ss.wb.player ? { name: ss.wb.player.name, sheet: renderPov(scene.pov, { name: ss.wb.player.name, currency: ss.bundle.universe?.data.currency ?? '', difficulty: session.pov?.difficulty ?? 'survival' }) } : null;
       const threads = pov ? threadsForChronicle(scene?.pov?.threads) : '';
       const trail = path.slice(0, -1).map((_, i) => pointAt(data, path.slice(0, i + 1))?.name ?? '').filter(Boolean);
-      const { text } = await complete({ model: session.models.helper, messages: cardPrompt({ point, trail, passage: beat.text, knowledge: [own ? `# The entry\n${own}` : '', k].filter(Boolean).join('\n\n'), history, pov, threads }), maxTokens: 3000, temperature: 0.7, spend: { db, note: 'lens', sessionId: sid } });
+      const { text } = await complete({ model: session.models.helper, messages: cardPrompt({ point, trail, passage: beat.text, knowledge: [own ? `# The entry\n${own}` : '', k].filter(Boolean).join('\n\n'), history, summary: session.summary, present: scenePresence(ss.path.slice(0, ss.path.findIndex((b) => b.id === beatId) + 1 || undefined)).names, pov, threads }), maxTokens: 3000, temperature: 0.7, spend: { db, note: 'lens', sessionId: sid } });
       const card = parseCard(text);
       if (!card) throw new Error('The Lens could not read its notes on this. Try again.');
       const next = withPoint(get().data[beatId] ?? data, path, (p) => ({ ...p, card }));
@@ -296,8 +302,17 @@ export function currentBaseMap(): StoryMap {
     locationName: scene?.locationName ?? '',
     relations: ss.session?.mode === 'pov' ? scene?.pov?.relations : undefined,
     recent: prose.slice(-3).map((b) => b.text),
+    present: scenePresence().names,
     castIds: ss.session?.characterIds ?? [],
   });
+}
+
+/** Who is in the scene at the end of the open story (or of `path`): characters, and the unnamed the chronicle lists. */
+export function scenePresence(path?: Beat[]): { people: Character[]; others: string[]; names: string[] } {
+  const ss = useSession.getState();
+  const pool = libraryOf().characters.filter((c) => c.id !== ss.wb.player?.id);
+  const r = inScene(path ?? ss.path, pool);
+  return { ...r, names: [...r.people.map((c) => c.name), ...r.others] };
 }
 
 /** Helper-model availability for the Lens, so the screen can say why it is quiet. */

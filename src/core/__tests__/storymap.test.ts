@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { WorldEntity } from '../world/types';
 import { baseMap, line, mapPrompt, parseMap, placeTree, ring, tiesOf, unplaced, webOrder } from '../storymap';
-import { character } from './fixtures';
+import { beat, character } from './fixtures';
+import type { Beat } from '../types';
+import { inScene } from '../world/presence';
 
 const ent = (id: string, kind: WorldEntity['kind'], name: string, parentId: string | null = null, data: Record<string, unknown> = {}): WorldEntity => ({ id, universeId: 'u1', kind, name, parentId, summary: '', keys: [], data, createdAt: 0, updatedAt: 0 });
 
@@ -70,5 +72,31 @@ describe('web geometry', () => {
     expect(l.width).toBe(50);
     expect(l.left).toBe(-10);
     expect(l.top).toBe(19);
+  });
+});
+
+describe('who is in the scene', () => {
+  const people = [character({ id: 'a', name: 'Mara Voss' }), character({ id: 'b', name: 'Tomas Voss' }), character({ id: 'c', name: 'Ilse Brant' })];
+  const at = (id: string, text: string, state: Beat['state'] = null) => beat({ id, parentId: null, text, state });
+
+  it('takes the chronicle’s list when there is one, named or not, ignoring who the passage only remembers', () => {
+    const path = [at('b1', 'Mara and Tomas sit down.'), at('b2', 'You think of Ilse, years ago.', { locationId: null, locationName: 'The Gull', present: ['Mara', 'Tomas Voss', 'a hooded stranger'] })];
+    const r = inScene(path, people);
+    expect(r.people.map((c) => c.id)).toEqual(['a', 'b']);
+    expect(r.others).toEqual(['a hooded stranger']);
+  });
+
+  it('without the chronicle, counts everyone named since the scene last moved', () => {
+    const path = [at('b1', 'Ilse waves goodbye at the docks.', { locationId: null, locationName: 'The Docks' }), at('b2', 'At the Gull, Mara orders.', { locationId: null, locationName: 'The Gull' }), at('b3', 'The fire crackles.')];
+    expect(inScene(path, people).people.map((c) => c.id)).toEqual(['a']);
+  });
+
+  it('marks the present as here on the base map and gives the map reading the summary and the scene', () => {
+    const map = baseMap({ entities, characters: [you, mara, tomas], player: you, locationId: 'inn', locationName: '', recent: ['The fire crackles.'], present: ['Tomas Voss'], castIds: [] });
+    expect(map.people.find((p) => p.name === 'Tomas Voss')!.presence).toBe('here');
+    const msgs = mapPrompt({ base: map, library: '', summary: 'Mara burned the keep.', present: ['Tomas Voss'], recent: 'x', events: '', pov: { name: 'Ren Hale' } });
+    expect(msgs[1]!.content).toContain('Mara burned the keep.');
+    expect(msgs[1]!.content).toContain('In the scene: Tomas Voss');
+    expect(msgs[0]!.content).toContain('Memories, flashbacks');
   });
 });
