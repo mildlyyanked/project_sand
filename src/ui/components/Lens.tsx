@@ -9,6 +9,7 @@ import { useSession } from '@/state/session';
 import { pointAt, useLens } from '@/state/lens';
 import { Banner, Button, Chip, Field, Ionicons, Row, T } from './index';
 import { Avatar } from './EntryImage';
+import { MapPanel } from './StoryMap';
 import { radius, space, useTheme } from '../theme';
 
 const ICON: Record<PointKind, 'person-outline' | 'location-outline' | 'cube-outline' | 'flag-outline' | 'eye-outline'> = { person: 'person-outline', place: 'location-outline', thing: 'cube-outline', faction: 'flag-outline', detail: 'eye-outline' };
@@ -49,14 +50,15 @@ export function LensDrawer({ actions }: { actions: LensActions }) {
               <T v="h">Lens</T>
             </Row>
             <Row gap={6}>
-              {playing ? <Chip small label="Scene" selected={lens.tab === 'scene'} onPress={() => lens.setTab('scene')} /> : null}
+              <Chip small label="Scene" selected={lens.tab === 'scene'} onPress={() => lens.setTab('scene')} />
+              <Chip small label="Map" selected={lens.tab === 'map'} onPress={() => lens.setTab('map')} />
               {playing ? <Chip small label={`Clues${s.session?.world.clues?.filter((c) => !c.solved).length ? ` · ${s.session.world.clues.filter((c) => !c.solved).length}` : ''}`} selected={lens.tab === 'clues'} onPress={() => lens.setTab('clues')} /> : null}
               <Pressable onPress={lens.close} hitSlop={10}><Ionicons name="close" size={20} color={t.dim} /></Pressable>
             </Row>
           </Row>
           <ScrollView contentContainerStyle={{ padding: space.lg, paddingTop: 4, gap: space.md, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
             {lens.error ? <Banner text={lens.error} onClose={lens.clearError} /> : null}
-            {lens.tab === 'clues' && playing ? <ClueBoard /> : point ? <CardView point={point} actions={actions} playing={playing} /> : <SceneView actions={actions} playing={playing} />}
+            {lens.tab === 'map' ? <MapPanel width={width - space.lg * 2} /> : lens.tab === 'clues' && playing ? <ClueBoard /> : point ? <CardView point={point} actions={actions} playing={playing} /> : <SceneView actions={actions} playing={playing} />}
             {lens.tab === 'scene' && !point && beat && data ? <Button small kind="ghost" icon="refresh-outline" title="Look again" onPress={() => lens.scan(beat.id)} loading={lens.busy === 'scan'} /> : null}
           </ScrollView>
         </View>

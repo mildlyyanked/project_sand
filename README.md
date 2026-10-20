@@ -178,6 +178,15 @@ Every passage has a **Lens** button (Settings → Illustrations → Lens to turn
 - **Writing**: Steer (put that thing at the fore of the next passage) and Expand into a scene fill the composer; Picture paints it with the world's art direction; Canonize makes it a library entry through Forge.
 - **Play**: the Lens sees only what your character could perceive or know, and says what they cannot tell yet. Examine, Talk, Ask about it, Take and Go there put the action in your composer, to send as a turn (so it costs time and may be tested). Threads behind the screen can leave traces on what you look at; those land on the **Clue board** (story menu, or the drawer's Clues tab). Connect clues and say what you think is going on: the game master judges it against the hidden threads; a theory that hits marks that thread as found out, and from then on the game master rewards what you know and lets the thread react to being discovered.
 
+### Story map
+
+The Lens's **Map** tab (or **Story map** in the story menu) shows the whole story rather than one passage, in both modes:
+
+- **Places**: a schematic map, places drawn inside the places that contain them (a tavern inside its city), the scene outlined (**you are here** in play), each with a line on what is going on there and the people in it as small portraits, with a dot for where they stand (in the scene, close by, away). People whose whereabouts are unknown, or who are gone, are listed under **Elsewhere** with where they were last seen.
+- **People**: a web of ties with you (in play) or anyone you tap in the middle. Lines run green for warm, red for hostile, thicker the stronger; faint lines are ties between the others. Below it, every tie of the person in the middle: family, romance, friend, ally, work, rival, enemy or debt, how strong, and a few words on it as of now.
+
+It draws at once from the library and, in play, your sheet: the scene's place and its neighbours, everyone's home, how people feel about you, who leads whom, and the ties written on character cards. **Read the story** has the helper redraw it from the latest passages and the timeline: who has moved where, who met, who fell out, new places and people. In play it shows only what your character knows. The reading is kept with the story; when the story has moved on, the map says so and **Update** catches it up.
+
 ## Entry tooltips (play)
 
 When you play a character in a world of your own (not the real world), every place, person, faction, thing, people and lore entry a passage names is underlined where it first appears, by its name, its capitalized "also called" names, or a person's first name when no one else shares it. Tap one for a quick card beside the text: picture, what it is, a line or two from the entry, a few key links (faction and home, who controls a place, a faction's leader and seat, who holds a thing), and how it stands with you: how that person feels about you, or that you carry it. Secrets never show. **Open entry** goes to its page; **Lens** opens the passage's Lens on it. It matches names on the phone, with no model call. Settings → Illustrations → Entry tooltips in play turns it off.

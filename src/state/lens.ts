@@ -8,6 +8,7 @@ import { sceneAt } from '@/core/world/timeline';
 import { formatShort } from '@/core/world/calendar';
 import { newId, now } from '@/core/ids';
 import { getLens, listLens, saveLens } from '@/db/repo/lens';
+import { baseMap, mapEvents, mapLibrary, mapPrompt, parseMap, type StoryMap } from '@/core/storymap';
 import { useSession } from './session';
 import { initialScene } from './world';
 import { complete } from './paint';
@@ -25,20 +26,26 @@ interface LensState {
   beatId: string | null;
   /** Indexes: a point of the passage, then into each card's "look closer". */
   path: number[];
-  tab: 'scene' | 'clues';
-  busy: 'scan' | 'card' | 'guess' | null;
+  tab: 'scene' | 'clues' | 'map';
+  busy: 'scan' | 'card' | 'guess' | 'map' | null;
+  mapView: 'places' | 'people';
+  /** Who is in the middle of the people web; null for the player, or the first person. */
+  mapFocus: string | null;
   error: string | null;
   verdict: { verdict: 'hit' | 'close' | 'miss'; nudge: string } | null;
   load(db: SQLiteDatabase, sessionId: string): Promise<void>;
   show(beatId: string, path?: number[]): Promise<void>;
   showClues(): void;
+  showMap(): void;
+  setMapView(v: 'places' | 'people', focus?: string | null): void;
+  readMap(): Promise<void>;
   close(): void;
   go(path: number[]): Promise<void>;
   scan(beatId: string): Promise<void>;
   pin(name: string, text: string): Promise<void>;
   unpin(id: string): Promise<void>;
   guess(clueIds: string[], theory: string): Promise<void>;
-  setTab(tab: 'scene' | 'clues'): void;
+  setTab(tab: 'scene' | 'clues' | 'map'): void;
   clearError(): void;
 }
 
@@ -75,10 +82,12 @@ export const useLens = create<LensState>((set, get) => ({
   busy: null,
   error: null,
   verdict: null,
+  mapView: 'places',
+  mapFocus: null,
 
   async load(db, sessionId) {
     if (get().sessionId === sessionId) return;
-    set({ sessionId, data: {}, open: false, beatId: null, path: [], error: null, verdict: null, busy: null });
+    set({ sessionId, data: {}, open: false, beatId: null, path: [], error: null, verdict: null, busy: null, mapFocus: null });
     const all = await listLens(db, sessionId);
     if (get().sessionId === sessionId) set({ data: Object.fromEntries(all) });
   },
@@ -96,6 +105,44 @@ export const useLens = create<LensState>((set, get) => ({
 
   showClues() {
     set({ open: true, tab: 'clues', error: null });
+  },
+
+  showMap() {
+    set({ open: true, tab: 'map', error: null });
+  },
+
+  setMapView(mapView, focus) {
+    set(focus === undefined ? { mapView } : { mapView, mapFocus: focus });
+  },
+
+  async readMap() {
+    const ss = useSession.getState();
+    const { db, session } = ss;
+    if (!db || !session || get().busy) return;
+    const sid = session.id;
+    set({ busy: 'map', error: null });
+    try {
+      const base = currentBaseMap();
+      const lib = libraryOf();
+      const playing = session.mode === 'pov' && !!ss.wb.player;
+      const prose = ss.path.filter((b) => b.role === 'prose');
+      const recent = [session.summary ? `(Earlier, in brief) ${session.summary}` : '', ...prose.slice(-6).map((b) => b.text)].filter(Boolean).join('\n\n').slice(-9000);
+      const known = [...lib.entities.map((e) => e.name), ...lib.characters.map((c) => c.name), ...(ss.wb.player ? [ss.wb.player.name] : [])];
+      const { text } = await complete({
+        model: session.models.helper,
+        messages: mapPrompt({ base, library: mapLibrary({ entities: lib.entities, characters: lib.characters, base }), recent, events: mapEvents(ss.world?.events ?? []), pov: playing ? { name: ss.wb.player!.name } : null }),
+        maxTokens: 5000, temperature: 0.3, spend: { db, note: 'lens map', sessionId: sid },
+      });
+      const map = parseMap(text, { player: playing ? ss.wb.player!.name : undefined, known });
+      if (!map) throw new Error('The Lens could not draw the map from that reply. Try again, or another helper model.');
+      const cur = useSession.getState().session;
+      if (cur?.id !== sid) return;
+      await useSession.getState().patch({ world: { ...cur.world, map: { ...map, beatId: prose[prose.length - 1]?.id ?? null, at: now() } } });
+    } catch (e) {
+      if (get().sessionId === sid) set({ error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      set({ busy: null });
+    }
   },
 
   close() {
@@ -234,6 +281,24 @@ export const useLens = create<LensState>((set, get) => ({
     }
   },
 }));
+
+/** The map straight from the library and the sheet, as the story stands: no model call. */
+export function currentBaseMap(): StoryMap {
+  const ss = useSession.getState();
+  const lib = libraryOf();
+  const scene = ss.world?.scene;
+  const prose = ss.path.filter((b) => b.role === 'prose');
+  return baseMap({
+    entities: lib.entities,
+    characters: ss.wb.player ? [...lib.characters, ss.wb.player] : lib.characters,
+    player: ss.session?.mode === 'pov' ? ss.wb.player : null,
+    locationId: scene?.locationId ?? null,
+    locationName: scene?.locationName ?? '',
+    relations: ss.session?.mode === 'pov' ? scene?.pov?.relations : undefined,
+    recent: prose.slice(-3).map((b) => b.text),
+    castIds: ss.session?.characterIds ?? [],
+  });
+}
 
 /** Helper-model availability for the Lens, so the screen can say why it is quiet. */
 export function lensReady(): boolean {

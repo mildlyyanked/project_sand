@@ -214,6 +214,8 @@ export interface Session {
     pins?: import('./lens').LensPin[];
     /** Play: details that may point behind the screen, gathered on the clue board. */
     clues?: import('./lens').LensClue[];
+    /** The Lens's story map as last read by the helper. */
+    map?: import('./storymap').StoryMap;
   };
   /** In-world time when the story opens, minutes since the calendar start. */
   clockStart: number;

@@ -55,6 +55,10 @@ Every library kind converts to a **draft**: a flat record of fields with referen
 
 `src/core/lens.ts` (prompts, parsing, inline segments, pins), `src/state/lens.ts` (store), `src/ui/components/Lens.tsx` (drawer). Points and cards are stored per passage in `lens` (migration 9). Pins (`session.world.pins`) are canon: a `pins` context layer in both modes. Clues (`session.world.clues`) carry their thread name hidden; a hit on the clue board sets `Thread.suspected`, which the game master's threads layer rewards.
 
+### Story map
+
+`src/core/storymap.ts`: `baseMap` (no model: the scene's location chain, neighbours and rooms, homes; presence from the latest passages; ties from POV relations, character `relationships` text and faction leaders), `mapPrompt`/`parseMap` (helper redraw, perception-limited in play; "you" resolves to the player), `placeTree`, `unplaced`, `tiesOf`, `webOrder`, and `ring`/`line` geometry for the web (lines are rotated views, no SVG). The helper's map is stored on `session.world.map` with the passage it was read at; nothing reaches the writer or the game master. UI: `src/ui/components/StoryMap.tsx`, the Lens drawer's Map tab.
+
 ## Entry tooltips
 
 `src/core/world/mentions.ts`: `findMentions(text, drafts)` (first naming of each entry, case as written, whole words, a "The" name needs its article unless it is several words, ambiguous needles dropped, longer names win) and `entryTip(draft, {pov, currency})` (open fields only, never secrets; relation and inventory from the sheet). Shown only in play in a non-default world, setting `entryTips`; `segments` weaves the links around Lens points. `src/ui/components/EntryTip.tsx` draws the card. No context or prompt changes.
