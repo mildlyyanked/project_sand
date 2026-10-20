@@ -205,7 +205,16 @@ export interface Session {
    * continuity: read the instance timeline and sibling stories. chronicle: a helper call per passage.
    * newcomers: names the story brought in that the library lacks, waiting to be canonized or dismissed.
    */
-  world: { continuity: boolean; chronicle: boolean; newcomers?: import('./world/forge').Newcomer[]; dismissed?: string[] };
+  world: {
+    continuity: boolean;
+    chronicle: boolean;
+    newcomers?: import('./world/forge').Newcomer[];
+    dismissed?: string[];
+    /** Lens details made canon: they reach the writer. */
+    pins?: import('./lens').LensPin[];
+    /** Play: details that may point behind the screen, gathered on the clue board. */
+    clues?: import('./lens').LensClue[];
+  };
   /** In-world time when the story opens, minutes since the calendar start. */
   clockStart: number;
   /** POV mode settings; the live sheet is on the beats. */

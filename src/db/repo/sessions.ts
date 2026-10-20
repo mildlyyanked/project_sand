@@ -52,6 +52,7 @@ export async function deleteSession(db: SQLiteDatabase, id: Id): Promise<void> {
     await db.runAsync('DELETE FROM beats WHERE session_id = ?', id);
     await db.runAsync('DELETE FROM illustrations WHERE session_id = ?', id);
     await db.runAsync('DELETE FROM world_events WHERE session_id = ?', id);
+    await db.runAsync('DELETE FROM lens WHERE session_id = ?', id);
     await db.runAsync('DELETE FROM sessions WHERE id = ?', id);
   });
 }
@@ -120,6 +121,7 @@ export async function deleteBeats(db: SQLiteDatabase, ids: Id[]): Promise<void> 
   if (!ids.length) return;
   await db.runAsync(`DELETE FROM beats WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids);
   await db.runAsync(`DELETE FROM world_events WHERE beat_id IN (${ids.map(() => '?').join(',')})`, ...ids);
+  await db.runAsync(`DELETE FROM lens WHERE beat_id IN (${ids.map(() => '?').join(',')})`, ...ids);
 }
 
 export function makeBeat(p: Partial<Beat> & { sessionId: Id; parentId: Id | null; role: Beat['role']; text: string }): Beat {
@@ -176,6 +178,7 @@ export async function repairMisfiledBeats(db: SQLiteDatabase): Promise<{ moved: 
         await db.runAsync('UPDATE beats SET session_id = ? WHERE id = ?', r.owner, r.id);
         await db.runAsync('UPDATE illustrations SET session_id = ? WHERE beat_id = ?', r.owner, r.id);
         await db.runAsync('UPDATE world_events SET session_id = ? WHERE beat_id = ?', r.owner, r.id);
+        await db.runAsync('UPDATE lens SET session_id = ? WHERE beat_id = ?', r.owner, r.id);
       }
       // The story the passage was meant for moves on to it, if it had not moved since.
       for (const r of misfiled.filter((x) => x.top)) await db.runAsync('UPDATE sessions SET current_beat_id = ? WHERE id = ? AND current_beat_id = ?', r.id, r.owner, r.parentId);

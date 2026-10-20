@@ -12,7 +12,7 @@ import { DEFAULT_ART_STYLE, newcomersPrompt, parseNewcomers, type Newcomer } fro
 import { normName } from '@/core/world/drafts';
 import { imageOf, namedIn } from '@/core/world/portraits';
 import { buildWorldContext, chronicle, chronicleOn, emptyWorldBundle, gmRead, initialScene, loadWorldBundle, seedThreads, type WorldBundle } from './world';
-import type { GmRead } from '@/core/world/gm';
+import type { GmRead, Thread } from '@/core/world/gm';
 import { clinicOpening, clinicSystem, critiquePrompt, imagePromptPrompt, parseClinicReply, parseSuggestions, planPrompt, scenePrompt, suggestPrompt, transcriptOf, type ClinicEdit } from '@/core/helpers';
 import { renderHeat } from '@/core/context/cards';
 import { manuscriptText } from '@/core/beatTree';
@@ -110,6 +110,8 @@ interface SessionState {
   setClock(minutes: number): Promise<void>;
   /** Correct the player's sheet by hand: applied to the latest passage, so undo and branches keep their own books. */
   adjustSheet(delta: PovDelta): Promise<void>;
+  /** Change the threads behind the screen, on the latest passage (so undo takes it back). */
+  updateThreads(fn: (threads: Thread[]) => Thread[]): Promise<void>;
   /** Run the chronicle again for a passage (the latest one): its time, place, events and the sheet, from the moment before it. */
   rechronicle(beatId: Id): Promise<void>;
   streaming: Streaming | null;
@@ -961,6 +963,17 @@ export const useSession = create<SessionState>((set, get) => {
         return;
       }
       const state = { ...scene, pov: next };
+      await updateBeatWorld(db, tip.id, tip.at, state);
+      set(recompute(get().beats.map((b) => (b.id === tip.id ? { ...b, state } : b)), session));
+      await get().refreshWorld();
+    },
+    async updateThreads(fn) {
+      const { db, session, path, wb } = get();
+      if (!db || !session || session.mode !== 'pov') return;
+      const tip = path[path.length - 1];
+      const scene = sceneAt(path, initialScene(session, wb));
+      if (!scene.pov || !tip) return;
+      const state = { ...scene, pov: { ...scene.pov, threads: fn(scene.pov.threads ?? []) } };
       await updateBeatWorld(db, tip.id, tip.at, state);
       set(recompute(get().beats.map((b) => (b.id === tip.id ? { ...b, state } : b)), session));
       await get().refreshWorld();

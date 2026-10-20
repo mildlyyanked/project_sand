@@ -168,6 +168,16 @@ Play runs on its own rules, built for two things: full immersion, and a hard, sa
 
 The world's people, places and timeline inform play just as they inform writing.
 
+## The Lens (experimental)
+
+Every passage has a **Lens** button (Settings → Illustrations → Lens to turn it off). It works on demand: the first time you open it on a passage, the helper marks that passage's points of interest (people, places, things, factions and the small details worth a second look), and they stay saved with the passage, so the names in it become tappable, dotted-underlined, from then on. The drawer slides in from the right:
+
+- **Who's here**: the people the passage names, with portraits, what they do, who they belong to, and in play how they stand with you; **History here**: timeline events tied to the place and the people.
+- **A card per point**, written from the passage, the library entry it is (if it is one), what bears on it and what has happened to it. **Look closer** goes a level down (the coat, the patch on it, the insignia), with breadcrumbs back.
+- **Pin** any detail on a card: what the Lens says is a suggestion until pinned; pinned details are fact and reach the writer (or the game master) from the next passage on. Pinned details are listed in the drawer and the story menu.
+- **Writing**: Steer (put that thing at the fore of the next passage) and Expand into a scene fill the composer; Picture paints it with the world's art direction; Canonize makes it a library entry through Forge.
+- **Play**: the Lens sees only what your character could perceive or know, and says what they cannot tell yet. Examine, Talk, Ask about it, Take and Go there put the action in your composer, to send as a turn (so it costs time and may be tested). Threads behind the screen can leave traces on what you look at; those land on the **Clue board** (story menu, or the drawer's Clues tab). Connect clues and say what you think is going on: the game master judges it against the hidden threads; a theory that hits marks that thread as found out, and from then on the game master rewards what you know and lets the thread react to being discovered.
+
 ## Home
 
 Home is three tabs: **Stories**, **Library** (characters, voices, worlds) and **Usage**. Usage shows spend today, over the last week and all time, split into writing, pictures (illustrations, portraits, views, sigils) and library work (Forge, reforge, retcon, picture prompts), totals for passages, words and tokens, and breakdowns by model (with the refusal ledger), by story and by day, all from the cost OpenRouter reports on each request; story helper calls (plans, summaries, chronicle) are not itemized, and pictures from your own image host have no price to report. With a key saved it also shows what OpenRouter has counted against the key. The build version sits at the foot of Stories and Settings.

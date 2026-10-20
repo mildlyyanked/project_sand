@@ -22,6 +22,7 @@ import { renderContinuity, renderSiblings, selectContinuity, type SiblingStory }
 import { timeOfDay } from '../world/calendar';
 import { renderPov } from '../world/survival';
 import { renderCheck } from '../world/dice';
+import { renderPins } from '../lens';
 import { gmContract, gmOpening, renderGmRead, renderThreads, TURN_LENGTH, type GmRead } from '../world/gm';
 
 /** Everything the world adds to a request. Absent: the story is on its own (vanilla). */
@@ -139,6 +140,8 @@ export function assembleContext(input: AssembleInput): AssembledContext {
     push({ key: 'characters', label: `Characters · ${characters.length}`, role: 'system', text });
   }
   if (session.brief.trim()) push({ key: 'brief', label: 'Brief', role: 'system', text: `# The story\n${session.brief.trim()}` });
+  const pins = renderPins(session.world?.pins);
+  if (pins) push({ key: 'pins', label: `Pinned details · ${session.world!.pins!.length}`, role: 'system', text: pins });
   if (universe) {
     const always = alwaysOnLore(lore);
     // The seeded real world says nothing unless the writer gave it something to say.

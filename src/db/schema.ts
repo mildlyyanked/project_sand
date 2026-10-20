@@ -76,6 +76,11 @@ const MIGRATIONS: string[] = [
   CREATE TABLE spend (id TEXT PRIMARY KEY, kind TEXT NOT NULL, model TEXT NOT NULL, session_id TEXT, cost_usd REAL, prompt_tokens INTEGER, completion_tokens INTEGER, note TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
   CREATE INDEX spend_created ON spend(created_at);
   `,
+  // 9: the Lens: points of interest and their cards, per passage.
+  `
+  CREATE TABLE lens (beat_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, data_json TEXT NOT NULL, created_at INTEGER NOT NULL);
+  CREATE INDEX lens_session ON lens(session_id);
+  `,
 ];
 
 export async function migrate(db: SQLiteDatabase): Promise<void> {

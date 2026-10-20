@@ -21,6 +21,8 @@ export interface Defaults {
   /** Art direction for pictures in worlds that set none. */
   artStyle: string;
   sigilStyle: string;
+  /** The Lens: explore a passage's people, places and things. Experimental. */
+  lens: boolean;
   zdr: boolean;
   fontSize: number;
   styleId: string | null;
@@ -36,6 +38,7 @@ const DEFAULTS: Defaults = {
   portraitReferences: true,
   artStyle: '',
   sigilStyle: '',
+  lens: true,
   zdr: false,
   fontSize: 17,
   styleId: null,

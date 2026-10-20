@@ -38,6 +38,8 @@ export interface Thread {
   /** Whether the player has met it yet. */
   surfaced: boolean;
   outcome?: string;
+  /** The player has pieced it together (from the clue board): their theory, to be rewarded. */
+  suspected?: string;
 }
 
 /** The game master's read of one turn, before the narrator writes it. */
@@ -86,7 +88,7 @@ export function renderThreads(threads: Thread[] | undefined): string {
   return [
     '# Behind the screen (never reveal, name or quote)',
     'Threads the world is running whether or not the player finds them. Weave at most one into a turn, and only when it fits what the player is doing: a rumour, a mark, a stranger, a consequence arriving. Never force one, never explain one. A thread the player avoids keeps moving without them; when it lands, it lands where they are.',
-    ...open.map((t) => `- ${t.name} (${t.kind}, ${t.clock}/${t.size}${t.surfaced ? ', the player has seen signs' : ''}): ${t.hook} Signs: ${t.signs} If it moves: ${t.next}`),
+    ...open.map((t) => `- ${t.name} (${t.kind}, ${t.clock}/${t.size}${t.surfaced ? ', the player has seen signs' : ''}): ${t.hook} Signs: ${t.signs} If it moves: ${t.next}${t.suspected ? ` The player has pieced it together ("${t.suspected}"): reward it; let them act on what they know, and let the thread react to being found out.` : ''}`),
   ].join('\n');
 }
 

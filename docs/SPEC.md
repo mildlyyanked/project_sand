@@ -51,6 +51,10 @@ Every library kind converts to a **draft**: a flat record of fields with referen
 
 `src/core/world/gm.ts`. Play only, never free writing: `gmContract` (system layer `gm`; replaces the default craft prompt, a voice's own prompt stays; the voice card is rendered for texture only), `gmReadPrompt`/`parseGmRead` (the per-turn read, folded with the referee: intent, feasibility, optional check, the world's reaction, what changes, a thread to touch), threads (`seedThreadsPrompt`, `applyThreadUpdates`; stored on `PovState.threads`, seeded once into the tip beat or `session.pov.threads`, advanced by the chronicle, closed threads become timeline events), `TurnLength` on `PovSettings`.
 
+## Lens
+
+`src/core/lens.ts` (prompts, parsing, inline segments, pins), `src/state/lens.ts` (store), `src/ui/components/Lens.tsx` (drawer). Points and cards are stored per passage in `lens` (migration 9). Pins (`session.world.pins`) are canon: a `pins` context layer in both modes. Clues (`session.world.clues`) carry their thread name hidden; a hit on the clue board sets `Thread.suspected`, which the game master's threads layer rewards.
+
 ## Vanilla guarantee
 
 A story in the default world, writer mode, Continuity and Chronicle off, with an empty real-world card, assembles exactly the messages it did before worlds existed and makes no extra calls (`assemble.test.ts` asserts this).

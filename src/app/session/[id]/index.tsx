@@ -15,7 +15,12 @@ import { ATTRIBUTE_INFO, OUTCOME_LABEL } from '@/core/world/dice';
 import { childrenOf } from '@/core/world/scan';
 import { chronicleOn } from '@/state/world';
 import { Bar, TimeEditor } from '@/ui/components/World';
-import { Avatar } from '@/ui/components/EntryImage';
+import { Avatar, worldLine } from '@/ui/components/EntryImage';
+import { LensDrawer } from '@/ui/components/Lens';
+import { useLens } from '@/state/lens';
+import { segments } from '@/core/lens';
+import { composePicture, entryImagePrompt } from '@/core/world/forge';
+import { complete, paintReady } from '@/state/paint';
 import { ForgeSheet } from '@/ui/components/Forge';
 import { imageOf, namedIn } from '@/core/world/portraits';
 import { excerptsFor, type Newcomer } from '@/core/world/forge';
@@ -58,6 +63,8 @@ export default function Manuscript() {
   const s = useSession();
   const fontSize = useSettings((x) => x.defaults.fontSize);
   const imageBackend = useSettings((x) => x.defaults.imageBackend);
+  const lensOn = useSettings((x) => x.defaults.lens);
+  const lens = useLens();
   const [text, setText] = useState('');
   const [rawMode, setMode] = useState<Mode>('direct');
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -87,6 +94,7 @@ export default function Manuscript() {
 
   useEffect(() => {
     if (id) void s.open(db, id);
+    if (id) void useLens.getState().load(db, id);
   }, [db, id]); // eslint-disable-line react-hooks/exhaustive-deps
   useFocusEffect(
     useCallback(() => {
@@ -225,6 +233,17 @@ export default function Manuscript() {
     if (!has && session.draftModels.length >= 2) return;
     void s.patch({ draftModels: has ? session.draftModels.filter((x) => x !== m) : [...session.draftModels, m] });
   };
+  /** A picture of something the Lens found: described from its card, with the world's art direction, then shown to paint or copy. */
+  async function lensPicture(beatId: string, name: string, description: string) {
+    if (!session) return;
+    try {
+      const subject = await complete({ model: session.models.helper, messages: entryImagePrompt({ draft: { id: 'lens', kind: 'item', name, fields: { summary: description } }, world: worldLine(s.bundle.universe) }), maxTokens: 2000, temperature: 0.7, spend: { db, note: 'lens picture', sessionId: session.id } });
+      const prompt = composePicture('lore', subject.text.trim() || description, { art: s.bundle.universe?.data.artStyle?.trim() || useSettings.getState().defaults.artStyle.trim() });
+      useSession.setState({ imagePrompt: { beatId, prompt, canPaint: paintReady().ok } });
+    } catch (e) {
+      s.setNotice(e instanceof Error ? e.message : String(e));
+    }
+  }
   const downstreamOf = (b: Beat) => path.slice(path.findIndex((x) => x.id === b.id) + 1);
 
   if (!session) return <View style={{ flex: 1, backgroundColor: t.bg }} />;
@@ -237,12 +256,18 @@ export default function Manuscript() {
     const multiModel = sibs.length > 1 && new Set(sibs.map((x) => x.model)).size > 1;
     const faces = b.role === 'prose' ? portraitPeople.filter((c) => namedIn(b.text, c.name)).slice(0, 5) : [];
     const changed = sheetChanges.get(b.id);
-    const meta = b.role === 'prose' && (pos.of > 1 || b.model || faces.length || changed);
+    const meta = b.role === 'prose' && (pos.of > 1 || b.model || faces.length || changed || lensOn);
     const pics = illustrationsByBeat.get(b.id) ?? [];
     return (
       <Pressable onPress={() => setBeatMenu(b)} style={({ pressed }) => ({ paddingHorizontal: space.lg, paddingVertical: 8, opacity: pressed ? 0.7 : 1 })}>
         {b.role === 'prose' ? (
-          <T style={{ fontFamily: serif, fontSize, lineHeight: fontSize * 1.6 }}>{b.text}</T>
+          <T style={{ fontFamily: serif, fontSize, lineHeight: fontSize * 1.6 }}>
+            {lensOn && lens.data[b.id]
+              ? segments(b.text, lens.data[b.id]!.points).map((seg, i) => (seg.point == null
+                ? seg.text
+                : <T key={i} onPress={() => void lens.show(b.id, [seg.point!])} style={{ fontFamily: serif, fontSize, lineHeight: fontSize * 1.6, textDecorationLine: 'underline', textDecorationStyle: 'dotted', textDecorationColor: t.accent }}>{seg.text}</T>))
+              : b.text}
+          </T>
         ) : b.role === 'instruction' ? (
           <Row style={{ alignItems: 'flex-start' }}>
             <Ionicons name="return-down-forward-outline" size={16} color={t.accent} style={{ marginTop: 3 }} />
@@ -282,6 +307,12 @@ export default function Manuscript() {
             {b.at != null && clockShown ? <T v="small" style={{ color: t.faint }}>{formatShort(calendar, b.at)}</T> : null}
             {b.state?.pov?.lastCheck ? <CheckChip c={b.state.pov.lastCheck} /> : null}
             {changed ? <T v="small" style={{ color: t.accent }}>{changed.join(' · ')}</T> : null}
+            {lensOn ? (
+              <Pressable onPress={() => void lens.show(b.id)} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <Ionicons name="scan-outline" size={14} color={lens.data[b.id] ? t.accent : t.faint} />
+                <T v="small" style={{ color: lens.data[b.id] ? t.accent : t.faint }}>Lens</T>
+              </Pressable>
+            ) : null}
           </Row>
         ) : null}
       </Pressable>
@@ -479,6 +510,8 @@ export default function Manuscript() {
         <MenuItem icon="options-outline" label="Session settings" hint="Brief, models, voice, world, characters, budgets" onPress={() => { setMenu(false); router.push(`/session/${session.id}/settings`); }} />
         <MenuItem icon="text-outline" label={s.bundle.style ? `Voice · ${s.bundle.style.name}` : 'Voice'} hint={s.bundle.style ? 'Writer prompt, persistence chain and card. Shared across stories.' : 'No voice attached; pick one in session settings'} onPress={() => { setMenu(false); router.push(session.styleId ? `/library/style/${session.styleId}` : `/session/${session.id}/settings`); }} />
         <MenuItem icon="flask-outline" label="Prompt lab" hint="A strong model revises the voice or brief against a goal; test, then override or save as new" onPress={() => { setMenu(false); router.push(`/lab?session=${session.id}`); }} />
+        {lensOn && playing ? <MenuItem icon="search-outline" label={`Clue board${session.world.clues?.filter((c) => !c.solved).length ? ` · ${session.world.clues.filter((c) => !c.solved).length}` : ''}`} hint="Details the Lens turned up; connect them to work out what is going on" onPress={() => { setMenu(false); useLens.getState().showClues(); }} /> : null}
+        {lensOn && session.world.pins?.length ? <MenuItem icon="pin-outline" label={`Pinned details · ${session.world.pins.length}`} hint="What the Lens made fact; open a passage's Lens to unpin" onPress={() => { setMenu(false); if (lastProse) void useLens.getState().show(lastProse.id); }} /> : null}
         <MenuItem icon="albums-outline" label="Summarize now" hint="Fold older beats into the summary" onPress={() => { setMenu(false); void s.summarizeNow(); }} />
         {session.universeId && !s.bundle.universe?.isDefault ? <MenuItem icon="planet-outline" label={`World · ${s.bundle.universe?.name ?? ''}`} hint="Places, people, factions, things, lore" onPress={() => { setMenu(false); router.push(`/library/universe/${session.universeId}`); }} /> : null}
         {session.instanceId && (session.world.continuity || clockShown) ? <MenuItem icon="git-commit-outline" label="Timeline" hint="What has happened in this version of the world" onPress={() => { setMenu(false); router.push(`/world/instance/${session.instanceId}`); }} /> : null}
@@ -567,6 +600,15 @@ export default function Manuscript() {
         ))}
         {!session.world.newcomers?.length ? <T v="faint">Nothing waiting. With the chronicle on, new names are noticed after each passage; any passage’s menu has Find new names.</T> : null}
       </Sheet>
+      {lensOn ? (
+        <LensDrawer
+          actions={{
+            compose: (v) => { setMode(playing ? 'do' : 'direct'); setText(v); },
+            canonize: (name, kind) => setCanonize({ name, kind, note: '' }),
+            illustrate: (beatId, name, description) => void lensPicture(beatId, name, description),
+          }}
+        />
+      ) : null}
       <ForgeSheet
         open={!!canonize}
         onClose={() => setCanonize(null)}
