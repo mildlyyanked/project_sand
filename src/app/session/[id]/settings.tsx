@@ -18,6 +18,7 @@ import { shortModel } from '@/ui/format';
 import { space } from '@/ui/theme';
 import { imageOf } from '@/core/world/portraits';
 import { TURN_LENGTH, type TurnLength } from '@/core/world/gm';
+import { SIM_WORDS } from '@/core/sim/narrate';
 
 export default function SessionSettings() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -167,9 +168,15 @@ export default function SessionSettings() {
               <T v="label">Played character</T>
               <RefChips value={pov.characterId} options={playable.map((c) => ({ id: c.id, name: c.name, image: imageOf(c.data as Record<string, unknown>)?.uri }))} onChange={(id) => setPov({ characterId: id })} none="Nobody yet" />
               <Row>{(['story', 'survival', 'hardcore'] as Difficulty[]).map((d) => <Chip key={d} label={d[0]!.toUpperCase() + d.slice(1)} selected={pov.difficulty === d} onPress={() => setPov({ difficulty: d })} />)}</Row>
+              <T v="label">Engine</T>
+              <Row>
+                <Chip label="World simulation" selected={pov.engine !== 'classic'} onPress={() => setPov({ engine: 'sim' })} />
+                <Chip label="Classic" selected={pov.engine === 'classic'} onPress={() => setPov({ engine: 'classic' })} />
+              </Row>
+              <T v="faint">{pov.engine === 'classic' ? 'The narrator leads each turn and a clerk records what changed afterwards.' : 'The world decides each turn first (places, people and their rounds, shops, work, property, leads), shows what changed at once, and the narrator tells it. Taps on exits, people and shops settle without a model call.'}</T>
               <T v="label">Turn length</T>
               <Row>{(Object.keys(TURN_LENGTH) as TurnLength[]).map((k) => <Chip key={k} label={TURN_LENGTH[k].label} selected={(pov.turnLength ?? 'standard') === k} onPress={() => setPov({ turnLength: k })} />)}</Row>
-              <T v="faint">{TURN_LENGTH[pov.turnLength ?? 'standard'].hint} About {TURN_LENGTH[pov.turnLength ?? 'standard'].words} a turn. In play the game master’s rules set perspective, structure and length; the voice keeps its word choice and texture.</T>
+              <T v="faint">{pov.engine === 'classic' ? `${TURN_LENGTH[pov.turnLength ?? 'standard'].hint} About ${TURN_LENGTH[pov.turnLength ?? 'standard'].words} a turn.` : `About ${SIM_WORDS[pov.turnLength ?? 'standard']} a turn.`} In play the game’s rules set perspective, structure and length; the voice keeps its word choice and texture.</T>
               <SwitchRow label="Tests of skill" value={pov.checks} onChange={(v) => setPov({ checks: v })} />
               <T v="label">Start at</T>
               <RefChips value={pov.startLocationId} options={refOptions(entities, []).location ?? []} onChange={(id) => setPov({ startLocationId: id })} none="Home, or let the story decide" />

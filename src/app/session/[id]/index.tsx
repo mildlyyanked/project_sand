@@ -21,6 +21,8 @@ import { useLens } from '@/state/lens';
 import { segments } from '@/core/lens';
 import { entryTip, findMentions } from '@/core/world/mentions';
 import { EntryTipCard } from '@/ui/components/EntryTip';
+import { LeadsList, SimPanel, useSimNow } from '@/ui/components/Sim';
+import { simOn } from '@/state/sim';
 import { composePicture, entryImagePrompt } from '@/core/world/forge';
 import { complete, paintReady } from '@/state/paint';
 import { ForgeSheet } from '@/ui/components/Forge';
@@ -80,6 +82,7 @@ export default function Manuscript() {
   const [adjItem, setAdjItem] = useState('');
   const [canonize, setCanonize] = useState<Newcomer | null>(null);
   const [tip, setTip] = useState<{ id: string; beatId: string; y: number } | null>(null);
+  const [addressee, setAddressee] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
   const [beatMenu, setBeatMenu] = useState<Beat | null>(null);
   const [edit, setEdit] = useState<{ beat: Beat; text: string } | null>(null);
@@ -112,6 +115,8 @@ export default function Manuscript() {
   const path = s.path;
   const world = s.world;
   const playing = session?.mode === 'pov' && !!s.wb.player;
+  const simMode = playing && simOn(session);
+  const simNow = useSimNow();
   const mode: Mode = playing ? (rawMode === 'say' ? 'say' : 'do') : rawMode === 'do' || rawMode === 'say' ? 'direct' : rawMode;
   const calendar = s.bundle.universe?.data.calendar;
   const currency = s.bundle.universe?.data.currency || 'coins';
@@ -197,7 +202,8 @@ export default function Manuscript() {
     s.clearSuggestions();
     if (mode === 'do' || mode === 'say') {
       void askNotificationPermission();
-      await s.act(mode === 'say' ? `You say: “${v.replace(/^["“]|["”]$/g, '')}”` : v);
+      const line = v.replace(/^["“]|["”]$/g, '');
+      await s.act(mode === 'say' ? (addressee ? `You say to ${addressee}: “${line}”` : `You say: “${line}”`) : v);
       return;
     }
     await s.addBeat(mode === 'write' ? 'prose' : 'instruction', v);
@@ -205,7 +211,7 @@ export default function Manuscript() {
       void askNotificationPermission();
       void s.generate();
     }
-  }, [text, mode, session, streaming, s]);
+  }, [text, mode, session, streaming, s, addressee]);
 
   function openDirection(regenerateId?: string) {
     setBeatMenu(null);
@@ -273,7 +279,7 @@ export default function Manuscript() {
     const sibs = pos.of > 1 ? siblings(s.index, b.id) : [];
     const multiModel = sibs.length > 1 && new Set(sibs.map((x) => x.model)).size > 1;
     const faces = b.role === 'prose' ? portraitPeople.filter((c) => namedIn(b.text, c.name)).slice(0, 5) : [];
-    const changed = sheetChanges.get(b.id);
+    const changed = b.state?.sim?.chips.length ? b.state.sim.chips : sheetChanges.get(b.id);
     const meta = b.role === 'prose' && (pos.of > 1 || b.model || faces.length || changed || lensOn);
     const pics = illustrationsByBeat.get(b.id) ?? [];
     return (
@@ -339,7 +345,7 @@ export default function Manuscript() {
     );
   };
 
-  const phaseLabel = !streaming ? '' : streaming.phase === 'refereeing' ? 'The game master reads the turn' : streaming.phase === 'chronicling' ? 'Recording what changed' : streaming.phase === 'summarizing' ? 'Folding older beats into the summary' : streaming.phase === 'reweaving' ? 'Reweaving later passages' : streaming.phase === 'planning' ? 'Planning the passage' : streaming.phase === 'critiquing' ? 'Editor is reading' : streaming.phase === 'proposing' ? 'Planning the next scene' : streaming.phase === 'suggesting' ? 'Thinking of next moves' : streaming.phase === 'illustrating' ? (streaming.text ? `Painting with ${shortModel(streaming.model)}` : 'Describing the picture') : `${shortModel(streaming.model)}${streaming.attempt ? ` · attempt ${streaming.attempt + 1}${streaming.step ? ` · ${streaming.step.kind}` : ''}` : ''}`;
+  const phaseLabel = !streaming ? '' : streaming.phase === 'refereeing' ? (simMode ? 'The world answers' : 'The game master reads the turn') : streaming.phase === 'chronicling' ? 'Recording what changed' : streaming.phase === 'summarizing' ? 'Folding older beats into the summary' : streaming.phase === 'reweaving' ? 'Reweaving later passages' : streaming.phase === 'planning' ? 'Planning the passage' : streaming.phase === 'critiquing' ? 'Editor is reading' : streaming.phase === 'proposing' ? 'Planning the next scene' : streaming.phase === 'suggesting' ? 'Thinking of next moves' : streaming.phase === 'illustrating' ? (streaming.text ? `Painting with ${shortModel(streaming.model)}` : 'Describing the picture') : `${shortModel(streaming.model)}${streaming.attempt ? ` · attempt ${streaming.attempt + 1}${streaming.step ? ` · ${streaming.step.kind}` : ''}` : ''}`;
   const phaseIcon = !streaming ? 'pencil-outline' : streaming.phase === 'refereeing' ? 'dice-outline' : streaming.phase === 'chronicling' ? 'git-commit-outline' : streaming.phase === 'writing' ? 'pencil-outline' : streaming.phase === 'reweaving' ? 'git-merge-outline' : streaming.phase === 'planning' || streaming.phase === 'proposing' ? 'map-outline' : streaming.phase === 'critiquing' ? 'glasses-outline' : streaming.phase === 'suggesting' ? 'sparkles-outline' : streaming.phase === 'illustrating' ? 'image-outline' : 'albums-outline';
 
   return (
@@ -410,6 +416,11 @@ export default function Manuscript() {
                   {showReasoning ? <T v="mono" style={{ color: t.dim, marginTop: 4 }}>{streaming.reasoning}</T> : null}
                 </Pressable>
               ) : null}
+              {streaming.chips?.length ? (
+                <Row gap={6} style={{ flexWrap: 'wrap' }}>
+                  {streaming.chips.map((c, i) => <View key={i} style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: t.surface2 }}><T v="small" style={{ color: t.accent }}>{c}</T></View>)}
+                </Row>
+              ) : null}
               <T style={{ fontFamily: serif, fontSize, lineHeight: fontSize * 1.6, color: streaming.phase === 'writing' ? t.text : t.dim }}>{streaming.text}{streaming.text ? '▍' : ''}</T>
               {!streaming.text && !streaming.reasoning ? <T v="faint">…</T> : null}
               {s.drafts.map((d) => (
@@ -453,7 +464,17 @@ export default function Manuscript() {
             {playing && sheet && (sheet.conditions.length || sheet.down) ? <T v="small" style={{ color: t.danger }} numberOfLines={1}>{[sheet.down ? 'down' : '', ...sheet.conditions].filter(Boolean).join(' · ')}</T> : null}
           </Pressable>
         ) : null}
-        {playing ? (
+        {simMode ? (
+          <SimPanel
+            busy={!!streaming}
+            h={{
+              talkTo: (name) => { setMode('say'); setAddressee(name); setTimeout(() => inputRef.current?.focus(), 300); },
+              compose: (v) => { setMode('do'); setAddressee(null); setText(v); setTimeout(() => inputRef.current?.focus(), 300); },
+              act: (v) => quick(v),
+              canonize: (name, kind) => setCanonize({ name, kind, note: '' }),
+            }}
+          />
+        ) : playing ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
             <Chip small label="Look around" onPress={() => quick('You look around, taking in the place and the people in it.')} />
             <Chip small label="Go to…" onPress={() => setTravelOpen(true)} />
@@ -477,6 +498,7 @@ export default function Manuscript() {
         ) : null}
         <Row>
           {(playing ? POV_MODES : MODES).map((m) => <Chip key={m.key} small label={m.label} selected={mode === m.key} onPress={() => setMode(m.key)} />)}
+          {playing && mode === 'say' && addressee ? <Chip small label={`to ${addressee.replace(/^the /, '')}  ×`} selected onPress={() => setAddressee(null)} /> : null}
           <IconButton name="sparkles-outline" size={18} color={s.suggestions.length ? t.accent : t.dim} onPress={() => { void askNotificationPermission(); void s.suggest(); }} disabled={!!streaming} style={{ padding: 4 }} />
           <View style={{ flex: 1 }} />
           <IconButton name="arrow-undo-outline" size={20} onPress={s.undo} disabled={!path.length || !!streaming} />
@@ -550,7 +572,7 @@ export default function Manuscript() {
             {beatMenu.role === 'prose' && beatMenu.model ? <MenuItem icon="glasses-outline" label="Critique and redo" hint="The helper marks up this passage; the writer rewrites it against the notes" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.critiqueAndRedo(b.id); }} /> : null}
             {beatMenu.role === 'prose' && imageBackend.kind !== 'prompt' ? <MenuItem icon="image-outline" label="Illustrate" hint="The helper describes the strongest moment; the image model paints it" onPress={() => { const b = beatMenu; setBeatMenu(null); void askNotificationPermission(); void s.illustrate(b.id); }} /> : null}
             {beatMenu.role === 'prose' ? <MenuItem icon="color-palette-outline" label="Picture prompt" hint="Only the image prompt, to paste into Perchance or any generator" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.illustrate(b.id, { promptOnly: true }); }} /> : null}
-            {beatMenu.role === 'prose' && beatMenu.id === lastProseId && chronicleOn(session) ? <MenuItem icon="git-commit-outline" label="Record again" hint="Run the chronicle for this passage again: time, place, events and the sheet" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.rechronicle(b.id); }} /> : null}
+            {beatMenu.role === 'prose' && beatMenu.id === lastProseId && chronicleOn(session) && !simMode ? <MenuItem icon="git-commit-outline" label="Record again" hint="Run the chronicle for this passage again: time, place, events and the sheet" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.rechronicle(b.id); }} /> : null}
             {beatMenu.role === 'prose' ? <MenuItem icon="person-add-outline" label="Find new names" hint="People, places, factions and things in this passage that the library lacks, to canonize" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.findNewcomers(b.id); }} /> : null}
             {beatMenu.plan ? <MenuItem icon="map-outline" label="Show the plan it followed" onPress={() => { const b = beatMenu; setBeatMenu(null); s.setNotice(`Plan: ${b.plan}`); }} /> : null}
             {beatMenu.id !== session.currentBeatId ? <MenuItem icon="cut-outline" label="Continue from here" hint="Later beats stay on their branch" onPress={() => { const b = beatMenu; setBeatMenu(null); void s.setCurrent(b.id); }} /> : null}
@@ -696,7 +718,7 @@ export default function Manuscript() {
         {sheet && world ? (
           <>
             <Row style={{ flexWrap: 'wrap' }}>
-              {(['status', 'inventory', 'aims', 'people'] as const).map((k) => <Chip key={k} small label={k === 'status' ? 'Status' : k === 'inventory' ? `Inventory · ${sheet.inventory.reduce((n, i) => n + i.qty, 0)}` : k === 'aims' ? `Aims · ${sheet.objectives.filter((o) => !o.done).length}` : 'People'} selected={sheetTab === k} onPress={() => setSheetTab(k)} />)}
+              {(['status', 'inventory', 'aims', 'people'] as const).map((k) => <Chip key={k} small label={k === 'status' ? 'Status' : k === 'inventory' ? `Inventory · ${sheet.inventory.reduce((n, i) => n + i.qty, 0)}` : k === 'aims' ? (simMode ? `Leads · ${(simNow?.sim.leads ?? []).filter((l) => l.status === 'open').length}` : `Aims · ${sheet.objectives.filter((o) => !o.done).length}`) : 'People'} selected={sheetTab === k} onPress={() => setSheetTab(k)} />)}
             </Row>
             {sheetTab === 'status' ? (
               <>
@@ -716,6 +738,11 @@ export default function Manuscript() {
               </>
             ) : sheetTab === 'inventory' ? (
               <>
+                {simMode && simNow ? (() => {
+                  const owned = Object.values(simNow.sim.places).filter((p) => p.owner === 'player');
+                  const bed = simNow.sim.lodging && simNow.sim.lodging.until > simNow.sim.clock ? simNow.sim.places[simNow.sim.lodging.place] : undefined;
+                  return owned.length || bed ? <T v="small" style={{ color: t.accent }}>{[owned.length ? `Yours: ${owned.map((p) => p.name).join(', ')}` : '', bed ? `Bed at ${bed.name} until ${formatShort(calendar, simNow.sim.lodging!.until)}` : ''].filter(Boolean).join(' · ')}</T> : null;
+                })() : null}
                 {sheet.inventory.length ? sheet.inventory.map((it) => {
                   const def = s.wb.entities.find((e) => e.kind === 'item' && e.name.toLowerCase() === it.name.toLowerCase());
                   const usable = Object.keys(parseEffects(def?.data.effects ?? it.note ?? '')).length > 0;
@@ -747,7 +774,10 @@ export default function Manuscript() {
               </>
             ) : sheetTab === 'aims' ? (
               <>
-                {sheet.objectives.length ? sheet.objectives.map((o) => <T key={o.text} v={o.done ? 'faint' : 'body'} style={o.done ? { textDecorationLine: 'line-through' } : undefined}>• {o.text}</T>) : <T v="faint">No aims yet. They appear as the story gives you some.</T>}
+                {simMode ? <LeadsList leads={simNow?.sim.leads ?? []} calendar={calendar} /> : null}
+                {simMode && Object.entries(simNow?.sim.rep ?? {}).some(([, v]) => v) ? <T v="small">Standing: {Object.entries(simNow!.sim.rep).filter(([, v]) => v).map(([f, v]) => `${f} ${v > 0 ? '+' : ''}${v}`).join(' · ')}</T> : null}
+                {simMode && sheet.objectives.length ? <T v="label">Aims</T> : null}
+                {simMode && !sheet.objectives.length ? null : sheet.objectives.length ? sheet.objectives.map((o) => <T key={o.text} v={o.done ? 'faint' : 'body'} style={o.done ? { textDecorationLine: 'line-through' } : undefined}>• {o.text}</T>) : <T v="faint">No aims yet. They appear as the story gives you some.</T>}
                 {sheet.threads?.length ? (
                   <View style={{ gap: 6, marginTop: 12 }}>
                     <Pressable onPress={() => setPeek((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>

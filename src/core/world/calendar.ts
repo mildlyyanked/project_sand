@@ -46,12 +46,25 @@ export function formatShort(cal: WorldCalendar | undefined, at: Minutes): string
   return full.replace(/^Year \d+[^,]*, /, '');
 }
 
-export function timeOfDay(cal: WorldCalendar | undefined, at: Minutes): string {
+/** The hour of the day on a 24-hour scale (a 30-hour world day is squeezed to fit), for schedules and crowds. */
+export function hourOfDay(cal: WorldCalendar | undefined, at: Minutes): number {
   const c = cal ?? DEFAULT_CALENDAR;
   const hpd = c.kind === 'gregorian' ? 24 : Math.max(1, c.hoursPerDay || 24);
   const offset = c.kind === 'gregorian' ? Math.floor(startMs(c.start) / 60000) : 0;
   const m = (((Math.round(at) + offset) % (hpd * 60)) + hpd * 60) % (hpd * 60);
-  const h = (m / 60) * (24 / hpd);
+  return (m / 60) * (24 / hpd);
+}
+
+/** Which day it is, counting from the calendar's start: for daily restocks, rent and income. */
+export function dayIndex(cal: WorldCalendar | undefined, at: Minutes): number {
+  const c = cal ?? DEFAULT_CALENDAR;
+  const hpd = c.kind === 'gregorian' ? 24 : Math.max(1, c.hoursPerDay || 24);
+  const offset = c.kind === 'gregorian' ? Math.floor(startMs(c.start) / 60000) : 0;
+  return Math.floor((Math.round(at) + offset) / (hpd * 60));
+}
+
+export function timeOfDay(cal: WorldCalendar | undefined, at: Minutes): string {
+  const h = hourOfDay(cal, at);
   if (h < 5) return 'deep night';
   if (h < 7) return 'dawn';
   if (h < 11) return 'morning';

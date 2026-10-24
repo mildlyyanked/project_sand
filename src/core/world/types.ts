@@ -168,6 +168,8 @@ export interface SceneState {
   locationName: string;
   /** Who is in the scene besides the player, as the chronicle last had it. */
   present?: string[];
+  /** Play with the world simulation: what this turn did, so the world can be rebuilt and the chips shown. */
+  sim?: import('../sim/types').TurnRecord;
   pov?: PovState;
 }
 
@@ -183,4 +185,8 @@ export interface PovSettings {
   turnLength?: import('./gm').TurnLength;
   /** Threads prepared before the first passage; after that they live on the sheet. */
   threads?: import('./gm').Thread[];
+  /** 'sim' (default): the world simulation decides each turn and the narrator tells it. 'classic': the narrator leads and a clerk records. */
+  engine?: 'sim' | 'classic';
+  /** The play world's kit (names, people, goods, prices), written once. */
+  kit?: import('../sim/types').Kit;
 }

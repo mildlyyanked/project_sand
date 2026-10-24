@@ -81,6 +81,10 @@ const MIGRATIONS: string[] = [
   CREATE TABLE lens (beat_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, data_json TEXT NOT NULL, created_at INTEGER NOT NULL);
   CREATE INDEX lens_session ON lens(session_id);
   `,
+  // 10: play's world simulation: snapshots of the world at some passages; the passages between keep their ops.
+  `
+  CREATE TABLE sim_snap (session_id TEXT NOT NULL, beat_id TEXT NOT NULL, data_json TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (session_id, beat_id));
+  `,
 ];
 
 export async function migrate(db: SQLiteDatabase): Promise<void> {

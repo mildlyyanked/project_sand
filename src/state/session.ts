@@ -12,6 +12,10 @@ import { DEFAULT_ART_STYLE, newcomersPrompt, parseNewcomers, type Newcomer } fro
 import { normName } from '@/core/world/drafts';
 import { imageOf, namedIn } from '@/core/world/portraits';
 import { buildWorldContext, chronicle, chronicleOn, emptyWorldBundle, gmRead, initialScene, loadWorldBundle, seedThreads, type WorldBundle } from './world';
+import { ensureKit, keepSnap, loadSnaps, narration, recordSimTurn, resolveTurn, sceneFromSim, simAt, simContext, simOn } from './sim';
+import { resolveAction } from '@/core/sim/actions';
+import type { SimAction } from '@/core/sim/types';
+import type { TurnResult } from '@/core/sim/turn';
 import type { GmRead, Thread } from '@/core/world/gm';
 import { clinicOpening, clinicSystem, critiquePrompt, imagePromptPrompt, parseClinicReply, parseSuggestions, planPrompt, scenePrompt, suggestPrompt, transcriptOf, type ClinicEdit } from '@/core/helpers';
 import { renderHeat } from '@/core/context/cards';
@@ -39,6 +43,8 @@ export interface Streaming {
   startedAt: number;
   /** Beat being replaced (regenerate) or the parent for a new beat. */
   parentId: Id | null;
+  /** Play: what the turn already changed, shown while the narrator writes. */
+  chips?: string[];
 }
 
 /** A sibling draft written by an extra model alongside the main passage. */
@@ -153,7 +159,9 @@ interface SessionState {
   redo(): Promise<void>;
   swipe(id: Id, dir: 1 | -1): Promise<void>;
   preview(direction?: string, model?: string): ReturnType<typeof assembleContext> | null;
-  generate(o?: { direction?: string; regenerateId?: Id; model?: string; parentId?: Id | null }): Promise<void>;
+  generate(o?: { direction?: string; regenerateId?: Id; model?: string; parentId?: Id | null; simAction?: SimAction }): Promise<void>;
+  /** Play: a tapped action (go, buy, sell, work, rent, rest, wait, take, store), settled by the world's rules, then narrated. */
+  simAct(action: SimAction): Promise<void>;
   stop(): void;
   summarizeNow(): Promise<void>;
   toggleDropped(key: string): void;
@@ -267,6 +275,7 @@ export const useSession = create<SessionState>((set, get) => {
     db: null, session: null, beats: [], index: emptyIndex, path: [], bundle: emptyBundle, wb: emptyWorldBundle, world: null, survivalNotes: [], streaming: null, drafts: [], illustrations: [], suggestions: [], sceneProposal: null, refusal: null, clinic: null, imagePrompt: null, diagnoseOnStop: false, error: null, notice: null, dropped: new Set(), lastLog: [], abort: null,
 
     async open(db, id) {
+      void loadSnaps(db, id);
       const row = await getSession(db, id);
       if (!row) {
         set({ db, session: null, beats: [], index: emptyIndex, path: [], error: 'Session not found' });
@@ -525,6 +534,13 @@ export const useSession = create<SessionState>((set, get) => {
         let check: CheckResult | null = null;
         let read: GmRead | null = null;
         const action = [lastBeat?.role === 'instruction' ? lastBeat.text : '', o.direction ?? ''].filter(Boolean).join('; ');
+        // Play on the world simulation: the world decides the turn first, the narrator tells it.
+        const simPlay = playing && simOn(sess);
+        let simTurn: { turn: TurnResult; opening: boolean } | null = null;
+        let simBrief: WorldContext['sim'] = null;
+        let simScene: SceneState | undefined;
+        let simNow: number | undefined;
+        let simSince = 0;
         if (playing && !o.regenerateId) {
           setFor(sid, (s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'refereeing', model: sess.models.helper } } : {}));
           try {
@@ -548,20 +564,53 @@ export const useSession = create<SessionState>((set, get) => {
                 scene = sceneAt(path, initialScene(sess, wb));
               }
             }
-            read = await gmRead({ apiKey, model: sess.models.helper, zdr: sess.zdr, signal: abort.signal, action, scene, player: wb.player!, universe: bundle.universe, difficulty: sess.pov?.difficulty ?? 'survival', recent: lastProse?.text ?? '', checks: sess.pov?.checks !== false, wb });
-            const ruling = read?.ruling;
-            if (ruling) check = rollCheck({ attribute: ruling.attribute, difficulty: ruling.difficulty, score: wb.player!.data.attributes?.[ruling.attribute], state: scene.pov, why: ruling.why, onSuccess: ruling.onSuccess, onFailure: ruling.onFailure });
-          } catch {
+            if (simPlay) {
+              await ensureKit({ db, session: sess, universe: bundle.universe, apiKey, signal: abort.signal, save: async (kit) => { sess = { ...sess, pov: { ...sess.pov!, kit } }; await upsertSession(db, sess); setFor(sid, { session: sess }); } });
+              const at = simAt({ session: sess, path, wb, universe: bundle.universe });
+              if (at.fresh) await keepSnap(db, sess.id, at.baseAt, at.sim);
+              simSince = at.since;
+              simTurn = await resolveTurn({ session: sess, universe: bundle.universe, wb, sim: at.sim, pov: scene.pov!, apiKey, signal: abort.signal, action, tapped: o.simAction ?? null, opening: !lastProse, recent: lastProse?.text ?? '' });
+              const t = simTurn.turn;
+              simScene = sceneFromSim(t.sim, t.pov, t.record, simContext(sess, bundle.universe, wb.player));
+              simNow = t.sim.clock;
+              simBrief = narration({ session: sess, universe: bundle.universe, wb, sim: t.sim, pov: t.pov, record: t.record, check: t.check, opening: simTurn.opening });
+              check = t.check;
+              setFor(sid, (s) => (s.streaming ? { streaming: { ...s.streaming, chips: t.record.chips }, survivalNotes: t.notes } : {}));
+            } else {
+              read = await gmRead({ apiKey, model: sess.models.helper, zdr: sess.zdr, signal: abort.signal, action, scene, player: wb.player!, universe: bundle.universe, difficulty: sess.pov?.difficulty ?? 'survival', recent: lastProse?.text ?? '', checks: sess.pov?.checks !== false, wb });
+              const ruling = read?.ruling;
+              if (ruling) check = rollCheck({ attribute: ruling.attribute, difficulty: ruling.difficulty, score: wb.player!.data.attributes?.[ruling.attribute], state: scene.pov, why: ruling.why, onSuccess: ruling.onSuccess, onFailure: ruling.onFailure });
+            }
+          } catch (e) {
             if (abort.signal.aborted) return;
+            if (simPlay) {
+              setFor(sid, { error: e instanceof Error ? e.message : String(e) });
+              return;
+            }
           }
           setFor(sid, (s) => (s.streaming ? { streaming: { ...s.streaming, phase: 'writing', model } } : {}));
         }
         if (o.regenerateId && playing) {
-          const prev = index.byId.get(o.regenerateId)?.state?.pov;
+          const prevBeat = index.byId.get(o.regenerateId);
+          const prev = prevBeat?.state?.pov;
           check = prev?.lastCheck ?? null;
           read = prev?.lastRead ?? null;
+          // The same turn, told again: the world after it is what the passage kept.
+          if (simPlay && prevBeat?.state?.sim && prev) {
+            const after = simAt({ session: sess, path: [...path, prevBeat], wb, universe: bundle.universe });
+            simScene = prevBeat.state;
+            simNow = prevBeat.at ?? after.sim.clock;
+            simBrief = narration({ session: sess, universe: bundle.universe, wb, sim: after.sim, pov: prev, record: prevBeat.state.sim, check, opening: !lastProse });
+            setFor(sid, (s) => (s.streaming ? { streaming: { ...s.streaming, chips: prevBeat.state!.sim!.chips } } : {}));
+          }
         }
-        const world = await buildWorldContext(db, sess, path, wb, { check, read, survivalNotes: get().survivalNotes });
+        const world = await buildWorldContext(db, sess, path, wb, { check, read, survivalNotes: get().survivalNotes, sim: simBrief, scene: simScene, now: simNow });
+        // In play on the world simulation every passage of this turn keeps the turn's world, drafts and partials included.
+        const keepTurn = async (b: Beat) => {
+          if (!simScene) return;
+          await updateBeatWorld(db, b.id, simNow ?? null, simScene);
+          if (mine(sid)) setFor(sid, recompute(get().beats.map((x) => (x.id === b.id ? { ...x, at: simNow ?? x.at, state: simScene! } : x)), get().session!));
+        };
         // Plan first: a short, cheap call to the helper that gives the writer a spine to follow. Not in play: the player is the plan.
         let plan = '';
         if (sess.planFirst && !playing) {
@@ -594,7 +643,7 @@ export const useSession = create<SessionState>((set, get) => {
             }
             const clean = trimDegenerate(text).text.trim();
             upd({ done: true, text: clean });
-            if (clean.length > 40 && !abort.signal.aborted) await get().insertGenerated({ sessionId: sid, parentId, text: clean, model: dm, direction: o.direction, plan: plan.trim() || null, usage: cost != null ? { promptTokens: 0, completionTokens: 0, costUsd: cost } : null, keepCurrent: true });
+            if (clean.length > 40 && !abort.signal.aborted) await keepTurn(await get().insertGenerated({ sessionId: sid, parentId, text: clean, model: dm, direction: o.direction, plan: plan.trim() || null, usage: cost != null ? { promptTokens: 0, completionTokens: 0, costUsd: cost } : null, keepCurrent: true }));
           } catch (e) {
             upd({ done: true, error: e instanceof Error ? e.message : String(e) });
           }
@@ -635,7 +684,7 @@ export const useSession = create<SessionState>((set, get) => {
           const partial = attempts[attempts.length - 1];
           const partialText = partial && partial.stripPrefix && partial.text.startsWith(partial.stripPrefix) ? partial.text.slice(partial.stripPrefix.length) : partial?.text ?? '';
           if (partial && partialText.trim().length > 40) {
-            await get().insertGenerated({ sessionId: sid, parentId, text: partialText.trim(), model: partial.model, direction: o.direction, reasoning: partial.reasoning });
+            await keepTurn(await get().insertGenerated({ sessionId: sid, parentId, text: partialText.trim(), model: partial.model, direction: o.direction, reasoning: partial.reasoning }));
             setFor(sid, { notice: 'Stopped. Kept the partial passage.' });
           }
           return;
@@ -661,8 +710,15 @@ export const useSession = create<SessionState>((set, get) => {
         const mainBeat = await get().insertGenerated({ sessionId: sid, parentId, text: finalText.trim(), model: final.model, direction: o.direction, reasoning: final.reasoning, plan: plan.trim() || null, usage });
         // The passage is on the page; the footer now only tracks the extra drafts still writing.
         setFor(sid, (st) => (st.streaming ? { streaming: { ...st.streaming, text: '', reasoning: '' } } : {}));
+        if (simScene) {
+          await keepTurn(mainBeat);
+          await recordSimTurn(db, sess, wb, mainBeat, simTurn, simNow ?? 0, simSince);
+          const was = sceneAt(path, initialScene(sess, wb)).pov;
+          if (simScene.pov?.down && !was?.down) setFor(sid, { notice: sess.pov?.difficulty === 'hardcore' ? `${wb.player?.name ?? 'Your character'} has fallen. Undo to try again from an earlier moment, or play out the end.` : `${wb.player?.name ?? 'Your character'} is down. The story goes on, at a cost.` });
+          await get().refreshWorld();
+        }
         // The chronicle: time, place, events, and in play the player's books. A refusal is not chronicled.
-        if (chronicleOn(sess) && !final.refused && finalText.trim()) {
+        else if (chronicleOn(sess) && !final.refused && finalText.trim()) {
           setFor(sid, (st) => (st.streaming ? { streaming: { ...st.streaming, phase: 'chronicling', model: sess.models.helper } } : {}));
           try {
             const out = await chronicle({ db, apiKey, model: sess.models.helper, zdr: sess.zdr, signal: abort.signal, session: sess, universe: bundle.universe, species: bundle.species, wb, beat: mainBeat, parentPath: path, action, check, read });
@@ -938,6 +994,22 @@ export const useSession = create<SessionState>((set, get) => {
       await get().addBeat('instruction', v);
       await get().generate();
     },
+    async simAct(action) {
+      const { session, path, wb, bundle } = get();
+      if (!session || !simOn(session) || get().streaming || !wb.player) return;
+      const scene = sceneAt(path, initialScene(session, wb));
+      if (!scene.pov) return;
+      const ctx = simContext(session, bundle.universe, wb.player);
+      const { sim } = simAt({ session, path, wb, universe: bundle.universe });
+      const preview = resolveAction(sim, scene.pov, action, { kit: ctx.kit, currency: ctx.currency, calendar: ctx.calendar });
+      // Refused by the rules (shut, too dear, not here): say so without spending a turn.
+      if (!preview.ops.length) {
+        set({ notice: preview.outcome });
+        return;
+      }
+      await get().addBeat('instruction', preview.action);
+      await get().generate({ simAction: action });
+    },
     async setClock(minutes) {
       const { db, session, path } = get();
       if (!db || !session) return;
@@ -981,6 +1053,7 @@ export const useSession = create<SessionState>((set, get) => {
     async rechronicle(beatId) {
       const sid = get().session?.id ?? '';
       const { db, session, path, index, wb, bundle } = get();
+      if (simOn(session)) return;
       const { apiKey } = useSettings.getState();
       const beat = index.byId.get(beatId);
       const at = path.findIndex((b) => b.id === beatId);

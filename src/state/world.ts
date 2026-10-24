@@ -58,7 +58,7 @@ export function initialScene(s: Session, wb: WorldBundle): SceneState {
   };
 }
 
-export async function buildWorldContext(db: SQLiteDatabase, s: Session, path: Beat[], wb: WorldBundle, extra: { check?: CheckResult | null; read?: GmRead | null; survivalNotes?: string[] } = {}): Promise<WorldContext | undefined> {
+export async function buildWorldContext(db: SQLiteDatabase, s: Session, path: Beat[], wb: WorldBundle, extra: { check?: CheckResult | null; read?: GmRead | null; survivalNotes?: string[]; sim?: WorldContext['sim']; scene?: SceneState; now?: number } = {}): Promise<WorldContext | undefined> {
   if (!needsWorld(s, wb)) return undefined;
   const instanceId = s.instanceId ?? wb.instance?.id ?? null;
   let events: WorldEvent[] = [];
@@ -73,16 +73,17 @@ export async function buildWorldContext(db: SQLiteDatabase, s: Session, path: Be
     instance: wb.instance,
     events,
     siblings,
-    now: clockAt(path, s.clockStart),
-    scene: sceneAt(path, initialScene(s, wb)),
+    now: extra.now ?? clockAt(path, s.clockStart),
+    scene: extra.scene ?? sceneAt(path, initialScene(s, wb)),
     player: s.mode === 'pov' ? wb.player : null,
     check: extra.check ?? null,
     read: extra.read ?? null,
     survivalNotes: extra.survivalNotes,
+    sim: extra.sim ?? null,
   };
 }
 
-async function helperJson(o: { apiKey: string; model: string; messages: Parameters<typeof client.stream>[0]['messages']; maxTokens: number; zdr: boolean; signal?: AbortSignal }): Promise<string> {
+export async function helperJson(o: { apiKey: string; model: string; messages: Parameters<typeof client.stream>[0]['messages']; maxTokens: number; zdr: boolean; signal?: AbortSignal }): Promise<string> {
   let text = '';
   let reasoning = '';
   for await (const ev of client.stream({ apiKey: o.apiKey, model: o.model, messages: o.messages, params: { temperature: 0.2, topP: 0.9, maxTokens: Math.max(o.maxTokens, 4000), reasoning: false }, zdr: o.zdr, signal: o.signal })) {

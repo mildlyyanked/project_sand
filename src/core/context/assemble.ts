@@ -43,6 +43,8 @@ export interface WorldContext {
   survivalNotes?: string[];
   /** POV mode: the game master's read of this turn. */
   read?: GmRead | null;
+  /** Play on the world simulation: the narrator's contract, the scene as it stands, and the turn as decided. */
+  sim?: { contract: string; scene: string; turn: string } | null;
 }
 
 export interface AssembleInput {
@@ -134,7 +136,7 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   if (!pov || p.system.trim()) push({ key: 'system', label: 'System', role: 'system', text: p.system.trim() || tpl.craft });
   const styleText = style ? renderStyle(style, { play: !!pov }) : '';
   if (style && styleText) push({ key: 'style', label: `Voice · ${style.name}`, role: 'system', text: styleText });
-  if (pov) push({ key: 'gm', label: 'Game master', role: 'system', text: gmContract({ name: pov.name, length: session.pov?.turnLength }) });
+  if (pov) push({ key: 'gm', label: world?.sim ? 'Playing the world' : 'Game master', role: 'system', text: world?.sim ? world.sim.contract : gmContract({ name: pov.name, length: session.pov?.turnLength }) });
   if (characters.length) {
     const text = ['# Characters', ...characters.map((c) => renderCharacter(c, species.find((s) => s.id === c.speciesId), world ? renderCharacterWorld(c, refName) : [], pov?.id === c.id ? " (the player's character)" : ''))].join('\n\n');
     push({ key: 'characters', label: `Characters · ${characters.length}`, role: 'system', text });
@@ -223,7 +225,8 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   }
   if (pov && world?.scene.pov) {
     push({ key: 'pov', label: `Player · ${pov.name}`, role: 'system', text: renderPov(world.scene.pov, { name: pov.name, currency: universe?.data?.currency ?? '', difficulty: session.pov?.difficulty ?? 'survival' }) });
-    const threads = renderThreads(world.scene.pov.threads);
+    if (world.sim?.scene) push({ key: 'scene', label: 'Where you are', role: 'system', text: world.sim.scene });
+    const threads = world.sim ? '' : renderThreads(world.scene.pov.threads);
     if (threads) push({ key: 'threads', label: `Behind the screen · ${(world.scene.pov.threads ?? []).filter((t) => t.status === 'open').length}`, role: 'system', text: threads });
   }
   if (overflow.length) {
@@ -240,10 +243,13 @@ export function assembleContext(input: AssembleInput): AssembledContext {
 
   const tail: string[] = [];
   const opening = !recent.some((b) => b.role === 'prose') && !session.summary.trim();
-  if (opening) tail.push(pov ? gmOpening(pov.name) : tpl.opening);
-  if (pov && world?.read) tail.push(renderGmRead(world.read, world.scene.pov?.threads));
-  if (world?.check) tail.push(renderCheck(world.check));
-  if (pov) tail.push(`Narrate this turn by the rules of the game: resolve ${pov.name}'s action, let the world react, change something, hand back at a decision. Second person, present tense, ${TURN_LENGTH[session.pov?.turnLength ?? 'standard'].words}. Never decide, speak, think or act for ${pov.name}.`);
+  if (pov && world?.sim) tail.push(world.sim.turn);
+  else {
+    if (opening) tail.push(pov ? gmOpening(pov.name) : tpl.opening);
+    if (pov && world?.read) tail.push(renderGmRead(world.read, world.scene.pov?.threads));
+    if (world?.check) tail.push(renderCheck(world.check));
+    if (pov) tail.push(`Narrate this turn by the rules of the game: resolve ${pov.name}'s action, let the world react, change something, hand back at a decision. Second person, present tense, ${TURN_LENGTH[session.pov?.turnLength ?? 'standard'].words}. Never decide, speak, think or act for ${pov.name}.`);
+  }
   if (world?.survivalNotes?.length) tail.push(`Since the last passage: ${world.survivalNotes.join(' ')}`);
   if (input.plan?.trim()) tail.push(`${tpl.planLead}\n${input.plan.trim()}`);
   if (p.postHistory.trim()) tail.push(p.postHistory.trim());

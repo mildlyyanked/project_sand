@@ -53,6 +53,7 @@ export async function deleteSession(db: SQLiteDatabase, id: Id): Promise<void> {
     await db.runAsync('DELETE FROM illustrations WHERE session_id = ?', id);
     await db.runAsync('DELETE FROM world_events WHERE session_id = ?', id);
     await db.runAsync('DELETE FROM lens WHERE session_id = ?', id);
+    await db.runAsync('DELETE FROM sim_snap WHERE session_id = ?', id);
     await db.runAsync('DELETE FROM sessions WHERE id = ?', id);
   });
 }
@@ -122,6 +123,7 @@ export async function deleteBeats(db: SQLiteDatabase, ids: Id[]): Promise<void> 
   await db.runAsync(`DELETE FROM beats WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids);
   await db.runAsync(`DELETE FROM world_events WHERE beat_id IN (${ids.map(() => '?').join(',')})`, ...ids);
   await db.runAsync(`DELETE FROM lens WHERE beat_id IN (${ids.map(() => '?').join(',')})`, ...ids);
+  await db.runAsync(`DELETE FROM sim_snap WHERE beat_id IN (${ids.map(() => '?').join(',')})`, ...ids);
 }
 
 export function makeBeat(p: Partial<Beat> & { sessionId: Id; parentId: Id | null; role: Beat['role']; text: string }): Beat {
