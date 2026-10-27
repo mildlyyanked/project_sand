@@ -21,7 +21,8 @@ import { useLens } from '@/state/lens';
 import { segments } from '@/core/lens';
 import { entryTip, findMentions } from '@/core/world/mentions';
 import { EntryTipCard } from '@/ui/components/EntryTip';
-import { LeadsList, SimPanel, useSimNow } from '@/ui/components/Sim';
+import { LeadsList, useSimNow } from '@/ui/components/Sim';
+import { PlayScreen } from '@/ui/components/Play';
 import { simOn } from '@/state/sim';
 import { composePicture, entryImagePrompt } from '@/core/world/forge';
 import { complete, paintReady } from '@/state/paint';
@@ -83,6 +84,8 @@ export default function Manuscript() {
   const [canonize, setCanonize] = useState<Newcomer | null>(null);
   const [tip, setTip] = useState<{ id: string; beatId: string; y: number } | null>(null);
   const [addressee, setAddressee] = useState<string | null>(null);
+  /** Play on the world simulation: the map first, the full story in the journal. */
+  const [view, setView] = useState<'map' | 'journal'>('map');
   const [menu, setMenu] = useState(false);
   const [beatMenu, setBeatMenu] = useState<Beat | null>(null);
   const [edit, setEdit] = useState<{ beat: Beat; text: string } | null>(null);
@@ -355,12 +358,17 @@ export default function Manuscript() {
           title: session.title,
           headerRight: () => (
             <Row gap={0}>
+              {simMode ? <IconButton name={view === 'map' ? 'book-outline' : 'map-outline'} onPress={() => setView(view === 'map' ? 'journal' : 'map')} /> : null}
               <IconButton name="layers-outline" onPress={() => router.push(`/session/${session.id}/context`)} />
               <IconButton name="ellipsis-horizontal" onPress={() => setMenu(true)} />
             </Row>
           ),
         }}
       />
+      {simMode && view === 'map' ? (
+        <PlayScreen onJournal={() => setView('journal')} onSheet={(tab) => { setSheetTab(tab); setSheetOpen(true); }} canonize={(name, kind) => setCanonize({ name, kind, note: '' })} />
+      ) : (
+      <>
       {s.error ? <View style={{ padding: space.md }}><Banner text={s.error} onClose={s.clearError} /></View> : null}
       {s.notice ? <View style={{ padding: space.md }}><Banner text={s.notice} tone="info" onClose={() => s.setNotice(null)} /></View> : null}
       {s.refusal && !streaming ? (
@@ -464,17 +472,7 @@ export default function Manuscript() {
             {playing && sheet && (sheet.conditions.length || sheet.down) ? <T v="small" style={{ color: t.danger }} numberOfLines={1}>{[sheet.down ? 'down' : '', ...sheet.conditions].filter(Boolean).join(' · ')}</T> : null}
           </Pressable>
         ) : null}
-        {simMode ? (
-          <SimPanel
-            busy={!!streaming}
-            h={{
-              talkTo: (name) => { setMode('say'); setAddressee(name); setTimeout(() => inputRef.current?.focus(), 300); },
-              compose: (v) => { setMode('do'); setAddressee(null); setText(v); setTimeout(() => inputRef.current?.focus(), 300); },
-              act: (v) => quick(v),
-              canonize: (name, kind) => setCanonize({ name, kind, note: '' }),
-            }}
-          />
-        ) : playing ? (
+        {!simMode && playing ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
             <Chip small label="Look around" onPress={() => quick('You look around, taking in the place and the people in it.')} />
             <Chip small label="Go to…" onPress={() => setTravelOpen(true)} />
@@ -483,7 +481,7 @@ export default function Manuscript() {
             <Chip small label="Inventory" onPress={() => { setSheetTab('inventory'); setSheetOpen(true); }} />
           </ScrollView>
         ) : null}
-        {session.world.newcomers?.length && !streaming ? (
+        {session.world.newcomers?.length && !streaming && !simMode ? (
           <Pressable onPress={() => setCanonOpen(true)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 8, opacity: pressed ? 0.7 : 1 })}>
             <Ionicons name="person-add-outline" size={14} color={t.accent} />
             <T v="small" numberOfLines={1} style={{ flex: 1 }}>New in the story: {session.world.newcomers.map((n) => n.name).join(', ')}</T>
@@ -499,7 +497,7 @@ export default function Manuscript() {
         <Row>
           {(playing ? POV_MODES : MODES).map((m) => <Chip key={m.key} small label={m.label} selected={mode === m.key} onPress={() => setMode(m.key)} />)}
           {playing && mode === 'say' && addressee ? <Chip small label={`to ${addressee.replace(/^the /, '')}  ×`} selected onPress={() => setAddressee(null)} /> : null}
-          <IconButton name="sparkles-outline" size={18} color={s.suggestions.length ? t.accent : t.dim} onPress={() => { void askNotificationPermission(); void s.suggest(); }} disabled={!!streaming} style={{ padding: 4 }} />
+          {!simMode ? <IconButton name="sparkles-outline" size={18} color={s.suggestions.length ? t.accent : t.dim} onPress={() => { void askNotificationPermission(); void s.suggest(); }} disabled={!!streaming} style={{ padding: 4 }} /> : null}
           <View style={{ flex: 1 }} />
           <IconButton name="arrow-undo-outline" size={20} onPress={s.undo} disabled={!path.length || !!streaming} />
           <IconButton name="arrow-redo-outline" size={20} onPress={s.redo} disabled={!hasRedo || !!streaming} />
@@ -516,7 +514,7 @@ export default function Manuscript() {
           />
           <IconButton name={mode === 'scene' ? 'film-outline' : 'arrow-up-circle'} size={mode === 'scene' ? 26 : 30} color={canSend ? t.accent : t.faint} onPress={send} disabled={!canSend} />
         </Row>
-        <Row between>
+        {!simMode ? <Row between>
           <Row gap={6} style={{ flexWrap: 'wrap', flex: 1 }}>
             <Pill onPress={() => router.push(`/models?target=session:${session.id}:writer&current=${encodeURIComponent(session.models.writer)}`)}>
               <Ionicons name="hardware-chip-outline" size={13} color={t.dim} />
@@ -545,8 +543,10 @@ export default function Manuscript() {
               <Ionicons name="chevron-up" size={16} color={t.accentText} />
             </Pressable>
           </Pressable>
-        </Row>
+        </Row> : null}
       </View>
+      </>
+      )}
 
       {/* Story menu */}
       <Sheet open={menu} onClose={() => setMenu(false)} title={session.title}>

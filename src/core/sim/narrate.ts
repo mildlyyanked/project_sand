@@ -5,6 +5,7 @@ import { normName } from '../world/drafts';
 import { sceneAt } from './crowd';
 import { services } from './actions';
 import { nearbyPlaces } from './ops';
+import { whereLine } from './grid';
 import type { Kit, Place, Resolution, SimState } from './types';
 
 /**
@@ -45,6 +46,7 @@ export function sceneForNarrator(sim: SimState, kit: Kit, pov: PovState, o: { ca
     `# Where you are: ${chain}`,
     s.place.note ? s.place.note : '',
     `It is ${timeOfDay(o.calendar, sim.clock)}. About ${s.crowd} ${s.crowd === 1 ? 'person' : 'people'} here.`,
+    whereLine(sim),
     s.people.length ? `People here: ${s.people.map((a) => { const r = rel(a.name); return `${a.name} (${[a.role, a.look, a.status !== 'ok' ? a.status : '', r ? `${attitudeWord(r.attitude)} toward you` : ''].filter(Boolean).join(', ')})`; }).join('; ')}.` : 'No one here you know by name.',
     s.faces.length ? `Faces in the crowd (unnamed unless they give a name): ${s.faces.map((f) => `a ${f.look} ${f.role}`).join('; ')}.` : '',
     exitsLine(sim, s.place),

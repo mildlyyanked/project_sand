@@ -12,8 +12,12 @@ import { resolveAction } from '@/core/sim/actions';
 import { parseReferee, refereePrompt, sceneForReferee } from '@/core/sim/referee';
 import { renderTurn, sceneForNarrator, simContract, type SimLength } from '@/core/sim/narrate';
 import type { SimContext } from '@/core/sim/ops';
-import type { Kit, Resolution, SimAction, SimState } from '@/core/sim/types';
+import type { Kit, Resolution, SimAction, SimOp, SimState } from '@/core/sim/types';
 import { listSnaps, saveSnap } from '@/db/repo/sim';
+import { applyOps } from '@/core/sim/ops';
+import { fallbackLayout, layoutPrompt, parseLayout, type Layout } from '@/core/sim/grid';
+import { mapNeeds, resolveMap, type MapAction, type MapNeed, type MapResolution } from '@/core/sim/map';
+import { placeChain } from '@/core/sim/narrate';
 import { saveEvent } from '@/db/repo/world';
 import { resolveRefs } from '@/core/world/scan';
 import { newId, now } from '@/core/ids';
@@ -68,8 +72,8 @@ export function simAt(o: { session: Session; path: Beat[]; wb: WorldBundle; univ
     const b = path[i]!;
     const snap = map.get(b.id);
     if (snap) { base = clone(snap); baseAt = b.id; break; }
-    if (b.role !== 'prose') continue;
     if (b.state?.sim) { chain.unshift(i); continue; }
+    if (b.role !== 'prose') continue;
     break;
   }
   if (!base) {
@@ -184,3 +188,57 @@ export async function recordSimTurn(db: SQLiteDatabase, sess: Session, wb: World
   }
   if (since + 1 >= 12) await keepSnap(db, sess.id, beat.id, t.sim);
 }
+
+function worldLine(u: Universe | null): string {
+  if (!u) return '';
+  return [`World: ${u.name}`, u.description, u.data.genre && `Genre: ${u.data.genre}`, u.data.tone && `Tone: ${u.data.tone}`, u.data.technology && `Technology: ${u.data.technology}`, u.data.society && `Society: ${u.data.society}`].filter(Boolean).join('\n');
+}
+
+/** Lay out a map the move needs: one helper call, or the rules when there is no key or the answer is unusable. */
+async function layoutOps(o: { need: MapNeed; sim: SimState; session: Session; universe: Universe | null; apiKey: string; signal?: AbortSignal }): Promise<SimOp[]> {
+  const p = o.sim.places[o.need.place];
+  if (!p) return [];
+  const kids = Object.values(o.sim.places).filter((q) => q.parent === p.id);
+  const must = o.need.mode === 'inside' ? kids.map((q) => ({ name: q.name, venue: q.venue, note: q.note })) : [{ name: p.name, venue: p.venue, note: p.note }];
+  let layout: Layout | null = null;
+  if (o.apiKey) {
+    try {
+      const text = await helperJson({ apiKey: o.apiKey, model: o.session.models.helper, zdr: o.session.zdr, signal: o.signal, maxTokens: 3500, messages: layoutPrompt({ mode: o.need.mode, place: { name: p.name, venue: p.venue, type: p.type, note: p.note }, scale: o.need.scale, chain: placeChain(o.sim, p).slice(0, -1).map((q) => q.name).reverse(), must, world: worldLine(o.universe) }) });
+      layout = parseLayout(text, o.need.scale);
+    } catch (e) {
+      if (o.signal?.aborted) throw e;
+    }
+  }
+  if (o.need.mode === 'inside') return [{ op: 'level', place: p.id, layout: layout ?? fallbackLayout({ scale: o.need.scale, must: must.map((m) => ({ name: m.name, venue: m.venue as Place['venue'] })), seed: o.sim.seed, name: p.name }) }];
+  const name = layout?.name?.trim() || `The land around ${p.name}`;
+  const type = layout?.type || (o.need.scale === 'system' ? 'system' : o.need.scale === 'world' ? 'planet' : o.need.scale === 'realm' ? 'continent' : o.need.scale === 'city' ? 'city' : o.need.scale === 'quarter' ? 'district' : 'region');
+  return [
+    { op: 'parent', name, type, ...(layout?.note ? { note: layout.note } : {}) },
+    { op: 'level', place: name, layout: layout ?? fallbackLayout({ scale: o.need.scale, must: [{ name: p.name, venue: p.venue }], seed: o.sim.seed, name }) },
+  ];
+}
+
+type Place = SimState['places'][string];
+
+/** A move on the map, worked out: maps laid out if needed, the move settled, the turn run. */
+export async function planMapTurn(o: { session: Session; universe: Universe | null; wb: WorldBundle; sim: SimState; pov: PovState; a: MapAction; apiKey: string; signal?: AbortSignal; onMapping?: (name: string) => void }): Promise<{ turn: TurnResult; res: MapResolution; mapped: boolean }> {
+  const ctx = simContext(o.session, o.universe, o.wb.player);
+  const pre: SimOp[] = [];
+  let sim = o.sim;
+  for (const need of mapNeeds(sim, o.a)) {
+    o.onMapping?.(sim.places[need.place]?.name ?? '');
+    const ops = await layoutOps({ need, sim, session: o.session, universe: o.universe, apiKey: o.apiKey, signal: o.signal });
+    sim = applyOps(sim, o.pov, ops, ctx).sim;
+    pre.push(...ops);
+  }
+  // Arriving with no cell yet (first time on this map): stand at its way in.
+  if (!sim.pos && sim.places[sim.here]?.level) sim = { ...sim, pos: { ...sim.places[sim.here]!.level!.entry } };
+  const res = resolveMap(sim, o.a, { kit: ctx.kit, calendar: ctx.calendar });
+  const posFix: SimOp[] = !o.sim.pos && sim.pos && sim.places[sim.here]?.level ? [{ op: 'step', x: sim.pos.x, y: sim.pos.y, minutes: 0 }] : [];
+  const all = { ...res, ops: [...pre, ...posFix, ...res.ops] };
+  const turn = runTurn(o.sim, o.pov, all, ctx);
+  turn.record.action = res.action;
+  turn.record.outcome = res.outcome;
+  return { turn, res, mapped: pre.length > 0 };
+}
+

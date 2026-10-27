@@ -6,7 +6,9 @@ import { LEG, STAFFED, rolesFor, venueOf } from './kit';
 import { faceFor, faceKeyPlace, whereIs } from './crowd';
 import { link, outfit, reveal, staffFor } from './seed';
 import { restock, worth } from './economy';
-import type { Actor, Kit, Lead, Place, SimOp, SimState } from './types';
+import type { Actor, Kit, Lead, Place, SimOp, SimState, Venue } from './types';
+import { SCALE_ORDER, at as cellAt, passCost, rasterize, scaleOf, spotAt } from './grid';
+import { hash, rng } from './rng';
 
 /**
  * The one way the world changes. Every op is checked against the world as it
@@ -109,6 +111,7 @@ export function applyOps(simIn: SimState, povIn: PovState, ops: SimOp[], ctx: Si
         const minutes = Math.max(1, Math.round(op.minutes ?? way?.minutes ?? LEG[to.venue]));
         if (!way) link(sim.places, sim.here, to.id, minutes);
         sim.here = to.id;
+        sim.pos = to.level ? { ...to.level.entry } : null;
         reveal(sim.places, to.id);
         time(minutes);
         out.chips.push(`→ ${to.name} · ${formatDuration(minutes)}`);
@@ -243,10 +246,16 @@ export function applyOps(simIn: SimState, povIn: PovState, ops: SimOp[], ctx: Si
           out.applied.push({ op: 'place', name: known.name });
           break;
         }
-        const parent = (op.within && findPlace(sim, op.within)) || sim.places[sim.places[sim.here]?.parent ?? ''] || sim.places[sim.here];
+        // Found right where the player stands: it goes on this map, at (or next to) their cell.
+        const onMap = (op.here || op.x != null) && sim.places[sim.here]?.level ? sim.places[sim.here] : undefined;
+        const parent = onMap ?? ((op.within && findPlace(sim, op.within)) || sim.places[sim.places[sim.here]?.parent ?? ''] || sim.places[sim.here]);
         const venue = op.venue ?? venueOf(name, '', op.note ?? '');
         const id = nextId('p');
         const p: Place = { id, name, venue, type: '', parent: parent?.id ?? null, exits: [], note: op.note?.trim() ?? '', danger: Math.max(0, Math.min(5, Math.round(op.danger ?? 0))), known: true, visited: false, made: true };
+        if (onMap?.level) {
+          const c = freeCell(sim, onMap, op.x ?? sim.pos?.x ?? onMap.level.entry.x, op.y ?? sim.pos?.y ?? onMap.level.entry.y);
+          if (c) { p.x = c.x; p.y = c.y; }
+        }
         outfit(p, ctx.kit, sim.seed);
         sim.places[id] = p;
         if (parent) link(sim.places, id, parent.id, Math.max(1, Math.round(op.minutes ?? LEG[venue])));
@@ -255,7 +264,7 @@ export function applyOps(simIn: SimState, povIn: PovState, ops: SimOp[], ctx: Si
         out.chips.push(`New place: ${name}`);
         out.facts.push(`There is a place called ${name}${parent ? ` in ${parent.name}` : ''}${p.note ? `: ${p.note}` : ''}.`);
         out.events.push({ title: `Found ${name}`, kind: 'discovery', who: [name], importance: 1 });
-        out.applied.push({ op: 'place', name, venue, ...(parent ? { within: parent.id } : {}), ...(op.minutes ? { minutes: op.minutes } : {}), ...(op.note ? { note: op.note } : {}), ...(op.danger ? { danger: op.danger } : {}) });
+        out.applied.push({ op: 'place', name, venue, ...(parent ? { within: parent.id } : {}), ...(op.minutes ? { minutes: op.minutes } : {}), ...(op.note ? { note: op.note } : {}), ...(op.danger ? { danger: op.danger } : {}), ...(p.x != null ? { x: p.x, y: p.y } : {}) });
         break;
       }
       case 'lead': {
@@ -330,6 +339,76 @@ export function applyOps(simIn: SimState, povIn: PovState, ops: SimOp[], ctx: Si
         out.applied.push({ op: 'lodge', place: p.id, nights });
         break;
       }
+      case 'level': {
+        const p = findPlace(sim, op.place);
+        if (!p) break;
+        applyLevel(sim, p, op.layout, ctx, nextId);
+        out.applied.push({ op: 'level', place: p.id, layout: op.layout });
+        break;
+      }
+      case 'parent': {
+        const top = sim.places[sim.here];
+        const name = op.name?.trim();
+        if (!top || top.parent || !name) break;
+        const t = (op.type || 'region').toLowerCase();
+        const venue: Venue = t === 'city' || t === 'town' ? 'settlement' : t === 'district' ? 'district' : 'region';
+        const id = nextId('p');
+        sim.places[id] = { id, name, venue, type: t, parent: null, exits: [], note: op.note?.trim() ?? '', danger: 0, known: true, visited: false, made: true };
+        top.parent = id;
+        link(sim.places, top.id, id, LEG[top.venue]);
+        out.chips.push(`Beyond: ${name}`);
+        out.applied.push({ op: 'parent', name, type: t, ...(op.note ? { note: op.note } : {}) });
+        break;
+      }
+      case 'step': {
+        const here = sim.places[sim.here];
+        if (!here?.level) break;
+        const x = Math.max(0, Math.min(here.level.w - 1, Math.round(op.x)));
+        const y = Math.max(0, Math.min(here.level.h - 1, Math.round(op.y)));
+        sim.pos = { x, y };
+        const m = Math.max(0, Math.round(op.minutes));
+        time(m);
+        // Out in the open, what is near you comes into view.
+        if (SCALE_ORDER.indexOf(here.level.scale) >= SCALE_ORDER.indexOf('city')) {
+          for (const q of Object.values(sim.places)) if (q.parent === here.id && q.x != null && !q.known && Math.max(Math.abs(q.x - x), Math.abs(q.y! - y)) <= 3) { q.known = true; out.chips.push(`Found: ${q.name}`); }
+        }
+        if (m >= 5) out.chips.push(`Walked · ${formatDuration(m)}`);
+        out.applied.push({ op: 'step', x, y, minutes: m });
+        break;
+      }
+      case 'enter': {
+        const p = findPlace(sim, op.place);
+        if (!p || p.parent !== sim.here) break;
+        sim.here = p.id;
+        sim.pos = p.level ? { ...p.level.entry } : null;
+        const first = !p.visited;
+        reveal(sim.places, p.id);
+        time(1);
+        out.chips.push(`In: ${p.name}`);
+        out.facts.push(`You went into ${p.name}${first ? ' for the first time' : ''}.`);
+        out.applied.push({ op: 'enter', place: p.id });
+        break;
+      }
+      case 'leave': {
+        const target = op.to ? findPlace(sim, op.to) : undefined;
+        let moved = false;
+        for (let i = 0; i < 8; i++) {
+          const cur = sim.places[sim.here];
+          const up = cur?.parent ? sim.places[cur.parent] : undefined;
+          if (!cur || !up) break;
+          sim.here = up.id;
+          sim.pos = cur.x != null && cur.y != null ? { x: cur.x, y: cur.y } : up.level ? { ...up.level.entry } : null;
+          reveal(sim.places, up.id);
+          moved = true;
+          if (!target || up.id === target.id) break;
+        }
+        if (!moved) break;
+        time(1);
+        out.chips.push(`Out: ${sim.places[sim.here]!.name}`);
+        out.facts.push(`You came out into ${sim.places[sim.here]!.name}.`);
+        out.applied.push({ op: 'leave', ...(target ? { to: target.id } : {}) });
+        break;
+      }
       case 'stash': {
         const has = pov.inventory.find((i) => normName(i.name) === normName(op.item));
         if (!has || !canStash(sim)) break;
@@ -364,4 +443,48 @@ export function applyOps(simIn: SimState, povIn: PovState, ops: SimOp[], ctx: Si
 export function canStash(sim: SimState): boolean {
   const p = sim.places[sim.here];
   return !!p && (p.owner === 'player' || (sim.lodging?.place === p.id && sim.lodging.until > sim.clock));
+}
+
+/** The nearest cell of a map that is open ground and holds no place. */
+export function freeCell(sim: SimState, p: Place, x: number, y: number): { x: number; y: number } | null {
+  const l = p.level;
+  if (!l) return null;
+  for (let r = 0; r < Math.max(l.w, l.h); r++) for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) {
+    if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+    const cx = x + dx;
+    const cy = y + dy;
+    if (cx < 0 || cy < 0 || cx >= l.w || cy >= l.h) continue;
+    if (passCost(cellAt(l, cx, cy), l.scale) == null || spotAt(sim, p.id, cx, cy)) continue;
+    return { x: cx, y: cy };
+  }
+  return null;
+}
+
+/** A laid-out map onto a place: its grid, its spots matched to the places already inside it or made new, and room for the rest. */
+function applyLevel(sim: SimState, p: Place, layout: import('./grid').Layout, ctx: SimContext, nextId: (prefix: string) => string): void {
+  const scale = scaleOf(p);
+  const { level, spots } = rasterize(layout, scale);
+  p.level = level;
+  if (layout.note && !p.note) p.note = layout.note;
+  const fog = SCALE_ORDER.indexOf(scale) >= SCALE_ORDER.indexOf('city');
+  const kids = () => Object.values(sim.places).filter((q) => q.parent === p.id);
+  for (const sp of spots) {
+    const key = normName(sp.library || sp.name);
+    const existing = kids().find((q) => normName(q.name) === key || normName(q.name) === normName(sp.name));
+    if (existing) { existing.x = sp.x; existing.y = sp.y; if (!existing.note && sp.note) existing.note = sp.note; continue; }
+    const id = nextId('p');
+    const q: Place = { id, name: sp.name, venue: sp.venue, type: '', parent: p.id, exits: [], note: sp.note, danger: sp.danger, known: !fog, visited: false, made: true, x: sp.x, y: sp.y };
+    outfit(q, ctx.kit, sim.seed);
+    sim.places[id] = q;
+    link(sim.places, id, p.id, LEG[q.venue]);
+    if (STAFFED.has(q.venue)) { const a = staffFor(q, ctx.kit, sim.seed); sim.actors[a.id] = a; }
+    if (q.shop) restock(sim, q, ctx.kit, dayIndex(ctx.calendar, sim.clock));
+  }
+  // Places already inside that the layout left out still get a cell.
+  const r = rng(hash(sim.seed, 'unplaced', p.id));
+  for (const q of kids()) {
+    if (q.x != null) continue;
+    const c = freeCell(sim, p, Math.floor(r() * level.w), Math.floor(r() * level.h));
+    if (c) { q.x = c.x; q.y = c.y; }
+  }
 }

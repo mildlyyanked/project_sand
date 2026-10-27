@@ -12,7 +12,8 @@ import { DEFAULT_ART_STYLE, newcomersPrompt, parseNewcomers, type Newcomer } fro
 import { normName } from '@/core/world/drafts';
 import { imageOf, namedIn } from '@/core/world/portraits';
 import { buildWorldContext, chronicle, chronicleOn, emptyWorldBundle, gmRead, initialScene, loadWorldBundle, seedThreads, type WorldBundle } from './world';
-import { ensureKit, keepSnap, loadSnaps, narration, recordSimTurn, resolveTurn, sceneFromSim, simAt, simContext, simOn } from './sim';
+import { ensureKit, keepSnap, loadSnaps, narration, planMapTurn, recordSimTurn, resolveTurn, sceneFromSim, simAt, simContext, simOn } from './sim';
+import { moveLine, type MapAction } from '@/core/sim/map';
 import { resolveAction } from '@/core/sim/actions';
 import type { SimAction } from '@/core/sim/types';
 import type { TurnResult } from '@/core/sim/turn';
@@ -39,7 +40,7 @@ export interface Streaming {
   attempt: number;
   step: RefusalStep | null;
   model: string;
-  phase: 'summarizing' | 'writing' | 'reweaving' | 'planning' | 'critiquing' | 'proposing' | 'suggesting' | 'illustrating' | 'refereeing' | 'chronicling';
+  phase: 'summarizing' | 'writing' | 'reweaving' | 'planning' | 'critiquing' | 'proposing' | 'suggesting' | 'illustrating' | 'refereeing' | 'chronicling' | 'mapping';
   startedAt: number;
   /** Beat being replaced (regenerate) or the parent for a new beat. */
   parentId: Id | null;
@@ -159,7 +160,9 @@ interface SessionState {
   redo(): Promise<void>;
   swipe(id: Id, dir: 1 | -1): Promise<void>;
   preview(direction?: string, model?: string): ReturnType<typeof assembleContext> | null;
-  generate(o?: { direction?: string; regenerateId?: Id; model?: string; parentId?: Id | null; simAction?: SimAction }): Promise<void>;
+  generate(o?: { direction?: string; regenerateId?: Id; model?: string; parentId?: Id | null; simAction?: SimAction; planned?: { turn: TurnResult; opening: boolean } }): Promise<void>;
+  /** Play: a move on the map (walk, go in, come out, travel, look). Maps are laid out as needed; plain moves are logged, the rest narrated. */
+  mapAct(action: MapAction): Promise<void>;
   /** Play: a tapped action (go, buy, sell, work, rent, rest, wait, take, store), settled by the world's rules, then narrated. */
   simAct(action: SimAction): Promise<void>;
   stop(): void;
@@ -569,7 +572,7 @@ export const useSession = create<SessionState>((set, get) => {
               const at = simAt({ session: sess, path, wb, universe: bundle.universe });
               if (at.fresh) await keepSnap(db, sess.id, at.baseAt, at.sim);
               simSince = at.since;
-              simTurn = await resolveTurn({ session: sess, universe: bundle.universe, wb, sim: at.sim, pov: scene.pov!, apiKey, signal: abort.signal, action, tapped: o.simAction ?? null, opening: !lastProse, recent: lastProse?.text ?? '' });
+              simTurn = o.planned ?? await resolveTurn({ session: sess, universe: bundle.universe, wb, sim: at.sim, pov: scene.pov!, apiKey, signal: abort.signal, action, tapped: o.simAction ?? null, opening: !lastProse, recent: lastProse?.text ?? '' });
               const t = simTurn.turn;
               simScene = sceneFromSim(t.sim, t.pov, t.record, simContext(sess, bundle.universe, wb.player));
               simNow = t.sim.clock;
@@ -993,6 +996,47 @@ export const useSession = create<SessionState>((set, get) => {
       if (!v || get().streaming) return;
       await get().addBeat('instruction', v);
       await get().generate();
+    },
+    async mapAct(action) {
+      const sid = get().session?.id ?? '';
+      const { db, session, path, wb, bundle } = get();
+      const { apiKey } = useSettings.getState();
+      if (!db || !session || !simOn(session) || get().streaming || !wb.player) return;
+      const abort = new AbortController();
+      setFor(sid, { abort, error: null, streaming: { text: '', reasoning: '', attempt: 0, step: null, model: session.models.helper, phase: 'mapping', startedAt: now(), parentId: session.currentBeatId } });
+      let handOff = false;
+      try {
+        let sess = session;
+        if (apiKey) await ensureKit({ db, session: sess, universe: bundle.universe, apiKey, signal: abort.signal, save: async (kit) => { sess = { ...sess, pov: { ...sess.pov!, kit } }; await upsertSession(db, sess); setFor(sid, { session: sess }); } });
+        const at = simAt({ session: sess, path, wb, universe: bundle.universe });
+        if (at.fresh) await keepSnap(db, sess.id, at.baseAt, at.sim);
+        const pov = sceneAt(path, initialScene(sess, wb)).pov;
+        if (!pov) return;
+        const plan = await planMapTurn({ session: sess, universe: bundle.universe, wb, sim: at.sim, pov, a: action, apiKey, signal: abort.signal, onMapping: (name) => setFor(sid, (st) => (st.streaming ? { streaming: { ...st.streaming, text: name } } : {})) });
+        if (abort.signal.aborted) return;
+        const opening = !path.some((b) => b.role === 'prose');
+        if (!plan.turn.record.ops.length && !opening) {
+          setFor(sid, { notice: plan.res.outcome });
+          return;
+        }
+        if (plan.res.narrate || opening) {
+          // Narrated: the action goes on the page and the writer tells the turn as settled.
+          handOff = true;
+          setFor(sid, { streaming: null, abort: null });
+          await get().addBeat('instruction', plan.res.action);
+          await get().generate({ planned: { turn: plan.turn, opening: opening && action.kind === 'look' } });
+          return;
+        }
+        const ctx = simContext(sess, bundle.universe, wb.player);
+        const state = sceneFromSim(plan.turn.sim, plan.turn.pov, plan.turn.record, ctx);
+        const b = await get().addBeat('note', moveLine(plan.res, plan.turn.record.chips), { state, at: plan.turn.sim.clock });
+        await recordSimTurn(db, sess, wb, b, { turn: plan.turn }, plan.turn.sim.clock, at.since);
+        if (plan.turn.notes.length) setFor(sid, { survivalNotes: plan.turn.notes });
+      } catch (e) {
+        if (!abort.signal.aborted) setFor(sid, { error: e instanceof Error ? e.message : String(e) });
+      } finally {
+        if (!handOff) setFor(sid, (st) => (st.streaming?.phase === 'mapping' ? { streaming: null, abort: null } : {}));
+      }
     },
     async simAct(action) {
       const { session, path, wb, bundle } = get();

@@ -1,14 +1,13 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { router } from 'expo-router';
 import type { Character } from '@/core/types';
 import type { PovState } from '@/core/world/types';
-import { formatDuration, formatShort, timeOfDay } from '@/core/world/calendar';
+import { formatDuration, formatShort } from '@/core/world/calendar';
 import { normName } from '@/core/world/drafts';
-import { sceneAt as simScene } from '@/core/sim/crowd';
 import { services } from '@/core/sim/actions';
 import { sellOffer } from '@/core/sim/economy';
-import { nearbyPlaces, route } from '@/core/sim/ops';
+import { route } from '@/core/sim/ops';
 import { attitudeWord, placeChain } from '@/core/sim/narrate';
 import type { Actor, Face, Lead, Place, SimAction, SimState, Venue } from '@/core/sim/types';
 import { sceneAt } from '@/core/world/timeline';
@@ -17,7 +16,7 @@ import { initialScene } from '@/state/world';
 import { simAt, simContext, simOn, useSimVersion } from '@/state/sim';
 import { Badge, Button, Chip, Ionicons, Row, SearchBox, Sheet, T, matches } from './index';
 import { Avatar } from './EntryImage';
-import { radius, space, useTheme, type Theme } from '../theme';
+import { space, useTheme, type Theme } from '../theme';
 
 /**
  * Play on the world simulation, on screen: where you are and who is here,
@@ -28,7 +27,7 @@ import { radius, space, useTheme, type Theme } from '../theme';
 type Icon = React.ComponentProps<typeof Ionicons>['name'];
 const VENUE_ICON: Partial<Record<Venue, Icon>> = { tavern: 'beer-outline', inn: 'bed-outline', market: 'basket-outline', shop: 'storefront-outline', workshop: 'hammer-outline', temple: 'flame-outline', clinic: 'medkit-outline', dock: 'boat-outline', garrison: 'shield-outline', palace: 'business-outline', office: 'document-text-outline', square: 'people-outline', street: 'trail-sign-outline', hall: 'swap-horizontal-outline', home: 'home-outline', settlement: 'business-outline', district: 'grid-outline', road: 'git-commit-outline', wild: 'leaf-outline', ruin: 'skull-outline', region: 'earth-outline', room: 'cube-outline', building: 'cube-outline', vehicle: 'car-outline' };
 export const venueIcon = (v: Venue): Icon => VENUE_ICON[v] ?? 'location-outline';
-const attColor = (n: number | undefined, t: Theme) => (n == null ? t.faint : n > 0 ? t.ok : n < 0 ? t.danger : t.dim);
+export const attColor = (n: number | undefined, t: Theme) => (n == null ? t.faint : n > 0 ? t.ok : n < 0 ? t.danger : t.dim);
 
 /** The world at the end of the open story's path, or null when this is not play on the simulation. */
 export function useSimNow() {
@@ -52,92 +51,9 @@ export interface SimHandlers {
   canonize: (name: string, kind: 'character' | 'location') => void;
 }
 
-type Who = { actor: Actor } | { face: Face };
+export type Who = { actor: Actor } | { face: Face };
 
-export function SimPanel({ h, busy }: { h: SimHandlers; busy: boolean }) {
-  const t = useTheme();
-  const s = useSession();
-  const now = useSimNow();
-  const [folded, setFolded] = useState(false);
-  const [who, setWho] = useState<Who | null>(null);
-  const [shop, setShop] = useState(false);
-  const [map, setMap] = useState(false);
-  if (!now || !now.pov) return null;
-  const { sim, pov, ctx } = now;
-  const scene = simScene(sim, ctx.kit, ctx.calendar);
-  if (!scene) return null;
-  const sv = services(sim, ctx.calendar);
-  const exits = nearbyPlaces(sim, sim.here);
-  const rel = (name: string) => Object.entries(pov.relations).find(([k]) => normName(k) === normName(name))?.[1];
-  const lib = (a: Actor) => (a.libId ? [...s.bundle.characters, ...s.wb.people].find((c) => c.id === a.libId) : undefined);
-  const tap = (a: SimAction) => { if (!busy) void s.simAct(a); };
-  const cur = ctx.currency;
-
-  return (
-    <View style={{ gap: 6 }}>
-      <Row gap={6}>
-        <Ionicons name={venueIcon(scene.place.venue)} size={14} color={t.accent} />
-        <T v="small" numberOfLines={1} style={{ flex: 1, color: t.text }}>
-          {scene.place.name}<T v="small">{`  ·  about ${scene.crowd} ${scene.crowd === 1 ? 'person' : 'people'}  ·  ${timeOfDay(ctx.calendar, sim.clock)}`}</T>
-        </T>
-        <Pressable onPress={() => setMap(true)} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-          <Ionicons name="map-outline" size={15} color={t.accent} />
-          <T v="small" style={{ color: t.accent }}>Map</T>
-        </Pressable>
-        <Pressable onPress={() => setFolded(!folded)} hitSlop={8}><Ionicons name={folded ? 'chevron-up' : 'chevron-down'} size={16} color={t.dim} /></Pressable>
-      </Row>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }} keyboardShouldPersistTaps="handled">
-        {exits.map((x) => <Chip key={x.place.id} small label={`→ ${x.place.name} · ${formatDuration(x.minutes)}`} onPress={() => tap({ kind: 'go', to: x.place.id })} />)}
-        {!exits.length ? <Chip small label="Find a way out" onPress={() => h.act('You look for a way out of here and where it leads.')} /> : null}
-      </ScrollView>
-      {!folded ? (
-        <>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
-            {scene.people.map((a) => {
-              const c = lib(a);
-              const r = rel(a.name);
-              return (
-                <Pressable key={a.id} onPress={() => setWho({ actor: a })} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingRight: 4, opacity: a.status === 'dead' ? 0.5 : 1 }}>
-                  <View>
-                    <Avatar data={c?.data as Record<string, unknown> | undefined} name={a.name} size={26} />
-                    <View style={{ position: 'absolute', right: -1, bottom: -1, width: 9, height: 9, borderRadius: 5, backgroundColor: attColor(r?.attitude, t), borderWidth: 1, borderColor: t.bg }} />
-                  </View>
-                  <T v="small" style={{ color: t.text }}>{a.status === 'dead' ? `† ${a.name.split(' ')[0]}` : a.name.split(' ')[0]}</T>
-                </Pressable>
-              );
-            })}
-            {scene.faces.map((f) => (
-              <Pressable key={f.key} onPress={() => setWho({ face: f })} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: t.border, borderStyle: 'dashed' }}>
-                <Ionicons name="person-outline" size={12} color={t.dim} />
-                <T v="small">{f.look} {f.role}</T>
-              </Pressable>
-            ))}
-            {!scene.people.length && !scene.faces.length ? <T v="faint">Nobody about.</T> : null}
-          </ScrollView>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }} keyboardShouldPersistTaps="handled">
-            {sv?.stock.length ? <Chip small label={sv.open ? `Shop · ${sv.keeper?.name.split(' ')[0] ?? 'open'}` : 'Shop · shut'} onPress={() => setShop(true)} /> : null}
-            {sv?.work ? <Chip small label={`Work ${sv.work.hours} h · ${sv.work.pay} ${cur}`} onPress={() => tap({ kind: 'work' })} /> : null}
-            {sv?.lodging ? <Chip small label={`Bed · ${sv.lodging} ${cur}`} onPress={() => tap({ kind: 'rent', nights: 1 })} /> : null}
-            {sv?.forSale ? <Chip small label={`Buy this place · ${sv.forSale}`} onPress={() => tap({ kind: 'buyPlace' })} /> : null}
-            {sv?.lying.map((x) => <Chip key={x.id} small label={`Take ${x.name}`} onPress={() => tap({ kind: 'take', thing: x.id })} />)}
-            {sv?.stash ? <Chip small label={`Your things · ${sv.stash.reduce((n, x) => n + x.qty, 0)}`} onPress={() => setShop(true)} /> : null}
-            <Chip small label="Look around" onPress={() => h.act('You look around, taking in the place and the people in it.')} />
-            <Chip small label="Wait 1 h" onPress={() => tap({ kind: 'wait', minutes: 60 })} />
-            <Chip small label="Rest" onPress={() => tap({ kind: 'rest', hours: 8 })} />
-            <Chip small label="Ask for work" onPress={() => h.act('You ask around for paid work, or anyone who needs something done.')} />
-            <Chip small label="Explore" onPress={() => h.act(`You explore ${scene.place.name} and the streets around it, learning what is where.`)} />
-          </ScrollView>
-        </>
-      ) : null}
-
-      <PersonSheet who={who} onClose={() => setWho(null)} sim={sim} pov={pov} h={h} busy={busy} onTrade={() => { setWho(null); setShop(true); }} lib={lib} />
-      <ShopSheet open={shop} onClose={() => setShop(false)} sim={sim} pov={pov} busy={busy} />
-      <MapSheet open={map} onClose={() => setMap(false)} sim={sim} busy={busy} h={h} />
-    </View>
-  );
-}
-
-function PersonSheet({ who, onClose, sim, pov, h, busy, onTrade, lib }: { who: Who | null; onClose: () => void; sim: SimState; pov: PovState; h: SimHandlers; busy: boolean; onTrade: () => void; lib: (a: Actor) => Character | undefined }) {
+export function PersonSheet({ who, onClose, sim, pov, h, busy, onTrade, lib }: { who: Who | null; onClose: () => void; sim: SimState; pov: PovState; h: SimHandlers; busy: boolean; onTrade: () => void; lib: (a: Actor) => Character | undefined }) {
   const t = useTheme();
   const [give, setGive] = useState(false);
   if (!who) return null;
@@ -196,7 +112,7 @@ function PersonSheet({ who, onClose, sim, pov, h, busy, onTrade, lib }: { who: W
   );
 }
 
-function ShopSheet({ open, onClose, sim, pov, busy }: { open: boolean; onClose: () => void; sim: SimState; pov: PovState; busy: boolean }) {
+export function ShopSheet({ open, onClose, sim, pov, busy }: { open: boolean; onClose: () => void; sim: SimState; pov: PovState; busy: boolean }) {
   const t = useTheme();
   const s = useSession();
   const now = useSimNow();
@@ -245,7 +161,7 @@ function ShopSheet({ open, onClose, sim, pov, busy }: { open: boolean; onClose: 
   );
 }
 
-function MapSheet({ open, onClose, sim, busy, h }: { open: boolean; onClose: () => void; sim: SimState; busy: boolean; h: SimHandlers }) {
+export function AtlasSheet({ open, onClose, sim, busy, h }: { open: boolean; onClose: () => void; sim: SimState; busy: boolean; h: SimHandlers }) {
   const t = useTheme();
   const s = useSession();
   const now = useSimNow();
@@ -277,7 +193,7 @@ function MapSheet({ open, onClose, sim, busy, h }: { open: boolean; onClose: () 
             {p.note ? <T v="dim">{p.note}</T> : null}
             {people(p.id) ? <T v="small">{people(p.id)} {people(p.id) === 1 ? 'person' : 'people'} you know go here</T> : null}
             <Row style={{ flexWrap: 'wrap' }}>
-              {!isHere ? <Button small icon="navigate-outline" title={`Go · ${mins != null ? formatDuration(mins) : '?'}`} disabled={busy} onPress={() => { onClose(); void s.simAct({ kind: 'go', to: p.id }); }} /> : null}
+              {!isHere ? <Button small icon="navigate-outline" title={`Travel · ${mins != null ? formatDuration(mins) : '?'}`} disabled={busy} onPress={() => { onClose(); void s.mapAct({ kind: 'travel', to: p.id }); }} /> : null}
               {p.libId ? <Button small kind="ghost" icon="open-outline" title="Open entry" onPress={() => { onClose(); router.push(`/library/entity/${p.libId}`); }} /> : null}
               {p.made ? <Button small kind="ghost" icon="sparkles-outline" title="Canonize" onPress={() => { onClose(); h.canonize(p.name, 'location'); }} /> : null}
             </Row>
@@ -289,8 +205,8 @@ function MapSheet({ open, onClose, sim, busy, h }: { open: boolean; onClose: () 
   const walk = (id: string | null, depth: number): React.ReactNode[] => kids(id).flatMap((p) => [row(p, depth), ...walk(p.id, depth + 1)]);
   const leads = sim.leads.filter((l) => l.status === 'open');
   return (
-    <Sheet open onClose={onClose} title="Map" full>
-      <T v="small">{formatShort(ctx.calendar, sim.clock)} · {known.length} places known · tap one to go</T>
+    <Sheet open onClose={onClose} title="Atlas" full>
+      <T v="small">{formatShort(ctx.calendar, sim.clock)} · {known.length} places known · tap one to travel there</T>
       {leads.length ? <Row style={{ flexWrap: 'wrap' }}>{leads.map((l) => <Badge key={l.id} label={`${l.title}${l.where ? ` · ${l.where}` : ''}`} tone="info" />)}</Row> : null}
       {known.length > 12 ? <SearchBox value={q} onChange={setQ} placeholder="Find a place" small /> : null}
       {q.trim() ? known.filter((p) => matches(q, p.name, p.note, p.venue)).map((p) => row(p, 0)) : walk(null, 0)}

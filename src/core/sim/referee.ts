@@ -8,6 +8,7 @@ import { parseThreadUpdates, newThread as makeThread, type Thread, type ThreadUp
 import { sceneAt } from './crowd';
 import { services } from './actions';
 import { placeChain, attitudeWord } from './narrate';
+import { whereLine } from './grid';
 import { nearbyPlaces } from './ops';
 import type { Kit, SimOp, SimState, Venue } from './types';
 
@@ -43,6 +44,7 @@ export function sceneForReferee(sim: SimState, kit: Kit, pov: PovState, o: { cal
   const lines = [
     `Place: ${placeChain(sim, s.place).map((p) => p.name).join(' › ')} [${s.place.id}] (${s.place.venue}${s.place.danger ? `, danger ${s.place.danger}/5` : ''}${s.place.owner ? `, owned by ${s.place.owner === 'player' ? 'the player' : s.place.owner}` : ''}). ${s.place.note}`,
     `Time: ${formatShort(o.calendar, sim.clock)} (${timeOfDay(o.calendar, sim.clock)}). About ${s.crowd} people here.`,
+    whereLine(sim),
     s.people.length ? `People here:\n${s.people.map((a) => { const r = rel(a.name); return `- ${a.name} [${a.id}]: ${[a.role, a.look, a.traits, a.staff ? 'works here' : '', a.status !== 'ok' ? a.status : '', a.faction ? `of ${a.faction}` : '', r ? `${attitudeWord(r.attitude)} toward the player${r.note ? ` (${r.note})` : ''}` : 'has not dealt with the player', a.memory.length ? `remembers: ${a.memory.slice(-3).join('; ')}` : ''].filter(Boolean).join(', ')}`; }).join('\n')}` : 'People here: nobody known by name.',
     s.faces.length ? `Faces in the crowd (not yet met; to deal with one, use their ref):\n${s.faces.map((f) => `- [${f.key}] ${f.name}, ${f.role}, ${f.look}`).join('\n')}` : '',
     exits.length ? `Exits: ${exits.join('; ')}` : 'Exits: none known.',
@@ -70,7 +72,7 @@ const OPS = [
   '{"op":"remember","who": ref,"note": string}',
   '{"op":"meet","who": face ref,"name": their name if they give one,"traits": one line of who they are} (whenever the player deals with a face in the crowd)',
   '{"op":"npc","who": ref,"goes": place ref, or null to leave the scene,"hours": how long they stay away,"status": "ok"|"hurt"|"dead"|"gone","follows": true|false (goes along with the player)}',
-  `{"op":"place","name": string,"venue": ${VENUES.map((v) => `"${v}"`).join('|')},"within": place ref,"minutes": walk from there,"note": one line} (a place the player finds, or is told the way to, that is not on the map yet)`,
+  `{"op":"place","name": string,"venue": ${VENUES.map((v) => `"${v}"`).join('|')},"within": place ref,"minutes": walk from there,"note": one line} (a place the player finds, or is told the way to, that is not on the map yet; add "here": true when they find it right where they stand)`,
   '{"op":"lead","title": string,"goal": string,"giver": ref,"where": place name,"reward": string,"money": number,"hours": time limit or 0,"thread": hidden thread name or ""} (someone offers work, asks a favour, or a rumour worth chasing; or a hidden thread surfaces into something the player can pursue)',
   '{"op":"lead","id": lead ref,"status": "done"|"failed"|"dropped","note": string}',
   '{"op":"rep","faction": name,"delta": -3..3}',

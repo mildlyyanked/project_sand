@@ -45,6 +45,11 @@ export interface Place {
   shop?: { categories: string[]; restockedDay: number };
   /** Generated in play rather than from the library. */
   made?: boolean;
+  /** Where it sits on its parent's map. */
+  x?: number;
+  y?: number;
+  /** Its own map, once someone has been inside. */
+  level?: import('./grid').Level;
 }
 
 export type Shift = 'day' | 'night' | 'none';
@@ -125,6 +130,8 @@ export interface SimState {
   met: Record<string, string>;
   /** Last day the daily round ran (rent, income, restock). */
   day: number;
+  /** The player's cell on the map of `here`, once it has one. */
+  pos?: { x: number; y: number } | null;
   counter: number;
 }
 
@@ -160,13 +167,18 @@ export type SimOp =
   | { op: 'remember'; who: string; note: string }
   | { op: 'meet'; who: string; name?: string; traits?: string }
   | { op: 'npc'; who: string; goes?: string | null; hours?: number; status?: Actor['status']; follows?: boolean }
-  | { op: 'place'; name: string; venue?: Venue; within?: string; minutes?: number; note?: string; danger?: number }
+  | { op: 'place'; name: string; venue?: Venue; within?: string; minutes?: number; note?: string; danger?: number; here?: boolean; x?: number; y?: number }
   | { op: 'lead'; id?: string; title?: string; goal?: string; giver?: string; where?: string; reward?: string; money?: number; hours?: number; status?: Lead['status']; note?: string; thread?: string }
   | { op: 'rep'; faction: string; delta: number }
   | { op: 'vital'; resource: string; delta: number }
   | { op: 'condition'; add?: string; remove?: string }
   | { op: 'own'; place: string }
   | { op: 'lodge'; place: string; nights: number }
+  | { op: 'level'; place: string; layout: import('./grid').Layout }
+  | { op: 'parent'; name: string; type: string; note?: string }
+  | { op: 'step'; x: number; y: number; minutes: number }
+  | { op: 'enter'; place: string }
+  | { op: 'leave'; to?: string }
   | { op: 'stash'; item: string; qty?: number }
   | { op: 'unstash'; item: string; qty?: number };
 
