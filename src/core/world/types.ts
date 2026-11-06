@@ -33,6 +33,8 @@ export interface WorldData {
   artStyle?: string;
   /** How faction sigils are drawn. */
   sigilStyle?: string;
+  /** The curated portrait direction: every character portrait follows it, so they look like one gallery. Never sent to the writer. */
+  portraitStyle?: string;
   calendar: WorldCalendar;
 }
 

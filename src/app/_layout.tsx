@@ -102,6 +102,7 @@ export default function RootLayout() {
                 <Stack.Screen name="library/universe/[id]" options={{ title: 'World' }} />
                 <Stack.Screen name="library/entity/[id]" options={{ title: '' }} />
                 <Stack.Screen name="world/instance/[id]" options={{ title: 'Instance' }} />
+                <Stack.Screen name="stories/[world]" options={{ title: '' }} />
                 <Stack.Screen name="start" options={{ title: 'New story' }} />
               </Stack>
             </Boot>

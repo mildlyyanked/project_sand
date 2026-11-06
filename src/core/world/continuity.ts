@@ -79,6 +79,7 @@ export function renderContinuity(c: Continuity, o: { now: Minutes; calendar?: Wo
 }
 
 export interface SiblingStory {
+  id?: string;
   title: string;
   mode: 'writer' | 'pov';
   clockStart: Minutes;

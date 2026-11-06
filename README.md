@@ -108,6 +108,8 @@ Replies are read leniently (fenced, prefaced, literal newlines inside strings, b
 
 ## Pictures of the world
 
+**Portraits** (on a world's page) holds the world's portrait direction: one paragraph every character portrait follows instead of the general art direction's framing, so the portraits look like one gallery (medium, crop and pose, lens, light, background, palette, how faces are drawn). Write it yourself, or **Write it** / **Refine it** has the helper draft it from the world, its art direction and the look of its people (with an optional note on what you want); **Try it on** paints a test portrait of any character to judge it against the gallery of existing portraits beside it, and **Keep** makes it their portrait. Like all art direction, it is never sent to the writer.
+
 Characters get a **portrait**, places a **view**, factions a **sigil**, things and peoples a **picture**, shown large at the head of their page (tap for full size, with Paint again, the prompt, and remove). The helper describes only the subject (appearance, materials, colours, never a lookalike's name); the app puts the world's **art direction** and a fixed framing for the kind in front of it (portraits head and shoulders, three-quarter view; views wide at eye level; objects centred on plain ground; sigils in the world's **sigil style**), so a world's pictures match. Art direction and sigil style live on the world's page (forgeable like any field) with a fallback in Settings → Illustrations; they never reach the writer. Passage illustrations use the same art direction.
 
 Pictures show wherever the entry does: thumbnails in the place, faction and thing trees, avatars in character lists, in every reference picker (leader, home, faction...), on the story's cast and start screens, beside every passage that names a character, on the play strip and in the People tab. When a passage is illustrated, the people it names are described by their appearance, the scene's place by its description, and with an OpenRouter image model their portraits go with the request as references (Settings → Illustrations → Use portraits as references).
@@ -138,6 +140,18 @@ A world (Library → Worlds) is a template with tabs:
 Forge works on every tab: the writer model invents places within places, factions with headquarters, people with homes and memberships, fitted to what the world already holds.
 
 The writer gets only what the scene calls for: the world card, the place the scene is in with its parents and children, and any place, faction, thing, person, people or lore whose keywords show up in the recent passages, within the **World** budget (context strategy).
+
+### Chapters and instance memory
+
+In a world of your own, an instance's stories are its **chapters**, in the order they start in the world (Chapter 1, 2, 3, played ones included). Chapters in the same instance are one continuity: what happens in one is remembered in the next, either as **canon** (the world's lore, true in every instance) or as **instance memory** (true only in this version of the world). The real world stays a plain folder, with none of this.
+
+- **The memory keeper** runs at chapter boundaries: when you start the next chapter (from the instance, the world's folder, or **Next chapter** in a story's menu), or when you tap **End chapter: remember it**. One helper call reads the chapter and writes three kinds of record into the instance's memory:
+  - a **recap**: what happened, where it was left, what is still open;
+  - a record for **each person who mattered**: where they stand now, what they have learned (kept, newest last), how they stand with each other (a new stance replaces the old), and what has changed about them for good (a scar, a title, a secret out). Library characters and people the chapters invented alike, so characters meet again with the same names, memories and grudges;
+  - **only in this instance**: the people, places, factions and things the chapter made real that the library does not have. They are kept straight away so the next chapter knows them; canonize any of them later.
+- **The next chapter reads it**: *Previously* (the latest chapter in full, older ones down to how they ended, within budget), *Remembered here* (the records of the people the passage is about: the cast and anyone named), and *Real in this instance* (the instance-only entries that come up). The instance timeline keeps working underneath, dated events with Continuity, and the "Other stories" block now only covers stories that have no recap.
+- **Reviewing it**: the instance page lists the chapters (with whether each is remembered, or has more written since, and **Remember** to catch it up), *Previously* (tap to read, hold to edit a recap), *People remembered* (edit what someone knows, how they stand, what changed; **Forget**; canonize someone who exists only here), and *Only in this instance* (**Canonize** opens the forge with what the chapters said about it, then drops it from instance memory; **Drop**). Any timeline event can be **made canon**: it becomes a history entry in the world's lore.
+- **Next chapter** remembers anything not yet remembered, then starts a story where the instance's clock stands, with the last chapter's voice, models and cast, Continuity and Chronicle on.
 
 ### Instances and timelines
 
@@ -217,7 +231,7 @@ When you play a character in a world of your own (not the real world), every pla
 
 ## Home
 
-Home is three tabs: **Stories**, **Library** (characters, voices, worlds) and **Usage**. Usage shows spend today, over the last week and all time, split into writing, pictures (illustrations, portraits, views, sigils) and library work (Forge, reforge, retcon, picture prompts), totals for passages, words and tokens, and breakdowns by model (with the refusal ledger), by story and by day, all from the cost OpenRouter reports on each request; story helper calls (plans, summaries, chronicle) are not itemized, and pictures from your own image host have no price to report. With a key saved it also shows what OpenRouter has counted against the key. The build version sits at the foot of Stories and Settings.
+Home is three tabs: **Stories**, **Library** (characters, voices, worlds) and **Usage**. **Stories** shows your three most recent stories, then one folder per world: the real world is a plain folder of stories; any other world opens onto its instances, each a run of numbered chapters with its memory and a button for the next chapter (and **New instance**). Usage shows spend today, over the last week and all time, split into writing, pictures (illustrations, portraits, views, sigils) and library work (Forge, reforge, retcon, picture prompts), totals for passages, words and tokens, and breakdowns by model (with the refusal ledger), by story and by day, all from the cost OpenRouter reports on each request; story helper calls (plans, summaries, chronicle) are not itemized, and pictures from your own image host have no price to report. With a key saved it also shows what OpenRouter has counted against the key. The build version sits at the foot of Stories and Settings.
 
 While a passage streams, the manuscript follows the writing only until you scroll up; then it stays put and a **Follow the writing** button brings you back to the end.
 

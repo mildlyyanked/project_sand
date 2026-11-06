@@ -16,6 +16,7 @@ import { canonEvents, getInstance, listEntities, primeInstance, saveEvent, sibli
 import { getCharacters, listCharacters } from '@/db/repo/library';
 import { updateBeatWorld } from '@/db/repo/sessions';
 import { client } from './client';
+import { memoryContext } from './memory';
 
 /** What a story needs from its world beyond the classic bundle. */
 export interface WorldBundle {
@@ -68,6 +69,11 @@ export async function buildWorldContext(db: SQLiteDatabase, s: Session, path: Be
     events = s.world.continuity ? canon : canon.filter((e) => e.sessionId === s.id);
     if (s.world.continuity) siblings = await siblingStories(db, instanceId, s.id);
   }
+  // Chapters of the same instance: what earlier chapters left in its memory.
+  const cast = [...wb.people.filter((c) => s.characterIds.includes(c.id)).map((c) => c.name), ...(wb.player ? [wb.player.name] : [])];
+  const recent = path.filter((b) => b.role !== 'note').slice(-4).map((b) => b.text).join('\n');
+  const memory = s.instanceId ? await memoryContext(db, s, { focus: cast, text: recent }) : null;
+  if (memory) siblings = siblings.filter((x) => !x.id || !memory.recapped.has(x.id));
   return {
     entities: wb.entities,
     instance: wb.instance,
@@ -80,6 +86,7 @@ export async function buildWorldContext(db: SQLiteDatabase, s: Session, path: Be
     read: extra.read ?? null,
     survivalNotes: extra.survivalNotes,
     sim: extra.sim ?? null,
+    memory: memory ? { previously: memory.previously, people: memory.people, entries: memory.entries } : null,
   };
 }
 

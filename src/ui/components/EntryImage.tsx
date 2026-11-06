@@ -61,7 +61,7 @@ export function EntryImage({ kind, name, data, draft, world, onChange }: { kind:
   const [err, setErr] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<string | null>(null);
   const [full, setFull] = useState(false);
-  const style = { art: world?.data.artStyle?.trim() || defaults.artStyle.trim(), sigil: world?.data.sigilStyle?.trim() || defaults.sigilStyle.trim() };
+  const style = { art: world?.data.artStyle?.trim() || defaults.artStyle.trim(), sigil: world?.data.sigilStyle?.trim() || defaults.sigilStyle.trim(), portrait: world?.data.portraitStyle?.trim() || '' };
 
   async function describe(): Promise<string> {
     const { text } = await complete({ model: defaults.models.helper, messages: entryImagePrompt({ draft: draft(), world: worldLine(world) }), maxTokens: 2000, temperature: 0.7, spend: { db, note: `${what.noun} prompt` } });

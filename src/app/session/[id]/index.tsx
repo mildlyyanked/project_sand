@@ -24,6 +24,7 @@ import { EntryTipCard } from '@/ui/components/EntryTip';
 import { LeadsList, useSimNow } from '@/ui/components/Sim';
 import { PlayScreen } from '@/ui/components/Play';
 import { simOn } from '@/state/sim';
+import { keepChapter, newChapter } from '@/state/memory';
 import { composePicture, entryImagePrompt } from '@/core/world/forge';
 import { complete, paintReady } from '@/state/paint';
 import { ForgeSheet } from '@/ui/components/Forge';
@@ -267,6 +268,29 @@ export default function Manuscript() {
       const subject = await complete({ model: session.models.helper, messages: entryImagePrompt({ draft: { id: 'lens', kind: 'item', name, fields: { summary: description } }, world: worldLine(s.bundle.universe) }), maxTokens: 2000, temperature: 0.7, spend: { db, note: 'lens picture', sessionId: session.id } });
       const prompt = composePicture('lore', subject.text.trim() || description, { art: s.bundle.universe?.data.artStyle?.trim() || useSettings.getState().defaults.artStyle.trim() });
       useSession.setState({ imagePrompt: { beatId, prompt, canPaint: paintReady().ok } });
+    } catch (e) {
+      s.setNotice(e instanceof Error ? e.message : String(e));
+    }
+  }
+  /** A chapter of an instance in a world of its own: it can be remembered and followed by the next. */
+  const chaptered = !!session?.instanceId && !!s.bundle.universe && !s.bundle.universe.isDefault && !session.isTemplate;
+  async function rememberChapter() {
+    if (!session) return;
+    s.setNotice('Remembering this chapter…');
+    try {
+      const r = await keepChapter(db, session, { apiKey: useSettings.getState().apiKey });
+      s.setNotice(r ? `Remembered: the recap, ${r.fresh.length ? `${r.fresh.length} newcomer${r.fresh.length > 1 ? 's' : ''} kept in this instance (${r.fresh.map((e) => e.name).join(', ')}), ` : ''}and what everyone now knows. The next chapter reads it.` : 'Nothing to remember yet.');
+    } catch (e) {
+      s.setNotice(e instanceof Error ? e.message : String(e));
+    }
+  }
+  async function nextChapter() {
+    if (!session?.instanceId) return;
+    s.setNotice('Remembering this chapter, then starting the next…');
+    try {
+      const made = await newChapter(db, session.instanceId, { apiKey: useSettings.getState().apiKey });
+      s.setNotice(null);
+      router.push(`/session/${made.id}`);
     } catch (e) {
       s.setNotice(e instanceof Error ? e.message : String(e));
     }
@@ -558,7 +582,9 @@ export default function Manuscript() {
         {lensOn && session.world.pins?.length ? <MenuItem icon="pin-outline" label={`Pinned details · ${session.world.pins.length}`} hint="What the Lens made fact; open a passage's Lens to unpin" onPress={() => { setMenu(false); if (lastProse) void useLens.getState().show(lastProse.id); }} /> : null}
         <MenuItem icon="albums-outline" label="Summarize now" hint="Fold older beats into the summary" onPress={() => { setMenu(false); void s.summarizeNow(); }} />
         {session.universeId && !s.bundle.universe?.isDefault ? <MenuItem icon="planet-outline" label={`World · ${s.bundle.universe?.name ?? ''}`} hint="Places, people, factions, things, lore" onPress={() => { setMenu(false); router.push(`/library/universe/${session.universeId}`); }} /> : null}
-        {session.instanceId && (session.world.continuity || clockShown) ? <MenuItem icon="git-commit-outline" label="Timeline" hint="What has happened in this version of the world" onPress={() => { setMenu(false); router.push(`/world/instance/${session.instanceId}`); }} /> : null}
+        {session.instanceId && (session.world.continuity || clockShown) ? <MenuItem icon="git-commit-outline" label="Timeline and memory" hint="What has happened in this version of the world, and what it remembers" onPress={() => { setMenu(false); router.push(`/world/instance/${session.instanceId}`); }} /> : null}
+        {chaptered ? <MenuItem icon="library-outline" label="End chapter: remember it" hint="The memory keeper writes this chapter into the instance: what happened, who knows what, who stands where, and the newcomers it made real here" onPress={() => { setMenu(false); void rememberChapter(); }} /> : null}
+        {chaptered ? <MenuItem icon="play-skip-forward-outline" label="Next chapter" hint="Remember this chapter, then start the next one where the instance's clock stands, with the same voice and cast" onPress={() => { setMenu(false); void nextChapter(); }} /> : null}
       </Sheet>
 
       {/* Beat menu */}

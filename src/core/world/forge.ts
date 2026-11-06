@@ -274,7 +274,7 @@ const FRAME: Record<LibKind, string> = {
   world: 'Panoramic view',
 };
 
-export interface ArtDirection { art?: string; sigil?: string }
+export interface ArtDirection { art?: string; sigil?: string; /** Portraits only: the world's curated portrait direction; it outranks the general art direction for people. */ portrait?: string }
 
 const clause = (s: string) => s.trim().replace(/[.\s]+$/, '');
 
@@ -285,7 +285,20 @@ const clause = (s: string) => s.trim().replace(/[.\s]+$/, '');
  */
 export function composePicture(kind: LibKind, subject: string, style: ArtDirection = {}): string {
   if (kind === 'organization') return [clause(style.sigil || DEFAULT_SIGIL_STYLE), `The device: ${clause(subject)}`, 'No text, letters or words'].filter(Boolean).join('. ') + '.';
+  if (kind === 'character' && style.portrait?.trim()) return [clause(style.portrait), clause(subject), 'No text or lettering'].filter(Boolean).join('. ') + '.';
   return [clause(style.art || DEFAULT_ART_STYLE), FRAME[kind], clause(subject), 'No text or lettering'].filter(Boolean).join('. ') + '.';
+}
+
+/**
+ * A portrait direction for a world: one paragraph an image model can follow
+ * for every portrait, so they read as one gallery. Starts from the world and
+ * its art direction, and any direction already written.
+ */
+export function portraitDirectionPrompt(o: { world: string; art: string; current: string; people: string[]; wish: string }): ChatMessage[] {
+  return [
+    { role: 'system', content: 'You write the portrait direction for a story world: the fixed instructions an image model follows for every character portrait, so the portraits look like one consistent gallery. Cover, concretely: medium and rendering (paint, ink, photo, line weight, texture), framing (crop, pose, angle, eye level), lens or perspective, lighting (key light, direction, mood), background treatment, colour palette, how faces and skin are rendered, and what must stay the same across every portrait. Fit the world exactly. Never name, describe or invent a particular character; never mention text or lettering. 70 to 130 words, one paragraph of plain instructions, output only the paragraph.' },
+    { role: 'user', content: [o.world, o.art ? `The world\'s art direction: ${o.art}` : '', o.current ? `The current portrait direction (refine it): ${o.current}` : '', o.people.length ? `Some of the people to be portrayed (for range only): ${o.people.slice(0, 6).join(' | ')}` : '', o.wish ? `What the writer wants: ${o.wish}` : ''].filter(Boolean).join('\n\n') },
+  ];
 }
 
 /** The helper's half of a picture prompt: what the entry looks like, nothing about style. */

@@ -54,6 +54,7 @@ export async function deleteSession(db: SQLiteDatabase, id: Id): Promise<void> {
     await db.runAsync('DELETE FROM world_events WHERE session_id = ?', id);
     await db.runAsync('DELETE FROM lens WHERE session_id = ?', id);
     await db.runAsync('DELETE FROM sim_snap WHERE session_id = ?', id);
+    await db.runAsync("DELETE FROM memory WHERE kind = 'recap' AND ref = ?", id);
     await db.runAsync('DELETE FROM sessions WHERE id = ?', id);
   });
 }

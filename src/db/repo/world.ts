@@ -68,6 +68,7 @@ export async function deleteInstance(db: SQLiteDatabase, id: Id): Promise<void> 
   await db.withTransactionAsync(async () => {
     await db.runAsync('UPDATE sessions SET instance_id = ? WHERE instance_id = ?', prime.id, id);
     await db.runAsync('DELETE FROM world_events WHERE instance_id = ?', id);
+    await db.runAsync('DELETE FROM memory WHERE instance_id = ?', id);
     await db.runAsync('DELETE FROM instances WHERE id = ?', id);
   });
 }
@@ -125,7 +126,7 @@ export async function siblingStories(db: SQLiteDatabase, instanceId: Id, exceptS
     const beats = ids.length ? await db.getAllAsync<{ text: string; at: number | null; role: string; created_at: number }>(`SELECT text, at, role, created_at FROM beats WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY created_at`, ...ids) : [];
     const clock = beats.reduce((m, x) => (x.at != null && x.at > m ? x.at : m), r.clock_start ?? 0);
     const lastProse = [...beats].reverse().find((x) => x.role === 'prose')?.text ?? '';
-    out.push({ title: r.title, mode: r.mode === 'pov' ? 'pov' : 'writer', clockStart: r.clock_start ?? 0, clock, summary: r.summary ?? '', excerpt: lastProse.slice(-700) });
+    out.push({ id: r.id, title: r.title, mode: r.mode === 'pov' ? 'pov' : 'writer', clockStart: r.clock_start ?? 0, clock, summary: r.summary ?? '', excerpt: lastProse.slice(-700) });
   }
   return out;
 }

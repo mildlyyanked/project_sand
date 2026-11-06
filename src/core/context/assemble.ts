@@ -43,6 +43,8 @@ export interface WorldContext {
   survivalNotes?: string[];
   /** POV mode: the game master's read of this turn. */
   read?: GmRead | null;
+  /** Chapters of an instance: earlier chapters, the people as this instance remembers them, what is real only here. */
+  memory?: { previously: string; people: string; entries: string } | null;
   /** Play on the world simulation: the narrator's contract, the scene as it stands, and the turn as decided. */
   sim?: { contract: string; scene: string; turn: string } | null;
 }
@@ -220,6 +222,9 @@ export function assembleContext(input: AssembleInput): AssembledContext {
       if (sibText) push({ key: 'stories', label: `Other stories · ${world.siblings.length}`, role: 'system', text: sibText });
     }
   }
+  if (world?.memory?.previously) push({ key: 'previously', label: 'Previously', role: 'system', text: world.memory.previously });
+  if (world?.memory?.people) push({ key: 'remembered', label: 'Remembered here', role: 'system', text: world.memory.people });
+  if (world?.memory?.entries) push({ key: 'instance', label: 'Real in this instance', role: 'system', text: world.memory.entries });
   if (session.summary.trim()) {
     push({ key: 'summary', label: `Summary · ${summarized.length} beats`, role: 'system', text: `# Story so far\n${trimToTokens(session.summary, strategy.summaryBudget)}` });
   }

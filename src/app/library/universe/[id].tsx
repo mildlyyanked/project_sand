@@ -17,6 +17,7 @@ import { rowDraft, type LibraryRow } from '@/state/library';
 import { RetconSheet } from '@/ui/components/Retcon';
 import { Avatar, EntryImage } from '@/ui/components/EntryImage';
 import { ForgeSheet } from '@/ui/components/Forge';
+import { PortraitDirection } from '@/ui/components/PortraitDirection';
 import type { ForgeKind } from '@/core/world/forge';
 import { refOptions } from '@/ui/worldRefs';
 import { EntityTree } from '@/ui/components/Tree';
@@ -119,6 +120,9 @@ export default function WorldHub() {
             <Field label="Name" value={u.name} onChangeText={(v) => update({ name: v })} onForge={() => worldRf.open('name')} />
             <Field label="Description" hint="Always sent to the writer when a story is set here." value={u.description} onChangeText={(v) => update({ description: v })} multiline style={{ minHeight: 120 }} onForge={() => worldRf.open('description')} />
             <FieldEditor defs={WORLD_FIELDS} data={u.data as unknown as Record<string, unknown>} onChange={(p) => update({ data: { ...u.data, ...p } })} onForge={(d) => worldRf.open(d.key)} />
+          </Section>
+          <Section title="Portraits">
+            <PortraitDirection u={u} people={people.filter((c) => c.universeId === u.id)} onChange={(v) => update({ data: { ...u.data, portraitStyle: v } })} onPortrait={reload} />
           </Section>
           <Section title="Grow the world">
             <T v="faint">Forge any mix of places, factions, characters, things, peoples and lore that the world most needs, read against everything already in it. Surprise me pulls on its loose threads: factions without leaders, cities nobody lives in, names mentioned but never written.</T>

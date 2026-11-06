@@ -85,6 +85,11 @@ const MIGRATIONS: string[] = [
   `
   CREATE TABLE sim_snap (session_id TEXT NOT NULL, beat_id TEXT NOT NULL, data_json TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (session_id, beat_id));
   `,
+  // 11: instance memory: chapter recaps, what people remember, instance-only entries.
+  `
+  CREATE TABLE memory (id TEXT PRIMARY KEY, instance_id TEXT NOT NULL, kind TEXT NOT NULL, ref TEXT NOT NULL, data_json TEXT NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX memory_instance ON memory(instance_id, kind);
+  `,
 ];
 
 export async function migrate(db: SQLiteDatabase): Promise<void> {
