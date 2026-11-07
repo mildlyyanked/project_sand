@@ -104,6 +104,10 @@ const MIGRATIONS: string[] = [
   CREATE INDEX workshop_universe ON workshop(universe_id, created_at);
   CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   `,
+  // 13: voices built from the writers they sound like.
+  `
+  ALTER TABLE styles ADD COLUMN voice_json TEXT NOT NULL DEFAULT '{}';
+  `,
 ];
 
 export async function migrate(db: SQLiteDatabase): Promise<void> {

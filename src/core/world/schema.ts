@@ -108,6 +108,7 @@ export const CHARACTER_FIELDS: FieldDef[] = [
   { key: 'inspiredBy', label: 'Inspired by', type: 'text', hint: 'A character from a book, film, show or game, or a real person, who inspires this one. Their look, personality and voice are written from it in this world\'s terms and the app\'s own words; the name itself never reaches the writer or a painter.', forge: false, section: 'look' },
   { key: 'appearance', label: 'Appearance', type: 'long', inContext: true, section: 'look' },
   { key: 'personality', label: 'Personality', type: 'long', hint: 'Temperament, habits, gestures, tics.', inContext: true, section: 'look' },
+  { key: 'sayings', label: 'Sounds like', type: 'lines', hint: 'Lines they might say, one per line. The writer hears their voice from these, so make them sound like no one else.', forge: '3 to 5 original lines they might say, one per line, in their own voice', section: 'look' },
   { key: 'backstory', label: 'Backstory', type: 'long', forge: '2 to 4 lines', inContext: true, section: 'life' },
   { key: 'skills', label: 'Skills', type: 'text', inContext: true, section: 'life' },
   { key: 'drives', label: 'Wants and fears', type: 'long', hint: 'What they want, what they would do for it, what they dread.', inContext: true, section: 'edge' },

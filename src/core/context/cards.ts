@@ -1,5 +1,6 @@
 import type { Character, Style, Species } from '../types';
 import { HEAT_LABELS } from '../types';
+import { hasVoice, playsLike, renderVoice, sayingsOf, voiceOf } from '../voice';
 
 function field(label: string, value: string | undefined | null): string {
   const v = (value ?? '').trim();
@@ -8,7 +9,7 @@ function field(label: string, value: string | undefined | null): string {
 
 /** True when the voice card has nothing to say about the prose (prompt-only voice). */
 export function styleCardEmpty(s: Style): boolean {
-  return !s.pointOfView && !s.tense && !s.proseDensity && !s.dialogueRatio && !s.vocabulary && !s.influences && !s.bannedPhrases.length && !s.samples.some((p) => p.trim());
+  return !hasVoice(voiceOf(s)) && !s.pointOfView && !s.tense && !s.proseDensity && !s.dialogueRatio && !s.vocabulary && !s.influences && !s.bannedPhrases.length && !s.samples.some((p) => p.trim());
 }
 
 /**
@@ -20,21 +21,22 @@ export function renderStyle(s: Style, o: { play?: boolean } = {}): string {
   if (styleCardEmpty(s)) return '';
   const lines = o.play
     ? [
-        `# Voice: ${s.name} (diction and texture; the game's rules set perspective and length)`,
+        `# Voice: ${s.name} (diction and texture; the game's rules set perspective and length)${voiceOf(s).authors.length ? `. Write like ${voiceOf(s).authors.join(' and ')}` : ''}`,
+        voiceOf(s).rules.trim() ? `How this voice writes:\n${voiceOf(s).rules.trim()}` : '',
         field('Register', s.register),
         field('Vocabulary', s.vocabulary),
         field('Influences', s.influences),
         s.bannedPhrases.length ? `Never use: ${s.bannedPhrases.join('; ')}` : '',
       ].filter(Boolean)
     : [
-        `# Style: ${s.name}`,
+        renderVoice(s.name, voiceOf(s)) || `# Style: ${s.name}`,
         field('Point of view', s.pointOfView),
         field('Tense', s.tense),
         field('Prose density', s.proseDensity),
         field('Dialogue ratio', s.dialogueRatio),
         field('Register', s.register),
         field('Vocabulary', s.vocabulary),
-        field('Influences', s.influences),
+        voiceOf(s).authors.length ? '' : field('Influences', s.influences),
         s.bannedPhrases.length ? `Never use: ${s.bannedPhrases.join('; ')}` : '',
       ].filter(Boolean);
   if (s.samples.length) {
@@ -52,6 +54,8 @@ export function renderCharacter(c: Character, species?: Species | null, extra: s
     field('Life stage', c.lifeStage),
     field('Summary', c.summary),
     field('Voice', c.voice),
+    playsLike(c),
+    sayingsOf(c).length ? `Sounds like:\n${sayingsOf(c).map((l) => `- ${l}`).join('\n')}` : '',
     field('Tells', c.tells),
     field('Relationships', c.relationships),
     field('Limits', c.limits),

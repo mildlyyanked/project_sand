@@ -76,6 +76,10 @@ export interface CharacterData {
   inspiredBy?: string;
   /** What the inspiration shapes: look (appearance), mind (personality and wants), voice. All three when unset. */
   inspire?: InspireAspect[];
+  /** Whether the writer is told who they play like. On unless switched off. */
+  playsLike?: boolean;
+  /** Lines they might say, one per line: the writer hears their voice from these. */
+  sayings?: string;
   secrets?: string;
   skills?: string;
   occupation?: string;

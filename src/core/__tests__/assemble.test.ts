@@ -11,13 +11,14 @@ const path = [
 describe('assembleContext', () => {
   it('orders layers and folds system layers into one message', () => {
     const ctx = assembleContext({ session: session(), path, style: style({ system: 'SYS' }), characters: [character()], species: [], universe: null, lore: [], model: 'm/writer' });
-    expect(ctx.layers.map((l) => l.key)).toEqual(['system', 'style', 'characters', 'beat:b1', 'beat:b2', 'beat:b3']);
+    expect(ctx.layers.map((l) => l.key)).toEqual(['system', 'style', 'characters', 'beat:b1', 'beat:b2', 'beat:b3', 'post']);
     expect(ctx.messages[0]!.role).toBe('system');
     expect(ctx.messages[0]!.content).toContain('SYS');
     expect(ctx.messages[0]!.content).toContain('# Style: Terse');
     expect(ctx.messages[0]!.content).toContain('## Mara');
     expect(ctx.messages.map((m) => m.role)).toEqual(['system', 'assistant', 'user', 'assistant', 'user']);
-    expect(ctx.messages[ctx.messages.length - 1]!.content).toBe('Continue the manuscript.');
+    // The ask, then every voice in the scene, last, where it weighs most.
+    expect(ctx.messages[ctx.messages.length - 1]!.content).toBe('Continue the manuscript.\n\nVoices in this scene: every line of dialogue and every gesture should sound like the person it belongs to, never like the narrator or each other.\n- Mara: clipped');
   });
   it('adds a user turn when the path is empty', () => {
     const ctx = assembleContext({ session: session(), path: [], style: null, characters: [], species: [], universe: null, lore: [], model: 'x' });

@@ -65,6 +65,16 @@ A character can be an original take on someone from other media, or a real perso
 
 The world agent can revise an entry (what is now true, and a new name if it needs one) or remove it, once it has worked out with the writer what they want. Each runs through Retcon: a rename rewrites every mention by rule, and the writer model rewrites whatever else the change makes untrue (or, for a removal, every entry that mentions or points at it). Every touched entry becomes one change proposal; a removal is a proposal of its own and deletes the entry, with its ties, when accepted; an accepted rename also renames it in the timelines.
 
+## Voices that hold (0.19)
+
+A voice (`Style.voice`, migration 13) is built from the writers it sounds like: authors, a strength (echo, close, pastiche) and a tone. A `voice` job has the editor model write it as rules the writer can follow (sentences, diction, narration, dialogue, structure, humor, never), a one-line anchor, the form, phrases to avoid and two original sample passages on fixed neutral situations (`src/core/voice.ts`). The style card leads with who and how far, then the rules, and says the voice wins over the model's own habits; the anchor is said again at the end of the prompt, right before the passage. A `hear` job writes the same fixed scene in any voice, exactly as the writer gets it, so voices can be compared. Older voices' influences line is read as the authors.
+
+Characters keep their voices the same way: a voice in rules, "Sounds like" lines, and, when they are inspired by someone, a performance note ("plays like ... their manner, rhythm, energy and way of talking; never their lines, catchphrases, name or story"), on unless switched off. Before every passage the writer is reminded of every voice in the scene: those named in the last passage first, then the recent ones and those present, the cast when nothing names anyone. People of the world who are not in the cast but are named in the scene get their character card too ("Also in the scene"), so a side character who walks in keeps their voice. The story's Voices sheet (the voice pill under the composer) shows the prose voice and everyone in the scene, and gives anyone a voice on the spot.
+
+## Newcomers in long scenes (0.19)
+
+The chronicle asks for newcomers first, so a reply cut short in a long scene loses the scene's other lists before its new names; if the reply still never got to them, a separate newcomers pass runs. Helper JSON calls get 8000 tokens, and once more 16000 when a thinking model spent all of it thinking.
+
 ## Spend ledger
 
 `spend` (migration 8) books what is not a writer passage: kind `image` (illustrations, entry pictures; cost from OpenRouter's `usage.cost`, null from other hosts) and `library` (Forge, reforge, retcon, picture prompts). Usage adds it to the writer's beats.

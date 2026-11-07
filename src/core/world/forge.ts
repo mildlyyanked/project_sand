@@ -116,7 +116,7 @@ export function inspiration(who: string, aspects: InspireAspect[]): string {
 }
 
 /** The fields each part of an inspiration writes. */
-export const INSPIRE_FIELDS: Record<InspireAspect, string[]> = { look: ['appearance'], mind: ['personality', 'drives'], voice: ['voice'] };
+export const INSPIRE_FIELDS: Record<InspireAspect, string[]> = { look: ['appearance'], mind: ['personality', 'drives'], voice: ['voice', 'sayings'] };
 
 /**
  * Write a character's look, personality and voice as an original take on
@@ -125,7 +125,7 @@ export const INSPIRE_FIELDS: Record<InspireAspect, string[]> = { look: ['appeara
  */
 export function inspirePrompt(o: { draft: Draft; who: string; aspects: InspireAspect[]; knowledge: string; wish?: string }): ChatMessage[] {
   const keys = o.aspects.flatMap((a) => INSPIRE_FIELDS[a]);
-  const what: Record<string, string> = { appearance: 'string (face, build, colouring, hair, bearing, dress; 50 to 100 words)', personality: 'string (temperament, habits, gestures, tics, how they treat people; 50 to 100 words)', drives: 'string (what they want, what they would do for it, what they dread; 30 to 70 words)', voice: 'string (how they talk and think: rhythm, register, what they say and leave unsaid; 30 to 70 words)' };
+  const what: Record<string, string> = { appearance: 'string (face, build, colouring, hair, bearing, dress; 50 to 100 words)', personality: 'string (temperament, habits, gestures, tics, how they treat people; 50 to 100 words)', drives: 'string (what they want, what they would do for it, what they dread; 30 to 70 words)', voice: 'string (how they talk and think, as rules a writer can follow: rhythm, sentence length, register, verbal habits, how they dodge, what they never say; 40 to 90 words)', sayings: 'string (4 to 6 original lines they might say in this world, one per line, each unmistakably them; never quotes)' };
   return [
     { role: 'system', content: [
       "You rewrite part of a character in a fiction writer's library so they become an original take on someone who inspires them. Keep everything else about them: their name, place in the world, history and ties. Write with a novelist's specificity, concrete over adjectives.",
@@ -141,7 +141,10 @@ export function parseInspired(text: string, aspects: InspireAspect[]): Record<st
   const j = lenientJson<Record<string, unknown>>(text);
   if (!j) return null;
   const out: Record<string, string> = {};
-  for (const k of aspects.flatMap((a) => INSPIRE_FIELDS[a])) if (typeof j[k] === 'string' && (j[k] as string).trim()) out[k] = (j[k] as string).trim();
+  for (const k of aspects.flatMap((a) => INSPIRE_FIELDS[a])) {
+    const v = Array.isArray(j[k]) ? (j[k] as unknown[]).map((x) => String(x).trim()).filter(Boolean).join('\n') : j[k];
+    if (typeof v === 'string' && v.trim()) out[k] = v.trim();
+  }
   return Object.keys(out).length ? out : null;
 }
 

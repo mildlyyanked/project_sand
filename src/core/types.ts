@@ -126,9 +126,31 @@ export interface Style {
   repetition: RepetitionLevel;
   bannedPhrases: string[];
   samples: string[];
+  /** Who it writes like and what that means, in rules the writer can follow. */
+  voice: VoiceSpec;
   createdAt: number;
   updatedAt: number;
 }
+
+/**
+ * A voice built from the writers it sounds like. Naming an author is not
+ * enough to move a model off its house style; rules it can follow, original
+ * passages to imitate, and a reminder right before it writes are.
+ */
+export interface VoiceSpec {
+  /** The writers it sounds like, as written: "Kurt Vonnegut", "late DeLillo". */
+  authors: string[];
+  /** How far: a flavor, clearly theirs, or unmistakable. */
+  strength: VoiceStrength;
+  /** The mood the voice sets, in a few words. */
+  tone: string;
+  /** What the voice does, as rules: sentences, diction, narration, dialogue, structure, humor, what it never does. */
+  rules: string;
+  /** One line said again right before every passage. */
+  anchor: string;
+}
+export type VoiceStrength = 'echo' | 'close' | 'pastiche';
+export const EMPTY_VOICE: VoiceSpec = { authors: [], strength: 'close', tone: '', rules: '', anchor: '' };
 
 export type RefusalStep =
   /** Prepend stronger framing to the system prompt. */

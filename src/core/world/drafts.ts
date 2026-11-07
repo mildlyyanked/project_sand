@@ -62,6 +62,7 @@ export const DRAFT_FIELDS: Record<LibKind, FieldDef[]> = {
     { key: 'faction', label: 'Faction', type: 'ref', ref: 'organization', inContext: true },
     { key: 'factionRole', label: 'Role in it', type: 'text', inContext: true },
     { key: 'voice', label: 'Voice', type: 'long', hint: 'How they talk and think.', inContext: true },
+    charField('sayings'),
     { key: 'relationships', label: 'Other ties', type: 'long', hint: 'People in their life who are not in the library, or more on the ties above.', forge: 'people in their life who are not entries, in a sentence or two; "" if the ties say it all', inContext: true },
     { key: 'limits', label: 'Limits', type: 'text', hint: 'What this character will not do or have done to them.' },
     { key: 'preferences', label: 'Preferences', type: 'text', hint: 'What they lean into.' },

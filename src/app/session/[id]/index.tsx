@@ -29,6 +29,7 @@ import { composePicture, entryImagePrompt } from '@/core/world/forge';
 import { complete, paintReady } from '@/state/paint';
 import { ForgeSheet } from '@/ui/components/Forge';
 import { entryRoute } from '@/ui/components/Entry';
+import { VoicesSheet } from '@/ui/components/Voices';
 import { imageOf, namedIn } from '@/core/world/portraits';
 import { excerptsFor, type Newcomer } from '@/core/world/forge';
 import { KIND_NOUN, libraryDrafts, normName } from '@/core/world/drafts';
@@ -555,10 +556,10 @@ export default function Manuscript() {
                 <T v="small">{HEAT_LABELS[session.heat]}</T>
               </Pill>
             ) : null}
-            {drift.notes.length ? (
+            {s.bundle.style || s.bundle.characters.length ? (
               <Pill onPress={() => setDriftOpen(true)}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: drift.score > 0.5 ? t.danger : t.warn }} />
-                <T v="small">voice</T>
+                {drift.notes.length ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: drift.score > 0.5 ? t.danger : t.warn }} /> : <Ionicons name="mic-outline" size={13} color={t.dim} />}
+                <T v="small" numberOfLines={1} style={{ maxWidth: 110 }}>{s.bundle.style?.name ?? 'voices'}</T>
               </Pill>
             ) : null}
           </Row>
@@ -870,11 +871,19 @@ export default function Manuscript() {
       </Sheet>
 
       {/* Drift */}
-      <Sheet open={driftOpen} onClose={() => setDriftOpen(false)} title="Voice check">
-        <T v="dim">Local heuristics against the voice card. Informational only.</T>
-        {drift.notes.map((n) => <T key={n}>• {n}</T>)}
-        <Button kind="outline" title="Regenerate with 'stay on voice'" onPress={() => { setDriftOpen(false); if (lastProse) { setDirText('stay strictly in the established voice; avoid stock phrases'); setDir({ regenerateId: lastProse.id }); } }} />
-      </Sheet>
+      <VoicesSheet
+        open={driftOpen}
+        onClose={() => setDriftOpen(false)}
+        style={s.bundle.style}
+        cast={s.bundle.characters}
+        people={s.wb.people}
+        last={lastProse?.text ?? ''}
+        recent={path.filter((b) => b.role === 'prose').slice(-3).map((b) => b.text).join('\n')}
+        lib={{ universe: s.bundle.universe, entities: s.wb.entities, characters: s.wb.people, species: s.bundle.species, lore: s.bundle.lore, links: s.wb.links }}
+        drift={drift.notes}
+        onDrift={() => { setDriftOpen(false); if (lastProse) { setDirText('stay strictly in the established voice, and keep every character sounding like themselves'); setDir({ regenerateId: lastProse.id }); } }}
+        onChanged={() => void s.reload()}
+      />
     </KeyboardShift>
   );
 }

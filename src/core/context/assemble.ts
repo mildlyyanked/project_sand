@@ -14,6 +14,7 @@ import type {
 import { estimateTokens, trimToTokens } from '../tokens';
 import { alwaysOnLore, triggeredLore } from './lorebook';
 import { renderCharacter, renderHeat, renderStyle } from './cards';
+import { renderVoices, voiceAnchor, voicesInScene } from '../voice';
 import { DEFAULT_TEMPLATES, type PromptTemplates } from '../prompts';
 import type { CheckResult, SceneState, WorldEntity, WorldEvent, WorldInstance } from '../world/types';
 import { locationChain, scanEntities, childrenOf } from '../world/scan';
@@ -148,9 +149,18 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   const styleText = style ? renderStyle(style, { play: !!pov }) : '';
   if (style && styleText) push({ key: 'style', label: `Voice · ${style.name}`, role: 'system', text: styleText });
   if (pov) push({ key: 'gm', label: world?.sim ? 'Playing the world' : 'Game master', role: 'system', text: world?.sim ? world.sim.contract : gmContract({ name: pov.name, length: session.pov?.turnLength }) });
-  if (characters.length) {
-    const text = ['# Characters', ...characters.map((c) => renderCharacter(c, species.find((s) => s.id === c.speciesId), world ? [...renderCharacterWorld(c, refName), ...ties(c.id)] : [], pov?.id === c.id ? " (the player's character)" : ''))].join('\n\n');
-    push({ key: 'characters', label: `Characters · ${characters.length}`, role: 'system', text });
+  const { summarized, overflow, recent, recentTokens } = splitPath(path, session, strategy);
+  // The scene: where we are, and what of the world the recent passages bring up.
+  const scanText = [...recent.slice(-strategy.loreScanBeats).map((b) => b.text), input.direction ?? '', world?.scene.locationName ?? '', ...(world?.scene.present ?? [])].join('\n');
+  // People of the world who are not in the cast but are in the scene: a side character who walks in keeps their own voice.
+  const walkOns = voicesInScene({ cast: [], people: (world?.people ?? []).filter((p) => !characters.some((c) => c.id === p.id) && p.id !== pov?.id), last: recent.filter((b) => b.role === 'prose').slice(-1).map((b) => b.text).join('\n'), recent: scanText, present: world?.scene.present, max: 4 });
+  if (characters.length || walkOns.length) {
+    const card = (c: Character, tag = '') => renderCharacter(c, species.find((s) => s.id === c.speciesId), world ? [...renderCharacterWorld(c, refName), ...ties(c.id)] : [], tag);
+    const text = [
+      ...(characters.length ? ['# Characters', ...characters.map((c) => card(c, pov?.id === c.id ? " (the player's character)" : ''))] : []),
+      ...(walkOns.length ? ['# Also in the scene', ...walkOns.map((c) => card(c))] : []),
+    ].join('\n\n');
+    push({ key: 'characters', label: `Characters · ${characters.length}${walkOns.length ? ` + ${walkOns.length} in scene` : ''}`, role: 'system', text, detail: walkOns.length ? `in scene: ${walkOns.map((c) => c.name).join(', ')}` : undefined });
   }
   if (session.brief.trim()) push({ key: 'brief', label: 'Brief', role: 'system', text: `# The story\n${session.brief.trim()}` });
   const pins = renderPins(session.world?.pins);
@@ -164,10 +174,6 @@ export function assembleContext(input: AssembleInput): AssembledContext {
     }
   }
 
-  const { summarized, overflow, recent, recentTokens } = splitPath(path, session, strategy);
-
-  // The scene: where we are, and what of the world the recent passages bring up.
-  const scanText = [...recent.slice(-strategy.loreScanBeats).map((b) => b.text), input.direction ?? '', world?.scene.locationName ?? '', ...(world?.scene.present ?? [])].join('\n');
   const chain = world ? locationChain(world.scene.locationId, entities) : [];
   const here = chain[chain.length - 1];
   const focusIds = new Set<string>([...characters.map((c) => c.id), ...chain.map((c) => c.id)]);
@@ -267,6 +273,13 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   if (world?.survivalNotes?.length) tail.push(`Since the last passage: ${world.survivalNotes.join(' ')}`);
   if (input.plan?.trim()) tail.push(`${tpl.planLead}\n${input.plan.trim()}`);
   if (p.postHistory.trim()) tail.push(p.postHistory.trim());
+  // Last, where it weighs most: the voice, and every voice in the scene.
+  const anchor = voiceAnchor(style);
+  const voices = renderVoices(voicesInScene({ cast: characters.filter((c) => c.id !== pov?.id), people: walkOns, last: recent.filter((b) => b.role === 'prose').slice(-1).map((b) => b.text).join('\n'), recent: scanText, present: world?.scene.present }));
+  // A reminder alone is not an ask: say what to do first.
+  if ((anchor || voices) && !tail.length && !input.direction?.trim()) tail.push(recent.length ? tpl.continueAsk : tpl.opening);
+  if (anchor) tail.push(anchor);
+  if (voices) tail.push(voices);
   if (session.explicit) tail.push(renderHeat(session.heat));
   if (input.direction?.trim()) tail.push(`Direction for this passage: ${input.direction.trim()}`);
   if (tail.length) push({ key: 'post', label: opening ? 'Opening directive' : 'Post-history', role: 'user', text: tail.join('\n\n') });

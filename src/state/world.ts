@@ -4,7 +4,7 @@ import { listLinks } from '@/db/repo/links';
 import type { Beat, Character, Session, Species, Universe } from '@/core/types';
 import type { WorldContext } from '@/core/context/assemble';
 import type { CheckResult, SceneState, WorldEntity, WorldEvent, WorldInstance } from '@/core/world/types';
-import type { Newcomer } from '@/core/world/forge';
+import { newcomersPrompt, parseNewcomers, type Newcomer } from '@/core/world/forge';
 import { characterDraft, draftCard, knowledge, libraryDrafts, normName } from '@/core/world/drafts';
 import { clockAt, sceneAt } from '@/core/world/timeline';
 import { applyDelta, initialPov, passTime, renderPov } from '@/core/world/survival';
@@ -98,14 +98,22 @@ export async function buildWorldContext(db: SQLiteDatabase, s: Session, path: Be
 }
 
 export async function helperJson(o: { apiKey: string; model: string; messages: Parameters<typeof client.stream>[0]['messages']; maxTokens: number; zdr: boolean; signal?: AbortSignal }): Promise<string> {
-  let text = '';
-  let reasoning = '';
-  for await (const ev of client.stream({ apiKey: o.apiKey, model: o.model, messages: o.messages, params: { temperature: 0.2, topP: 0.9, maxTokens: Math.max(o.maxTokens, 4000), reasoning: false }, zdr: o.zdr, signal: o.signal })) {
-    if (ev.type === 'text') text += ev.text ?? '';
-    if (ev.type === 'reasoning') reasoning += ev.text ?? '';
-    if (ev.type === 'error') throw new Error(ev.error);
-  }
-  return text.trim() ? text : reasoning;
+  const run = async (maxTokens: number) => {
+    let text = '';
+    let reasoning = '';
+    let finish: string | undefined;
+    for await (const ev of client.stream({ apiKey: o.apiKey, model: o.model, messages: o.messages, params: { temperature: 0.2, topP: 0.9, maxTokens, reasoning: false }, zdr: o.zdr, signal: o.signal })) {
+      if (ev.type === 'text') text += ev.text ?? '';
+      if (ev.type === 'reasoning') reasoning += ev.text ?? '';
+      if (ev.type === 'done') finish = ev.finishReason;
+      if (ev.type === 'error') throw new Error(ev.error);
+    }
+    return { text, reasoning, finish };
+  };
+  // Generous, since helpers that think spend part of it thinking; once more, larger, if all of it went to thinking.
+  let r = await run(Math.max(o.maxTokens, 8000));
+  if (!r.text.trim() && r.finish === 'length') r = await run(16000);
+  return r.text.trim() ? r.text : r.reasoning;
 }
 
 /**
@@ -192,6 +200,13 @@ export async function chronicle(o: {
   }
   await updateBeatWorld(o.db, o.beat.id, at, scene);
   const knownNorm = new Set(known.map(normName));
+  // A long scene can cut the chronicle short before its newcomers: look for them on their own.
+  if (r.newcomersMissing) {
+    try {
+      const t = await helperJson({ apiKey: o.apiKey, model: o.model, zdr: o.zdr, signal: o.signal, maxTokens: 3000, messages: newcomersPrompt({ passage: o.beat.text, known }) });
+      r.newcomers = parseNewcomers(t, known);
+    } catch {}
+  }
   const newcomers = r.newcomers.filter((n) => !knownNorm.has(normName(n.name))).map((n) => ({ ...n, beatId: o.beat.id }));
   return { at, scene, events, minutes, notes, newcomers };
 }

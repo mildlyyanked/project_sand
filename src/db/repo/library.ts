@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import type { CanonEvent, Character, Id, Illustration, LoreEntry, ModelStat, Species, Style, Universe } from '@/core/types';
+import type { CanonEvent, Character, Id, Illustration, LoreEntry, ModelStat, Species, Style, Universe, VoiceSpec } from '@/core/types';
+import { EMPTY_VOICE } from '@/core/types';
 import { newId, now } from '@/core/ids';
 import { b, ib, j, pj } from './map';
 import { DEFAULT_CALENDAR } from '@/core/world/calendar';
@@ -125,8 +126,8 @@ export const newCharacter = (): Character => ({ id: newId(), universeId: null, s
 
 // Styles
 
-interface StRow { id: string; name: string; pov: string; tense: string; density: string; dialogue: string; register: string; vocabulary: string; influences: string; repetition: string; banned_json: string; samples_json: string; system: string; prefill: string; post_history: string; overrides_json: string; chain_json: string; system_as_user: number; provider_ignore_json: string; provider_order_json: string; created_at: number; updated_at: number }
-const stFrom = (r: StRow): Style => ({ id: r.id, name: r.name, system: r.system ?? '', prefill: r.prefill ?? '', postHistory: r.post_history ?? '', modelOverrides: pj(r.overrides_json, {}), refusalChain: pj(r.chain_json, []), systemAsUser: b(r.system_as_user), providerIgnore: pj(r.provider_ignore_json, []), providerOrder: pj(r.provider_order_json, []), pointOfView: r.pov, tense: r.tense, proseDensity: r.density, dialogueRatio: r.dialogue, register: r.register as Style['register'], vocabulary: r.vocabulary, influences: r.influences ?? '', repetition: (r.repetition as Style['repetition']) || 'light', bannedPhrases: pj(r.banned_json, []), samples: pj(r.samples_json, []), createdAt: r.created_at, updatedAt: r.updated_at });
+interface StRow { id: string; name: string; pov: string; tense: string; density: string; dialogue: string; register: string; vocabulary: string; influences: string; repetition: string; banned_json: string; samples_json: string; system: string; prefill: string; post_history: string; overrides_json: string; chain_json: string; system_as_user: number; provider_ignore_json: string; provider_order_json: string; voice_json?: string | null; created_at: number; updated_at: number }
+const stFrom = (r: StRow): Style => ({ id: r.id, name: r.name, system: r.system ?? '', prefill: r.prefill ?? '', postHistory: r.post_history ?? '', modelOverrides: pj(r.overrides_json, {}), refusalChain: pj(r.chain_json, []), systemAsUser: b(r.system_as_user), providerIgnore: pj(r.provider_ignore_json, []), providerOrder: pj(r.provider_order_json, []), pointOfView: r.pov, tense: r.tense, proseDensity: r.density, dialogueRatio: r.dialogue, register: r.register as Style['register'], vocabulary: r.vocabulary, influences: r.influences ?? '', repetition: (r.repetition as Style['repetition']) || 'light', bannedPhrases: pj(r.banned_json, []), samples: pj(r.samples_json, []), voice: { ...EMPTY_VOICE, ...pj<Partial<VoiceSpec>>(r.voice_json, {}) }, createdAt: r.created_at, updatedAt: r.updated_at });
 export async function listStyles(db: SQLiteDatabase): Promise<Style[]> {
   return (await db.getAllAsync<StRow>('SELECT * FROM styles ORDER BY name')).map(stFrom);
 }
@@ -136,13 +137,13 @@ export async function getStyle(db: SQLiteDatabase, id: Id | null): Promise<Style
   return r ? stFrom(r) : null;
 }
 export async function saveStyle(db: SQLiteDatabase, s: Style): Promise<void> {
-  await db.runAsync('INSERT OR REPLACE INTO styles (id, name, pov, tense, density, dialogue, register, vocabulary, influences, repetition, banned_json, samples_json, system, prefill, post_history, overrides_json, chain_json, system_as_user, provider_ignore_json, provider_order_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', s.id, s.name, s.pointOfView, s.tense, s.proseDensity, s.dialogueRatio, s.register, s.vocabulary, s.influences, s.repetition, j(s.bannedPhrases), j(s.samples), s.system, s.prefill, s.postHistory, j(s.modelOverrides), j(s.refusalChain), ib(s.systemAsUser), j(s.providerIgnore), j(s.providerOrder), s.createdAt, now());
+  await db.runAsync('INSERT OR REPLACE INTO styles (id, name, pov, tense, density, dialogue, register, vocabulary, influences, repetition, banned_json, samples_json, system, prefill, post_history, overrides_json, chain_json, system_as_user, provider_ignore_json, provider_order_json, voice_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', s.id, s.name, s.pointOfView, s.tense, s.proseDensity, s.dialogueRatio, s.register, s.vocabulary, s.influences, s.repetition, j(s.bannedPhrases), j(s.samples), s.system, s.prefill, s.postHistory, j(s.modelOverrides), j(s.refusalChain), ib(s.systemAsUser), j(s.providerIgnore), j(s.providerOrder), j(s.voice ?? EMPTY_VOICE), s.createdAt, now());
 }
 export async function deleteStyle(db: SQLiteDatabase, id: Id): Promise<void> {
   await db.runAsync('UPDATE sessions SET style_id = NULL WHERE style_id = ?', id);
   await db.runAsync('DELETE FROM styles WHERE id = ?', id);
 }
-export const newStyle = (): Style => ({ id: newId(), name: 'New voice', system: '', prefill: '', postHistory: '', modelOverrides: {}, refusalChain: [], systemAsUser: false, providerIgnore: [], providerOrder: [], pointOfView: '', tense: '', proseDensity: '', dialogueRatio: '', register: 'blunt', vocabulary: '', influences: '', repetition: 'light', bannedPhrases: [], samples: [], createdAt: now(), updatedAt: now() });
+export const newStyle = (): Style => ({ id: newId(), name: 'New voice', system: '', prefill: '', postHistory: '', modelOverrides: {}, refusalChain: [], systemAsUser: false, providerIgnore: [], providerOrder: [], pointOfView: '', tense: '', proseDensity: '', dialogueRatio: '', register: 'blunt', vocabulary: '', influences: '', repetition: 'light', bannedPhrases: [], samples: [], voice: { ...EMPTY_VOICE }, createdAt: now(), updatedAt: now() });
 
 // Model stats: the refusal ledger
 

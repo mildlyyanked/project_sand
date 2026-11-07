@@ -9,11 +9,11 @@ import { inspirePrompt } from '@/core/world/forge';
 import { changedFields } from '@/core/world/agent';
 import { useJobs } from '@/state/jobs';
 import { useSettings } from '@/state/settings';
-import { Banner, Button, Card, Chip, Field, Row, T } from './index';
+import { Banner, Button, Card, Chip, Field, Row, SwitchRow, T } from './index';
 import { JobStatusLine } from './JobStatus';
 
 const ASPECTS: { key: InspireAspect; label: string }[] = [{ key: 'look', label: 'Look' }, { key: 'mind', label: 'Personality' }, { key: 'voice', label: 'Voice' }];
-const LABEL: Record<string, string> = { appearance: 'Appearance', personality: 'Personality', drives: 'Wants and fears', voice: 'Voice' };
+const LABEL: Record<string, string> = { appearance: 'Appearance', personality: 'Personality', drives: 'Wants and fears', voice: 'Voice', sayings: 'Sounds like' };
 
 /**
  * What inspires a character: someone from a book, film, show or game, or a
@@ -57,7 +57,8 @@ export function InspirationEditor({ c, lib, onChange }: { c: Character; lib: Lib
   return (
     <View style={{ gap: 10 }}>
       <Field label="Inspired by" value={who} onChangeText={(v) => setData({ inspiredBy: v })} placeholder="e.g. Aragorn, Lisbeth Salander, Buster Keaton" />
-      <T v="faint">An original take on them, carried into this world. What scenes use is the look, personality and voice written here; the name stays on this card and never reaches the writer or a painter.</T>
+      <T v="faint">An original take on them, carried into this world: the look, personality, voice and lines written here are what scenes use.</T>
+      {who.trim() ? <SwitchRow label="Tell the writer who they play like" hint="In every scene they are in, the writer is told to play them like this: the manner, rhythm and energy, never the lines or the story. Off keeps the name on this card only. Painters never see it." value={c.data.playsLike !== false} onChange={(x) => setData({ playsLike: x })} /> : null}
       {who.trim() ? (
         <>
           <Row style={{ flexWrap: 'wrap' }}>

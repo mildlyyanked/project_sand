@@ -16,7 +16,7 @@ export function session(p: Partial<Session> = {}): Session {
 }
 
 export function style(p: Partial<Style> = {}): Style {
-  return { id: 'st1', name: 'Terse', system: '', prefill: '', postHistory: '', modelOverrides: {}, refusalChain: [], systemAsUser: false, providerIgnore: [], providerOrder: [], pointOfView: 'third close', tense: 'past', proseDensity: 'lean', dialogueRatio: 'high', register: 'blunt', vocabulary: '', influences: '', repetition: 'light', bannedPhrases: ['tapestry'], samples: [], createdAt: 0, updatedAt: 0, ...p };
+  return { id: 'st1', name: 'Terse', system: '', prefill: '', postHistory: '', modelOverrides: {}, refusalChain: [], systemAsUser: false, providerIgnore: [], providerOrder: [], pointOfView: 'third close', tense: 'past', proseDensity: 'lean', dialogueRatio: 'high', register: 'blunt', vocabulary: '', influences: '', repetition: 'light', bannedPhrases: ['tapestry'], samples: [], voice: { authors: [], strength: 'close', tone: '', rules: '', anchor: '' }, createdAt: 0, updatedAt: 0, ...p };
 }
 
 /** A voice with only the writer prompt set, for tests that used to build a preset. */

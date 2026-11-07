@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { newId, now } from '@/core/ids';
-import { awaiting, finishBible, finishForge, finishInspire, finishReforge, type BibleInput, type InspireInput, type ForgeInput, type Job, type JobIO, type JobKind, type QuestionInput, type ReforgeInput, type WorkshopInput, type WorkshopOutput } from '@/core/jobs';
+import { awaiting, finishBible, finishForge, finishHear, finishInspire, finishReforge, finishVoice, type BibleInput, type InspireInput, type ForgeInput, type Job, type JobIO, type JobKind, type QuestionInput, type ReforgeInput, type WorkshopInput, type WorkshopOutput } from '@/core/jobs';
 import { changeDrafts, parseAgentReply, parseQuestion, removing, retconChanges, type AgentRemove, type AgentRevise } from '@/core/world/agent';
 import { affected, mergeEdits, parseRetcon, renameEdits, retconPrompt } from '@/core/world/retcon';
 import { knowledge, libraryDrafts, normName, type Draft } from '@/core/world/drafts';
@@ -20,7 +20,7 @@ import { loadLibrary } from './library';
  * background. Results wait, undecided, until someone accepts or dismisses them.
  */
 const CONCURRENCY = 2;
-const TEMPERATURE: Record<JobKind, number> = { forge: 0.9, reforge: 0.85, bible: 0.6, workshop: 0.8, question: 0.95, inspire: 0.85 };
+const TEMPERATURE: Record<JobKind, number> = { forge: 0.9, reforge: 0.85, bible: 0.6, workshop: 0.8, question: 0.95, inspire: 0.85, voice: 0.7, hear: 0.9 };
 
 interface JobsState {
   jobs: Job[];
@@ -147,6 +147,8 @@ async function finishJob(db: SQLiteDatabase, j: Job, text: string, finish?: stri
     case 'reforge': return finishReforge(j.input as ReforgeInput, text);
     case 'bible': return finishBible(j.input as BibleInput, text);
     case 'inspire': return finishInspire(j.input as InspireInput, text);
+    case 'voice': return finishVoice(text);
+    case 'hear': return finishHear(text);
     case 'question': {
       const q = parseQuestion(text);
       if (!q) throw new Error('The agent did not come up with a question. Try again.');

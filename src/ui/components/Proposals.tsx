@@ -237,7 +237,7 @@ export function ProposalSheet({ jobId, onClose, onAccepted }: { jobId: string | 
   );
 }
 
-const KIND_LABEL: Record<Job['kind'], string> = { forge: 'Forge', reforge: 'Reforge', bible: 'Style bible', workshop: 'Workshop', question: 'Question', inspire: 'Inspiration' };
+const KIND_LABEL: Record<Job['kind'], string> = { forge: 'Forge', reforge: 'Reforge', bible: 'Style bible', workshop: 'Workshop', question: 'Question', inspire: 'Inspiration', voice: 'Voice', hear: 'Voice test' };
 
 /** A world's inbox: what is being written, and what waits on a decision. */
 export function InboxList({ jobs, onOpen, empty }: { jobs: Job[]; onOpen: (id: string) => void; empty?: string }) {

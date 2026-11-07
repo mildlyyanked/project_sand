@@ -29,7 +29,7 @@ describe('repeatedPhrases', () => {
 describe('style card', () => {
   it('renders influences but never a repetition instruction', () => {
     const text = renderStyle(style({ influences: 'Annie Proulx, early Cormac McCarthy', repetition: 'strong' }));
-    expect(text).toContain('Influences: Annie Proulx');
+    expect(text).toContain('Write like Annie Proulx, early Cormac McCarthy');
     expect(text.toLowerCase()).not.toContain('repet');
   });
 });

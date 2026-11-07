@@ -4,6 +4,7 @@ import { normName } from './world/drafts';
 import type { ForgeKind } from './world/forge';
 import { ensureAnchor, parseBible, parseFieldValue, parseForgeDrafts, parseInspired } from './world/forge';
 import type { InspireAspect } from './world/types';
+import { parseVoiceBuild, type VoiceBuild } from './voice';
 import type { ArtBible, FieldDef } from './world/schema';
 
 /**
@@ -14,7 +15,7 @@ import type { ArtBible, FieldDef } from './world/schema';
  * restarting the app loses nothing: the result waits in the world's inbox.
  * Everything here is pure; the runner lives in state/jobs.ts.
  */
-export type JobKind = 'forge' | 'reforge' | 'bible' | 'workshop' | 'question' | 'inspire';
+export type JobKind = 'forge' | 'reforge' | 'bible' | 'workshop' | 'question' | 'inspire' | 'voice' | 'hear';
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 
 export interface ForgeInput {
@@ -41,6 +42,12 @@ export interface WorkshopOutput { reply: string; drafts: Draft[]; brief: string 
 
 export interface InspireInput { model: string; messages: ChatMessage[]; draft: Draft; who: string; aspects: InspireAspect[]; maxTokens?: number }
 
+/** Build a voice from who it writes like. */
+export interface VoiceInput { model: string; messages: ChatMessage[]; styleId: string; maxTokens?: number }
+/** A test passage in a voice, on a fixed scene. */
+export interface HearInput { model: string; messages: ChatMessage[]; styleId: string; scene: string; maxTokens?: number }
+export interface HearOutput { text: string }
+
 export interface QuestionInput { model: string; messages: ChatMessage[]; date: string; maxTokens?: number }
 export interface QuestionOutput { question: string; why: string; about: string }
 
@@ -51,6 +58,8 @@ export interface JobIO {
   workshop: [WorkshopInput, WorkshopOutput];
   question: [QuestionInput, QuestionOutput];
   inspire: [InspireInput, ForgeOutput];
+  voice: [VoiceInput, VoiceBuild];
+  hear: [HearInput, HearOutput];
 }
 
 export interface Job<K extends JobKind = JobKind> {
@@ -80,7 +89,8 @@ export function proposalCount(j: Job): number {
     case 'inspire': return left((j.output as ForgeOutput).drafts.map((d) => d.id));
     case 'workshop': return left((j.output as WorkshopOutput).drafts.map((d) => d.id));
     case 'reforge':
-    case 'bible': return j.decisions.all ? 0 : 1;
+    case 'bible':
+    case 'voice': return j.decisions.all ? 0 : 1;
     default: return 0;
   }
 }
@@ -127,6 +137,17 @@ export function finishInspire(input: InspireInput, text: string): ForgeOutput {
   if (!f) throw new Error(`The model did not write the character from ${input.who}: “${text.trim().slice(0, 140)}”. Try again.`);
   const d: Draft = { ...input.draft, existing: true, fields: { ...input.draft.fields, ...f, _changed: Object.keys(f) } };
   return { drafts: [d], truncated: false };
+}
+
+export function finishVoice(text: string): VoiceBuild {
+  const v = parseVoiceBuild(text);
+  if (!v) throw new Error(`The model did not write a usable voice: “${text.trim().slice(0, 140)}”. Try again, or another model.`);
+  return v;
+}
+
+export function finishHear(text: string): HearOutput {
+  if (!text.trim()) throw new Error('The writer wrote nothing. Try again.');
+  return { text: text.trim() };
 }
 
 /** A short title for the inbox: what was asked for, in a few words. */
