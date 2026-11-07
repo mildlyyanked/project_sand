@@ -57,7 +57,7 @@ function ReforgeBody({ target, onClose }: { target: ReforgeTarget; onClose: () =
     const messages = fieldForgePrompt({ draft: target.draft, key: target.key, instruction, knowledge: knowledge(pool, target.draft, instruction, 7000), options });
     const j = await useJobs.getState().enqueue(db, 'reforge', {
       universeId: target.universeId, title: `${def.label} of ${target.draft.name}`,
-      input: { model, messages, draft: target.draft, key: target.key, def, options, maxTokens: def.type === 'long' || def.type === 'lines' ? 4000 : 2000 },
+      input: { model, messages, draft: target.draft, key: target.key, def, options, maxTokens: def.type === 'long' || def.type === 'lines' ? 6000 : 4000 },
     });
     setJobId(j.id);
   }

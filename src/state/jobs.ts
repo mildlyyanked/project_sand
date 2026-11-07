@@ -52,13 +52,20 @@ export const useJobs = create<JobsState>((set, get) => {
     let last = 0;
     try {
       const input = j.input as { model: string; messages: Parameters<typeof complete>[0]['messages']; maxTokens?: number };
-      const { text, finish } = await runInForeground(j.title, () => complete({
+      const { text, finish, thoughtOnly } = await runInForeground(j.title, () => complete({
         model: input.model, messages: input.messages, maxTokens: input.maxTokens ?? 4000, temperature: TEMPERATURE[j.kind], signal: ac.signal,
         onText: (n) => { if (n - last > 200) { last = n; set((s) => ({ live: { ...s.live, [job.id]: n } })); } },
         spend: { db, note: `${j.kind}: ${j.title}` },
       }));
       if (ac.signal.aborted) return;
-      const output = await finishJob(db, j, text, finish);
+      let output: unknown;
+      try {
+        output = await finishJob(db, j, text, finish);
+      } catch (e) {
+        // Thinking with no answer reads as nonsense to a parser: say what actually happened.
+        if (thoughtOnly) throw new Error(`${input.model} spent its whole reply budget thinking and wrote no answer, even with a larger budget. Try again, or pick a model that does not think for the helper (Settings → Models).`);
+        throw e;
+      }
       j = { ...j, status: 'done', output: output as Job['output'], progress: text.length, updatedAt: now() };
       await write(db, j);
     } catch (e) {

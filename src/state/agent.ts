@@ -70,7 +70,7 @@ export async function ensureTodayQuestion(db: SQLiteDatabase, universeId: string
   const pool = libraryDrafts(lib);
   const others = pool.filter((d) => d.kind !== 'world');
   const messages = questionPrompt({ world: worldLine(lib.universe), knowledge: knowledge(pool, null, '', 7000), coverage: coverage(others), brief: agent.brief, asked: agent.asked, recent: thread.filter((m) => m.role === 'user').map((m) => m.text) });
-  await useJobs.getState().enqueue(db, 'question', { universeId, title: `Today's question for ${lib.universe.name}`, input: { model: agentModel(), messages, date, maxTokens: 1500 } });
+  await useJobs.getState().enqueue(db, 'question', { universeId, title: `Today's question for ${lib.universe.name}`, input: { model: agentModel(), messages, date, maxTokens: 4000 } });
   return true;
 }
 

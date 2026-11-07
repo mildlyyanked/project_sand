@@ -44,7 +44,7 @@ export function replyBudget(model: string, wanted: number): number {
  * from where it stopped, up to three times, so long JSON arrives whole. Falls
  * back to the reasoning channel when the content is empty.
  */
-export async function complete(o: { model: string; messages: Parameters<typeof client.stream>[0]['messages']; maxTokens: number; temperature?: number; signal?: AbortSignal; onText?: (chars: number) => void; spend?: SpendContext; continuations?: number }): Promise<{ text: string; finish?: string }> {
+export async function complete(o: { model: string; messages: Parameters<typeof client.stream>[0]['messages']; maxTokens: number; temperature?: number; signal?: AbortSignal; onText?: (chars: number) => void; spend?: SpendContext; continuations?: number }): Promise<{ text: string; finish?: string; /** No answer came, only thinking: the text is the model's reasoning. */ thoughtOnly?: boolean }> {
   const { apiKey, defaults } = useSettings.getState();
   if (!apiKey) throw new Error('Add your OpenRouter key in Settings first.');
   const maxTokens = replyBudget(o.model, o.maxTokens);
@@ -52,10 +52,10 @@ export async function complete(o: { model: string; messages: Parameters<typeof c
   let reasoning = '';
   let finish: string | undefined;
   const spent = { cost: 0 as number | null, prompt: 0, completion: 0 };
-  const run = async (messages: typeof o.messages) => {
+  const run = async (messages: typeof o.messages, budget = maxTokens) => {
     let part = '';
     let fin: string | undefined;
-    for await (const ev of client.stream({ apiKey, model: o.model, messages, params: { temperature: o.temperature ?? 0.9, topP: 0.95, maxTokens, reasoning: false }, zdr: defaults.zdr, signal: o.signal })) {
+    for await (const ev of client.stream({ apiKey, model: o.model, messages, params: { temperature: o.temperature ?? 0.9, topP: 0.95, maxTokens: budget, reasoning: false }, zdr: defaults.zdr, signal: o.signal })) {
       if (ev.type === 'text') { part += ev.text ?? ''; o.onText?.(text.length + part.length); }
       if (ev.type === 'reasoning') reasoning += ev.text ?? '';
       if (ev.type === 'done') fin = ev.finishReason;
@@ -69,7 +69,12 @@ export async function complete(o: { model: string; messages: Parameters<typeof c
     return { part, fin };
   };
   try {
-    const first = await run(o.messages);
+    let first = await run(o.messages);
+    // A model that thinks whatever it is told can spend the whole budget before answering: once, ask again with room to do both.
+    if (!first.part.trim() && first.fin === 'length') {
+      const bigger = replyBudget(o.model, Math.max(maxTokens * 4, 16000));
+      if (bigger > maxTokens) { reasoning = ''; first = await run(o.messages, bigger); }
+    }
     text = first.part;
     finish = first.fin;
     for (let i = 0; i < (o.continuations ?? 3) && finish === 'length' && text.trim(); i++) {
@@ -88,5 +93,5 @@ export async function complete(o: { model: string; messages: Parameters<typeof c
   } finally {
     if (o.spend) await recordSpend(o.spend.db, { kind: 'library', model: o.model, sessionId: o.spend.sessionId, costUsd: spent.cost, promptTokens: spent.prompt, completionTokens: spent.completion, note: o.spend.note });
   }
-  return { text: text.trim() ? text : reasoning, finish };
+  return text.trim() ? { text, finish } : { text: reasoning, finish, thoughtOnly: !!reasoning.trim() };
 }

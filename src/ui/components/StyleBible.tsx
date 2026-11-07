@@ -55,7 +55,7 @@ export function StyleBible({ value, onChange, universe, people = [], entities = 
     setErr(null);
     const looks = people.map((c) => c.data.appearance?.trim()).filter((x): x is string => !!x);
     const messages = biblePrompt({ world: universe ? `World: ${worldLine(universe, { long: true })}` : 'No particular world: a default look for worlds that set none of their own.', current: value, people: looks, wish, only });
-    const j = await useJobs.getState().enqueue(db, 'bible', { universeId: universe?.id ?? null, title: `${only ? BIBLE_FIELDS.find((f) => f.key === only)!.label : 'Style bible'} for ${universe?.name ?? 'every world'}`, input: { model: defaults.models.helper, messages, only, maxTokens: only ? 1200 : 3000 } });
+    const j = await useJobs.getState().enqueue(db, 'bible', { universeId: universe?.id ?? null, title: `${only ? BIBLE_FIELDS.find((f) => f.key === only)!.label : 'Style bible'} for ${universe?.name ?? 'every world'}`, input: { model: defaults.models.helper, messages, only, maxTokens: only ? 4000 : 8000 } });
     setJobId(j.id);
   }
 
