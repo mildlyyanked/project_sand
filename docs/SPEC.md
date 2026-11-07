@@ -22,12 +22,14 @@ Mobile-first story writing app on top of OpenRouter. Single user, everything on 
 
 ## Entities
 
-- **Universe** (world template): name, description, `isDefault` (the real world), data {genre, tone, rules, technology, society, themes, currency, artStyle, sigilStyle, calendar}. Art direction and sigil style are never in the writer's context. Empty default world contributes nothing to the prompt.
-- **World entity**: universe, kind (location / organization / item), parent (locations nest), name, summary, keys[], data per kind (see `src/core/world/schema.ts`).
-- **Species**: name, adulthood description (free text), notes, data (traits, lifespan, culture, homeland...).
-- **Character**: universe?, name, species?, age or life stage (free text), `adult` flag, voice, tells, relationships, limits, preferences, summary for prompt, data {appearance, lookalike (never sent to the writer or a painter), personality, backstory, goals, fears, secrets, skills, occupation, home, memberships, attributes, inventory, money, image}.
+- **Universe** (world template): name, description, `isDefault` (the real world), data {genre (genre and tone), rules (how the world works, technology included), society, themes, currency, art (the style bible), calendar}. The style bible is never in the writer's context. Empty default world contributes nothing to the prompt.
+- **World entity**: universe, kind (location / organization / item), parent (locations nest), name, summary, keys[], data per kind (see `src/core/world/schema.ts`). Places: type, description, life (who is found there, trade, what can be had), dangers, danger 0-5, controlled by, secrets. Factions: type, description, image (symbols and how they are seen), aims (goals and methods), structure (size, ranks, resources), leader, headquarters, secrets. Things: type, rarity, value, description, powers, history, held by, kept at, effects.
+- **Species**: name, adulthood description (free text), data {lifespan, appearance, nature (temperament, gifts, weaknesses, needs), culture, homeland}.
+- **Character**: universe?, name, species?, age or life stage (free text), `adult` flag, voice, relationships (other ties: people not in the library), limits, preferences, summary for prompt, data {occupation, appearance, lookalike (never sent to the writer or a painter), personality (tells included), backstory, skills, drives (wants and fears), secrets, home, memberships, attributes, inventory, money, image}.
 - **Entry picture**: `data.image` {uri, prompt, model, at} on characters, places, factions, things and peoples.
 - **Lore entry**: universe, category, keys[], text, always-on flag, priority.
+- **Link** (migration 12): universe, from, to, type (family, partner, friend, mentor, serves, ally, rival, enemy, knows, tied), note. Typed ties between any two entries, read both ways (`src/core/world/links.ts`). Ties that already live in fields (inside, controls, seat, leads, member, holds, kept at, home, homeland, people) are derived, never stored, so each has one source of truth. `edges` builds the whole graph; entry pages, search, tooltips, the story map and the writer's context read it.
+- **Style bible**: `WorldData.art` {look, portraits, places, things, sigils}. Every picture starts from the look; portraits, places and things are framed by their line (or the default framing); sigils follow their own. Settings holds the app's bible, used line by line where a world's is empty.
 - **Instance**: universe, name, notes (how it differs), isPrime, forkedFrom?, forkAt?.
 - **World event**: instance, session?, beat?, at (minutes from the calendar start), title, text, kind, importance 1-3, refs to entities/characters. Canon = manual events + events on each story's current branch.
 - **Style** (voice): point of view, tense, prose density, dialogue ratio, register (clinical / euphemistic / blunt), vocabulary rules, banned phrases, sample passages; plus system, prefill, postHistory, modelOverrides{}, refusalChain[], systemAsUser, providerIgnore[], providerOrder[].
@@ -37,7 +39,23 @@ Mobile-first story writing app on top of OpenRouter. Single user, everything on 
 
 ## Drafts and Forge
 
-Every library kind converts to a **draft**: a flat record of fields with references held as names (`src/core/world/drafts.ts`). Forge parses replies into drafts, the draft editor edits them, existing entries convert to drafts so the model can read them (`knowledge`: world card, roster, relevant cards within a budget), and `planDrafts` turns drafts into rows: names resolve against the world and the batch, own references first, then links on the other side (seat of → headquarters, leader role → leader, owner → inventory), then older entries whose text names a new one (headquarters, leader, home, controlled by). Field reforge edits one draft field and goes through the same plan. Prompts live in `src/core/world/forge.ts`.
+Every library kind converts to a **draft**: a flat record of fields with references held as names (`src/core/world/drafts.ts`). Forge parses replies into drafts, the draft editor edits them, existing entries convert to drafts so the model can read them (`knowledge`: world card, roster, relevant cards within a budget), and `planDrafts` turns drafts into rows: names resolve against the world and the batch, own references first, then links on the other side (seat of → headquarters, leader role → leader, owner → inventory), then older entries whose text names a new one (headquarters, leader, home, controlled by). Field reforge edits one draft field and goes through the same plan. Prompts live in `src/core/world/forge.ts`. Drafts carry their typed ties by name ({to, type, note}); the plan resolves them to any kind of entry and adds the links (never deletes them); a tie to someone not in the library stays as words on a person. An edit that leaves a field out keeps it. Forge's JSON shapes are built from the same field definitions the editors show (`entryShape`), so the two never drift.
+
+## Library upgrade (0.17)
+
+Fields were consolidated: a place's atmosphere, climate, features and travel fold into its description; population, services and resources into life; a faction's goals and methods into aims, size, ranks and resources into structure, symbols and reputation into image; a thing's properties into powers, origin into history; a people's traits, abilities, weaknesses and needs into nature, notes into culture; a character's goals and fears into drives, tells into personality; a world's tone into genre, technology into rules, and art direction, sigil style and portrait direction into the style bible. `src/core/world/upgrade.ts` does it once on start (`src/db/upgrade.ts`, flagged in `meta`), word for word, labelled where a label carries meaning, and reads free-text ties (allies, enemies, relationships, relations) into typed links; what names no one in the library stays as text. Forge replies in the old shape are folded the same way.
+
+## Entry pages
+
+Every entry (place, faction, thing, character, people, lore, and the world itself) reads as a page: kind and type, the name, a lede, short facts, then the same sections for every kind (at a glance, look and feel, life, edge, hidden, in play), secrets folded until asked for, and connections grouped by how they tie, each a tap away. Edit opens a buffer: Save writes it with its ties, Discard drops it, and leaving with unsaved changes asks. Reforge in edit mode fills the buffer. The world hub has four tabs: World, Workshop (today's question, inbox, the agent), Entries (search over every field, filter by kind, sort by name, recent or most tied, narrow to what is tied to one entry, places and factions as trees) and Instances.
+
+## Background jobs and the inbox
+
+Forge, reforge, style bible writing, the agent's replies and its question of the day run as jobs (`src/core/jobs.ts`, runner `src/state/jobs.ts`, table `jobs`). A job is saved before it runs and after every change; two run at a time, each kept alive by the foreground service on Android; on start, jobs cut off by the app closing go back in the queue. Results wait undecided in the world's inbox: each proposal can be opened, edited, added on its own or with the rest, or dismissed (`src/state/proposals.ts`). Entries accepted earlier from the same job have their links read again with each later accept. A change to an existing entry is laid on the entry as it is now, field by field.
+
+## World agent
+
+Each world has an agent (`src/core/world/agent.ts`, `src/state/agent.ts`; tables `agent`, `workshop`): a curious co-author that owns its forging. It keeps a brief of what the writer wants (vision, what they love, what to avoid, decisions, open questions), reads the world's knowledge and coverage (counts, what is missing, thin entries, entries tied to no one, loose threads) so it never repeats what exists, and talks in a persistent thread. A reply is prose, then optionally a JSON block with an updated brief, proposals (new entries in forge's shape) and changes (one field of an existing entry). Opened from an entry ("Grow it" on any page), the conversation is about that entry, with what the writer wants from it. Today's question: one question a day per world, aimed at what is thin or full of tension, never one already asked; Stories shows one world's question a day, in turn; answering sends it to the agent, which folds it into the world. Content rules are never injected: the agent sees the world as the writer made it.
 
 ## Spend ledger
 
@@ -105,6 +123,8 @@ Phase 1 (this build): sessions, manuscript, streaming generation, tree history, 
 Phase 2: guided start wizard, scene generator, duplicate / template / variant with diff note, voice drift indicator (quiet, non-blocking), rewind-and-reweave, multi-model draft race.
 
 Phase 3 (worlds): world templates with places, factions, things, peoples, lore; instances with timelines; story clocks; continuity and chronicle; POV play with checks and survival.
+
+Phase 4 (library): consolidated fields, typed links, a style bible per world, entry pages with view and edit, background jobs with an inbox, a world agent with a workshop and today's question.
 
 Later: continuity checker, character interview, perspective flip, reader mode + EPUB export.
 

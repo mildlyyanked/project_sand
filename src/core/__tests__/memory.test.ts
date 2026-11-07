@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { chapterOrder, chapterText, freshEntries, keeperPrompt, mergePeople, parseKeeper, personKey, renderEntries, renderPeople, renderPreviously, type PersonMemory, type Recap } from '../world/memory';
-import { composePicture, portraitDirectionPrompt } from '../world/forge';
+import { composePicture, biblePrompt, parseBible } from '../world/forge';
 
 const reply = JSON.stringify({
   recap: { summary: 'Mara smuggled the ledger out of the customs house. Tomas was caught.', ending: 'Mara hides in the net loft; Tomas is in the cells.', open: ['Tomas in the cells', 'Who sold them out?'] },
@@ -65,11 +65,14 @@ describe('reading memory back', () => {
   });
 });
 
-describe('portrait direction', () => {
-  it('portraits follow the curated direction instead of the general framing', () => {
-    expect(composePicture('character', 'A grey-eyed woman.', { art: 'Ink.', portrait: 'Oil on panel, bust, rim light' })).toBe('Oil on panel, bust, rim light. A grey-eyed woman. No text or lettering.');
-    expect(composePicture('location', 'A harbour.', { art: 'Ink.', portrait: 'Oil' })).toMatch(/^Ink\./);
-    expect(portraitDirectionPrompt({ world: 'World: Ash', art: 'Ink.', current: '', people: ['a tall smuggler'], wish: 'moodier' })[1]!.content).toContain('What the writer wants: moodier');
+describe('style bible', () => {
+  it('portraits take the look, then the bible\'s portrait framing instead of the default', () => {
+    expect(composePicture('character', 'A grey-eyed woman.', { look: 'Ink.', portraits: 'Oil on panel, bust, rim light' })).toBe('Ink. Oil on panel, bust, rim light. A grey-eyed woman. No text or lettering.');
+    expect(composePicture('location', 'A harbour.', { look: 'Ink.', portraits: 'Oil' })).toMatch(/^Ink\. Wide establishing view/);
+    expect(composePicture('location', 'A harbour.', { look: 'Ink.', places: 'Low aerial, dusk' })).toBe('Ink. Low aerial, dusk. A harbour. No text or lettering.');
+    expect(biblePrompt({ world: 'World: Ash', current: { look: 'Ink.' }, people: ['a tall smuggler'], wish: 'moodier' })[1]!.content).toContain('What the writer wants: moodier');
+    expect(parseBible('{"look": "Ink and wash", "sigils": "Woodcut"}')).toEqual({ look: 'Ink and wash', sigils: 'Woodcut' });
+    expect(parseBible('Portraits: Bust crop, rim light.', 'portraits')).toEqual({ portraits: 'Bust crop, rim light.' });
   });
 });
 

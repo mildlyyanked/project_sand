@@ -2,17 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import type { Universe } from '@/core/types';
-import { DRAFT_FIELDS, KIND_NOUN, hooks, knowledge, libraryDrafts, normName, type Draft, type LibKind, type Library, type Plan } from '@/core/world/drafts';
-import { ensureAnchor, forgeNoun, forgePrompt, parseForgeDrafts, type ForgeKind } from '@/core/world/forge';
+import { KIND_NOUN, hooks, knowledge, libraryDrafts, normName, type Draft, type LibKind, type Library, type Plan } from '@/core/world/drafts';
+import { forgeNoun, forgePrompt, type ForgeKind } from '@/core/world/forge';
 import { listUniverses } from '@/db/repo/library';
 import { useSettings } from '@/state/settings';
-import { complete } from '@/state/paint';
-import { runInForeground } from '@/state/foreground';
-import { loadLibrary, namesByKind, rowDraft, saveDrafts } from '@/state/library';
-import { Badge, Banner, Button, Card, Chip, Field, FieldLabel, IconButton, Row, Sheet, Stepper, T } from './index';
+import { useJobs } from '@/state/jobs';
+import { loadLibrary, rowDraft } from '@/state/library';
+import { Banner, Button, Card, Chip, Field, Row, Sheet, Stepper, T } from './index';
 import { ModelPicker } from './ModelPicker';
-import { FieldEditor, RefChips } from './World';
-import { ReforgeSheet, type ReforgeTarget } from './Reforge';
+import { ProposalReview } from './Proposals';
 import { shortModel } from '../format';
 
 export type { ForgeKind };
@@ -66,12 +64,6 @@ export function ForgeSheet(props: ForgeSheetProps) {
   );
 }
 
-const subtitleOf = (d: Draft) => {
-  const f = d.fields;
-  const s = (k: string) => (typeof f[k] === 'string' ? (f[k] as string) : '');
-  return [s('type'), s('lifeStage'), s('occupation'), s('summary') || s('description') || s('text') || s('adulthood')].filter(Boolean).join(' · ');
-};
-
 function ForgeBody({ onClose, kind, universeId, anchor, canon, onSaved }: ForgeSheetProps) {
   const db = useSQLiteContext();
   const { apiKey, defaults } = useSettings();
@@ -85,14 +77,9 @@ function ForgeBody({ onClose, kind, universeId, anchor, canon, onSaved }: ForgeS
   const [lib, setLib] = useState<Library | null>(null);
   const [model, setModel] = useState(defaults.models.writer);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [drafts, setDrafts] = useState<Draft[] | null>(null);
-  const [skip, setSkip] = useState<Set<string>>(new Set());
-  const [editing, setEditing] = useState<string | null>(null);
-  const [reforge, setReforge] = useState<ReforgeTarget | null>(null);
-  const [notes, setNotes] = useState<string[] | null>(null);
-  const [progress, setProgress] = useState(0);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const job = useJobs((s) => (jobId ? s.jobs.find((j) => j.id === jobId) : undefined));
 
   useEffect(() => {
     void listUniverses(db).then(setUniverses);
@@ -116,70 +103,31 @@ function ForgeBody({ onClose, kind, universeId, anchor, canon, onSaved }: ForgeS
 
   const needsWorld = kindSel !== 'world' && kindSel !== 'character';
   const people = kindSel === 'character' || kindSel === 'mixed';
-  const batchPool = [...pool, ...(drafts ?? [])];
 
+  /** Write the request down as a job; it runs in the background and its results wait in the world's inbox. */
   async function generate(surprise = false) {
     if (!apiKey) return setErr('Add your OpenRouter key in Settings first.');
     if (needsWorld && !uId) return setErr('Pick the world these belong to.');
-    setBusy(true); setErr(null); setDrafts(null); setSkip(new Set()); setEditing(null); setProgress(0);
-    try {
-      const n = kindSel === 'world' ? 1 : count;
-      const focus = anchorDraft ?? (canon ? { name: canon.name, kind: canon.kind } : null);
-      const extra = [wish, canon?.excerpts.join(' ') ?? ''].join(' ');
-      const messages = forgePrompt(kindSel, { wish, count: n, knowledge: knowledge(pool, focus, extra), anchor: anchorDraft ?? undefined, surprise: surprise ? { hooks: hooks(pool) } : undefined, lookalike: people ? lookalike : undefined, canon: canon ?? undefined });
-      // Generous: a cap costs nothing unused, thinking models spend part of it, and a cut-off reply is continued anyway.
-      const maxTokens = kindSel === 'world' ? 24000 : kindSel === 'mixed' ? 6000 + 2500 * n : 4000 + 2000 * n;
-      const { text, finish } = await runInForeground('Forging library entries', () => complete({ model, messages, maxTokens, onText: setProgress, spend: { db, note: canon ? `canonize ${canon.name}` : `forge ${kindSel}` } }));
-      let r = parseForgeDrafts(kindSel, text, { lookalike: people ? lookalike : undefined });
-      if (!r) {
-        const flat = text.trim().replace(/\s+/g, ' ');
-        const peek = flat.slice(0, 160);
-        const tail = flat.length > 320 ? ` It ended: “…${flat.slice(-120)}”` : '';
-        if (finish === 'length') throw new Error(`The reply was still unfinished after it was continued three times, and nothing in it was complete. Ask for fewer at a time, or try another model. It began: “${peek}…”`);
-        throw new Error(peek ? `The model did not answer with the expected JSON. It began: “${peek}…”${tail} Try again, a clearer wish, or another model.` : 'The model returned nothing. Try again or another model.');
-      }
-      r = ensureAnchor(r, anchorDraft);
-      if (canon) r = r.map((d, i) => (i === 0 ? { ...d, name: canon.name } : d));
-      // Never offer a second entry under a name the world already has.
-      const taken = new Set(pool.map((d) => `${d.kind}:${normName(d.name)}`));
-      r = r.filter((d) => !taken.has(`${d.kind}:${normName(d.name)}`));
-      if (!r.length) throw new Error('Everything the model offered already exists in this world. Try again or a different wish.');
-      setDrafts(r);
-      if (finish === 'length') setErr('The reply was still unfinished after it was continued three times, so the last entries may be missing or cut short. What arrived whole is below; ask for fewer at a time if this keeps happening.');
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
+    setErr(null);
+    const n = kindSel === 'world' ? 1 : count;
+    const focus = anchorDraft ?? (canon ? { name: canon.name, kind: canon.kind } : null);
+    const extra = [wish, canon?.excerpts.join(' ') ?? ''].join(' ');
+    const messages = forgePrompt(kindSel, { wish, count: n, knowledge: knowledge(pool, focus, extra), anchor: anchorDraft ?? undefined, surprise: surprise ? { hooks: hooks(pool) } : undefined, lookalike: people ? lookalike : undefined, canon: canon ?? undefined });
+    // Generous: a cap costs nothing unused, thinking models spend part of it, and a cut-off reply is continued anyway.
+    const maxTokens = kindSel === 'world' ? 24000 : kindSel === 'mixed' ? 6000 + 2500 * n : 4000 + 2000 * n;
+    const what = canon ? `Canonize ${canon.name}` : anchorDraft ? `${under?.find((u) => u.kind === kindSel)?.label ?? 'Entries'} for ${anchorDraft.name}` : surprise ? `Surprise: ${n} ${forgeNoun(kindSel, n)}` : wish.trim() ? `${n} ${forgeNoun(kindSel, n)}: ${wish.trim()}` : `${n} ${forgeNoun(kindSel, n)}`;
+    const j = await useJobs.getState().enqueue(db, 'forge', {
+      universeId: kindSel === 'world' ? null : uId, title: what.length > 80 ? `${what.slice(0, 78)}…` : what,
+      input: { kind: kindSel, model, messages, maxTokens, lookalike: people ? lookalike : undefined, anchor: anchorDraft ? { kind: anchorDraft.kind, name: anchorDraft.name } : null, canon: canon?.name ?? null, taken: pool.map((d) => `${d.kind}:${normName(d.name)}`) },
+    });
+    setJobId(j.id);
   }
 
-  async function save() {
-    if (!drafts) return;
-    setBusy(true);
-    try {
-      const keep = drafts.filter((d) => !skip.has(d.id));
-      const plan = await saveDrafts(db, keep, kindSel === 'world' ? null : uId);
-      onSaved(plan, keep);
-      if (plan.notes.length) setNotes(plan.notes);
-      else onClose();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const updateDraft = (id: string, p: Partial<Draft>) => setDrafts((ds) => (ds ? ds.map((d) => (d.id === id ? { ...d, ...p } : d)) : ds));
-  const toggle = (id: string) => setSkip((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const editingDraft = drafts?.find((d) => d.id === editing) ?? null;
-
-  if (notes) {
+  if (job) {
     return (
       <>
-        <T v="h">Saved</T>
-        <T v="dim">Older entries were linked to the new ones:</T>
-        {notes.map((n, i) => <T key={i}>• {n}</T>)}
-        <Button title="Done" onPress={onClose} />
+        <ProposalReview job={job} onDone={onClose} onAccepted={(notes) => onSaved({ universe: null, entities: [], characters: [], species: [], lore: [], links: [], notes }, [])} />
+        {job.status === 'done' || job.status === 'failed' || job.status === 'cancelled' ? <Button kind="ghost" title="Back to the wish" onPress={() => setJobId(null)} /> : <Button kind="ghost" title="Close: it keeps going" onPress={onClose} />}
       </>
     );
   }
@@ -187,102 +135,39 @@ function ForgeBody({ onClose, kind, universeId, anchor, canon, onSaved }: ForgeS
   return (
     <>
       {err ? <Banner text={err} onClose={() => setErr(null)} /> : null}
-      {editingDraft ? (
-        <>
-          <DraftEditor draft={editingDraft} pool={batchPool} onChange={(p) => updateDraft(editingDraft.id, p)} onReforge={(key) => setReforge({ draft: editingDraft, key, pool: batchPool, apply: (v) => updateDraft(editingDraft.id, key === 'name' ? { name: String(v) } : { fields: { ...editingDraft.fields, [key]: v } }) })} />
-          <Button kind="outline" icon="arrow-back" title="Back to the list" onPress={() => setEditing(null)} />
-        </>
-      ) : !drafts ? (
-        <>
-          {anchorDraft ? (
-            <Card style={{ gap: 6 }}>
-              <T v="faint">Under {KIND_NOUN[anchorDraft.kind].toLowerCase()}</T>
-              <T v="h">{anchorDraft.name}</T>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                {under!.map((u) => <Chip key={u.kind} small label={u.label} selected={kindSel === u.kind} onPress={() => setKindSel(u.kind)} />)}
-              </ScrollView>
-            </Card>
-          ) : null}
-          {canon ? <Card style={{ gap: 4 }}><T v="faint">From the story</T>{canon.excerpts.slice(-3).map((x, i) => <T key={i} v="dim" numberOfLines={4}>“{x}”</T>)}</Card> : null}
-          <Field value={wish} onChangeText={setWish} placeholder={canon ? `Optional: anything to add about ${canon.name}` : LABEL[kindSel].placeholder} multiline style={{ minHeight: 70 }} />
-          {people ? <Field label="Looks like, optional" hint="A real person or a fictional character whose look inspires theirs. The appearance is written from it in the model's own words; the name never reaches the writer or an image model." value={lookalike} onChangeText={setLookalike} placeholder="e.g. Tilda Swinton, or Aragorn" /> : null}
-          {kindSel !== 'world' && !anchor && !canon ? (
-            <View style={{ gap: 6 }}>
-              <T v="label">{needsWorld ? 'World' : 'World, optional'}</T>
-              <Row style={{ flexWrap: 'wrap' }}>
-                {!needsWorld ? <Chip label="None" selected={!uId} onPress={() => setUId(null)} /> : null}
-                {universes.map((u) => <Chip key={u.id} label={u.name} selected={uId === u.id} onPress={() => setUId(u.id)} />)}
-              </Row>
-            </View>
-          ) : null}
-          {kindSel !== 'world' && !canon ? <Row between><T>How many</T><Stepper value={count} min={1} max={kindSel === 'mixed' ? 8 : 6} onChange={setCount} /></Row> : null}
-          <Row between>
-            <T v="faint">Written by {shortModel(model)}</T>
-            <Button small kind="ghost" icon="hardware-chip-outline" title="Change" onPress={() => setPickerOpen(true)} />
+      {anchorDraft ? (
+        <Card style={{ gap: 6 }}>
+          <T v="faint">Under {KIND_NOUN[anchorDraft.kind].toLowerCase()}</T>
+          <T v="h">{anchorDraft.name}</T>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+            {under!.map((u) => <Chip key={u.kind} small label={u.label} selected={kindSel === u.kind} onPress={() => setKindSel(u.kind)} />)}
+          </ScrollView>
+        </Card>
+      ) : null}
+      {canon ? <Card style={{ gap: 4 }}><T v="faint">From the story</T>{canon.excerpts.slice(-3).map((x, i) => <T key={i} v="dim" numberOfLines={4}>“{x}”</T>)}</Card> : null}
+      <Field value={wish} onChangeText={setWish} placeholder={canon ? `Optional: anything to add about ${canon.name}` : LABEL[kindSel].placeholder} multiline style={{ minHeight: 70 }} />
+      {people ? <Field label="Looks like, optional" hint="A real person or a fictional character whose look inspires theirs. The appearance is written from it in the model's own words; the name never reaches the writer or an image model." value={lookalike} onChangeText={setLookalike} placeholder="e.g. Tilda Swinton, or Aragorn" /> : null}
+      {kindSel !== 'world' && !anchor && !canon ? (
+        <View style={{ gap: 6 }}>
+          <T v="label">{needsWorld ? 'World' : 'World, optional'}</T>
+          <Row style={{ flexWrap: 'wrap' }}>
+            {!needsWorld ? <Chip label="None" selected={!uId} onPress={() => setUId(null)} /> : null}
+            {universes.map((u) => <Chip key={u.id} label={u.name} selected={uId === u.id} onPress={() => setUId(u.id)} />)}
           </Row>
-          <Row>
-            <Button title={busy ? `Writing… ${progress > 0 ? `${Math.round(progress / 4)} tokens` : ''}` : 'Generate'} icon="sparkles-outline" onPress={() => generate(false)} loading={busy} disabled={!apiKey} style={{ flex: 1 }} />
-            {!canon ? <Button kind="outline" icon="shuffle-outline" title="Surprise me" onPress={() => generate(true)} disabled={busy || !apiKey} /> : null}
-          </Row>
-          <T v="faint">{kindSel === 'world' ? 'A world comes with its description, genre, rules and calendar, nested places, factions, lore and, where it calls for them, peoples.' : `The model reads the world first: every name in it, and in full the entries that bear on this. New entries link to old ones by name, and old entries that already mention them get linked back when you save. Surprise me grows the world from its loose threads${pool.length ? '' : ' (there are none yet)'}.`}</T>
-        </>
-      ) : (
-        <>
-          <T v="faint">Tap an entry to open it: every field can be edited or reforged before saving. Tick off what you do not want.</T>
-          {drafts.map((d) => (
-            <Card key={d.id} onPress={() => setEditing(d.id)} style={{ gap: 4, opacity: skip.has(d.id) ? 0.45 : 1 }}>
-              <Row between>
-                <IconButton name={skip.has(d.id) ? 'square-outline' : 'checkbox'} size={20} onPress={() => toggle(d.id)} />
-                <T v="h" style={{ flex: 1 }} numberOfLines={1}>{d.name}</T>
-                {d.kind !== kindSel ? <Badge label={KIND_NOUN[d.kind].toLowerCase()} tone="dim" /> : null}
-                {d.kind === 'character' && d.fields.adult === false ? <Badge label="not adult" tone="warn" /> : null}
-              </Row>
-              <T v="dim" numberOfLines={4}>{subtitleOf(d)}</T>
-              <LinkLine d={d} />
-            </Card>
-          ))}
-          <Row>
-            <Button title={`Save ${drafts.length - skip.size} to library`} icon="checkmark" onPress={save} loading={busy} disabled={drafts.length === skip.size} style={{ flex: 1 }} />
-            <Button kind="outline" icon="refresh-outline" title="Again" onPress={() => generate(false)} loading={busy} />
-          </Row>
-          <Button kind="ghost" title="Back to the wish" onPress={() => setDrafts(null)} />
-        </>
-      )}
+        </View>
+      ) : null}
+      {kindSel !== 'world' && !canon ? <Row between><T>How many</T><Stepper value={count} min={1} max={kindSel === 'mixed' ? 8 : 6} onChange={setCount} /></Row> : null}
+      <Row between>
+        <T v="faint">Written by {shortModel(model)}</T>
+        <Button small kind="ghost" icon="hardware-chip-outline" title="Change" onPress={() => setPickerOpen(true)} />
+      </Row>
+      <Row>
+        <Button title="Generate" icon="sparkles-outline" onPress={() => void generate(false)} disabled={!apiKey} style={{ flex: 1 }} />
+        {!canon ? <Button kind="outline" icon="shuffle-outline" title="Surprise me" onPress={() => void generate(true)} disabled={!apiKey} /> : null}
+      </Row>
+      <T v="faint">{kindSel === 'world' ? 'A world comes with its description, genre, rules, style bible and calendar, nested places, factions, lore and, where it calls for them, peoples.' : `The model reads the world first: every name in it, and in full the entries that bear on this. New entries link to old ones by name, and old entries that already mention them get linked back when you add them. Surprise me grows the world from its loose threads${pool.length ? '' : ' (there are none yet)'}.`} It runs in the background: close this and the results wait in the world’s inbox.</T>
       <ModelPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onSelect={setModel} current={model} title="Forge with" />
-      <ReforgeSheet target={reforge} onClose={() => setReforge(null)} />
     </>
-  );
-}
-
-/** The links a draft will make, in one faint line. */
-function LinkLine({ d }: { d: Draft }) {
-  const parts = DRAFT_FIELDS[d.kind].filter((f) => f.type === 'ref' && typeof d.fields[f.key] === 'string' && (d.fields[f.key] as string).trim()).map((f) => `${f.label.toLowerCase()} ${d.fields[f.key] as string}`);
-  return parts.length ? <T v="faint" numberOfLines={2}>{parts.join(' · ')}</T> : null;
-}
-
-/** Every field of a draft, editable, each with a sparkle to reforge it alone. References are by name. */
-export function DraftEditor({ draft, pool, onChange, onReforge }: { draft: Draft; pool: Draft[]; onChange: (p: Partial<Draft>) => void; onReforge: (key: string) => void }) {
-  const names = namesByKind(pool.filter((d) => d.id !== draft.id));
-  return (
-    <View style={{ gap: 14 }}>
-      <T v="faint">{KIND_NOUN[draft.kind]}</T>
-      <Field label="Name" value={draft.name} onChangeText={(v) => onChange({ name: v })} onForge={() => onReforge('name')} />
-      {DRAFT_FIELDS[draft.kind].map((def) => {
-        if (def.type === 'ref' && def.ref) {
-          const v = typeof draft.fields[def.key] === 'string' ? (draft.fields[def.key] as string) : '';
-          const opts = names[def.ref];
-          const all = v && !opts.some((o) => normName(o) === normName(v)) ? [v, ...opts] : opts;
-          const picked = all.find((n) => normName(n) === normName(v)) ?? null;
-          return (
-            <View key={def.key} style={{ gap: 6 }}>
-              <FieldLabel label={def.label} onForge={() => onReforge(def.key)} />
-              {all.length ? <RefChips value={picked} options={all.map((n) => ({ id: n, name: n }))} onChange={(n) => onChange({ fields: { ...draft.fields, [def.key]: n ?? '' } })} /> : <T v="faint">Nothing to pick yet.</T>}
-            </View>
-          );
-        }
-        return <FieldEditor key={def.key} defs={[def]} data={draft.fields} onChange={(p) => onChange({ fields: { ...draft.fields, ...p } })} onForge={(d) => onReforge(d.key)} />;
-      })}
-    </View>
   );
 }
 

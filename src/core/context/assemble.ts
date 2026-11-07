@@ -18,6 +18,7 @@ import { DEFAULT_TEMPLATES, type PromptTemplates } from '../prompts';
 import type { CheckResult, SceneState, WorldEntity, WorldEvent, WorldInstance } from '../world/types';
 import { locationChain, scanEntities, childrenOf } from '../world/scan';
 import { renderCharacterWorld, renderEntity, renderSpecies, renderWorldTemplate, worldTemplateEmpty } from '../world/render';
+import { edges, tieLines, type StoredLink } from '../world/links';
 import { renderContinuity, renderSiblings, selectContinuity, type SiblingStory } from '../world/continuity';
 import { timeOfDay } from '../world/calendar';
 import { renderPov } from '../world/survival';
@@ -28,6 +29,10 @@ import { gmContract, gmOpening, renderGmRead, renderThreads, TURN_LENGTH, type G
 /** Everything the world adds to a request. Absent: the story is on its own (vanilla). */
 export interface WorldContext {
   entities: WorldEntity[];
+  /** Stored ties between entries: family, allies, enemies. */
+  links?: StoredLink[];
+  /** Everyone in the world, so a tie to someone off stage still has a name. */
+  people?: Character[];
   instance: WorldInstance | null;
   /** Timeline events this story may know of: the whole instance with continuity on, only its own otherwise. */
   events: WorldEvent[];
@@ -133,6 +138,10 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   for (const e of entities) names.set(e.id, e.name);
   for (const c of characters) names.set(c.id, c.name);
   const refName = (id: string) => names.get(id);
+  for (const s of species) names.set(s.id, s.name);
+  for (const c of world?.people ?? []) if (!names.has(c.id)) names.set(c.id, c.name);
+  const graph = world?.links?.length ? edges({ entities, characters: [...characters, ...(world.people ?? [])], species }, world.links) : [];
+  const ties = (id: string) => (graph.length ? tieLines(id, graph, refName, { max: 6 }) : []);
 
   // In play the game master's contract replaces the novelist's default prompt; a voice's own prompt stays, overruled on form.
   if (!pov || p.system.trim()) push({ key: 'system', label: 'System', role: 'system', text: p.system.trim() || tpl.craft });
@@ -140,7 +149,7 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   if (style && styleText) push({ key: 'style', label: `Voice · ${style.name}`, role: 'system', text: styleText });
   if (pov) push({ key: 'gm', label: world?.sim ? 'Playing the world' : 'Game master', role: 'system', text: world?.sim ? world.sim.contract : gmContract({ name: pov.name, length: session.pov?.turnLength }) });
   if (characters.length) {
-    const text = ['# Characters', ...characters.map((c) => renderCharacter(c, species.find((s) => s.id === c.speciesId), world ? renderCharacterWorld(c, refName) : [], pov?.id === c.id ? " (the player's character)" : ''))].join('\n\n');
+    const text = ['# Characters', ...characters.map((c) => renderCharacter(c, species.find((s) => s.id === c.speciesId), world ? [...renderCharacterWorld(c, refName), ...ties(c.id)] : [], pov?.id === c.id ? " (the player's character)" : ''))].join('\n\n');
     push({ key: 'characters', label: `Characters · ${characters.length}`, role: 'system', text });
   }
   if (session.brief.trim()) push({ key: 'brief', label: 'Brief', role: 'system', text: `# The story\n${session.brief.trim()}` });
@@ -166,7 +175,7 @@ export function assembleContext(input: AssembleInput): AssembledContext {
   if (world && (here || world.scene.locationName.trim())) {
     const lines: string[] = [];
     if (here) {
-      lines.push(`# Where the scene is: ${chain.map((c) => c.name).join(' › ')}`, renderEntity(here, entities, refName, { play: !!pov }));
+      lines.push(`# Where the scene is: ${chain.map((c) => c.name).join(' › ')}`, [renderEntity(here, entities, refName, { play: !!pov }), ...ties(here.id)].join('\n'));
       const exits = [...childrenOf(here.id, entities), ...(here.parentId ? childrenOf(here.parentId, entities).filter((x) => x.id !== here.id) : [])].filter((x) => x.kind === 'location').slice(0, 12);
       if (exits.length) lines.push(`Nearby: ${exits.map((x) => x.name).join(', ')}.`);
     } else lines.push(`# Where the scene is: ${world.scene.locationName.trim()}`);
@@ -182,8 +191,8 @@ export function assembleContext(input: AssembleInput): AssembledContext {
     for (const c of characters) { link(c.data.homeLocationId); for (const m of c.data.memberships ?? []) link(m.orgId); }
     const peoples = scanEntities(species.map((s) => ({ ...s, keys: [] as string[] })), scanText);
     const blocks: { text: string; name: string }[] = [];
-    for (const e of [...scanned, ...linked]) blocks.push({ name: e.name, text: renderEntity(e, entities, refName, { play: !!pov }) });
-    for (const s of peoples) blocks.push({ name: s.name, text: renderSpecies(s as Species, refName) });
+    for (const e of [...scanned, ...linked]) blocks.push({ name: e.name, text: [renderEntity(e, entities, refName, { play: !!pov }), ...ties(e.id)].join('\n') });
+    for (const s of peoples) blocks.push({ name: s.name, text: [renderSpecies(s as Species, refName), ...ties(s.id)].join('\n') });
     let budget = strategy.worldBudget ?? 1400;
     const kept = blocks.filter((b) => { const t = estimateTokens(b.text); if (t > budget) return false; budget -= t; return true; });
     for (const e of scanned) focusIds.add(e.id);

@@ -4,6 +4,7 @@ import type { WorldEntity } from '@/core/world/types';
 import { characterDraft, entityDraft, libraryDrafts, loreDraft, planDrafts, speciesDraft, worldDraft, type Draft, type LibKind, type Library, type Plan } from '@/core/world/drafts';
 import { DEFAULT_WORLD_DATA, getUniverse, listCharacters, listLore, listSpecies, saveCharacter, saveLore, saveSpecies, saveUniverse } from '@/db/repo/library';
 import { listEntities, primeInstance, saveEntity } from '@/db/repo/world';
+import { addLinks, listLinks } from '@/db/repo/links';
 
 /** Everything in one world, or an empty library when there is none. */
 export async function loadLibrary(db: SQLiteDatabase, universeId: string | null | undefined): Promise<Library> {
@@ -11,8 +12,8 @@ export async function loadLibrary(db: SQLiteDatabase, universeId: string | null 
     const characters = (await listCharacters(db)).filter((c) => !c.universeId);
     return { universe: null, entities: [], characters, species: [], lore: [] };
   }
-  const [universe, entities, characters, species, lore] = await Promise.all([getUniverse(db, universeId), listEntities(db, universeId), listCharacters(db), listSpecies(db, universeId), listLore(db, universeId)]);
-  return { universe, entities, characters: characters.filter((c) => c.universeId === universeId), species, lore };
+  const [universe, entities, characters, species, lore, links] = await Promise.all([getUniverse(db, universeId), listEntities(db, universeId), listCharacters(db), listSpecies(db, universeId), listLore(db, universeId), listLinks(db, universeId)]);
+  return { universe, entities, characters: characters.filter((c) => c.universeId === universeId), species, lore, links };
 }
 
 export async function savePlan(db: SQLiteDatabase, plan: Plan, o: { newWorld?: boolean } = {}): Promise<void> {
@@ -24,6 +25,7 @@ export async function savePlan(db: SQLiteDatabase, plan: Plan, o: { newWorld?: b
   for (const c of plan.characters) await saveCharacter(db, c);
   for (const s of plan.species) await saveSpecies(db, s);
   for (const l of plan.lore) await saveLore(db, l);
+  if (plan.links.length) await addLinks(db, plan.links);
 }
 
 /** Save forged drafts, with their links, into a world (or a new one). */
@@ -61,7 +63,7 @@ export async function applyDraftEdit(db: SQLiteDatabase, draft: Draft, universeI
   const l = lib ?? (await loadLibrary(db, universeId));
   const plan = planDrafts([draft], l, universeId);
   let self: unknown = null;
-  const others: Plan = { universe: null, entities: [], characters: [], species: [], lore: [], notes: plan.notes };
+  const others: Plan = { universe: null, entities: [], characters: [], species: [], lore: [], links: plan.links, notes: plan.notes };
   if (plan.universe && plan.universe.id === draft.id) self = plan.universe;
   for (const k of ['entities', 'characters', 'species', 'lore'] as const) {
     for (const row of plan[k] as { id: string }[]) {

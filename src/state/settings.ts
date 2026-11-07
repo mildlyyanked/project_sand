@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import type { ModelInfo, ModelSlots, ModelStat } from '@/core/types';
+import type { ModelInfo, ModelSlots, ModelStat, Universe } from '@/core/types';
 import { DEFAULT_TEMPLATES, mergeTemplates, type PromptTemplates } from '@/core/prompts';
 import { kvGet, kvSet, listModelStats } from '@/db/repo/library';
 import { loadApiKey, loadImageKey, saveApiKey, saveImageKey } from './secrets';
 import { DEFAULT_IMAGE_BACKEND, type ImageBackend } from '@/core/images';
+import { bibleOf, type ArtBible } from '@/core/world/schema';
 
 export interface Defaults {
   models: ModelSlots;
@@ -18,9 +19,8 @@ export interface Defaults {
   reviewImagePrompt: boolean;
   /** Send the portraits of people in a passage along with the illustration request (OpenRouter image models). */
   portraitReferences: boolean;
-  /** Art direction for pictures in worlds that set none. */
-  artStyle: string;
-  sigilStyle: string;
+  /** The style bible for pictures, line by line, where a world's own says nothing. */
+  art: Partial<ArtBible>;
   /** The Lens: explore a passage's people, places and things. Experimental. */
   lens: boolean;
   /** In play, library entries named in a passage link to a quick card. */
@@ -38,8 +38,7 @@ const DEFAULTS: Defaults = {
   imageBackend: DEFAULT_IMAGE_BACKEND,
   reviewImagePrompt: false,
   portraitReferences: true,
-  artStyle: '',
-  sigilStyle: '',
+  art: {},
   lens: true,
   entryTips: true,
   zdr: false,
@@ -121,7 +120,10 @@ export const useSettings = create<SettingsState>((set, get) => ({
     let defaults = DEFAULTS;
     try {
       if (d) {
-        const p = JSON.parse(d) as Partial<Defaults>;
+        const p = JSON.parse(d) as Partial<Defaults> & { artStyle?: string; sigilStyle?: string };
+        // Before the style bible: two loose lines.
+        if (!p.art && (p.artStyle || p.sigilStyle)) p.art = { look: p.artStyle ?? '', sigils: p.sigilStyle ?? '' };
+        delete p.artStyle; delete p.sigilStyle;
         defaults = { ...DEFAULTS, ...p, models: { ...DEFAULTS.models, ...(p.models ?? {}) }, imageBackend: { ...DEFAULT_IMAGE_BACKEND, ...(p.imageBackend ?? {}) } };
       }
     } catch {}
@@ -157,4 +159,9 @@ export const useSettings = create<SettingsState>((set, get) => ({
 
 export function modelPrivacy(id: string, zdrIds: string[]): ModelInfo['privacy'] {
   return zdrIds.includes(id) ? 'zdr' : 'no-collection';
+}
+
+/** The bible a world's pictures follow: its own lines, then the app's. */
+export function worldBible(u: Pick<Universe, 'data'> | null | undefined): ArtBible {
+  return bibleOf(u?.data.art, useSettings.getState().defaults.art);
 }

@@ -113,7 +113,7 @@ export async function ensureKit(o: { db: SQLiteDatabase; session: Session; unive
   if (kitTried.has(o.session.id) || !o.universe) return DEFAULT_KIT;
   kitTried.add(o.session.id);
   const u = o.universe;
-  const world = [`World: ${u.name}`, u.description, u.data.genre && `Genre: ${u.data.genre}`, u.data.tone && `Tone: ${u.data.tone}`, u.data.technology && `Technology: ${u.data.technology}`, u.data.society && `Society: ${u.data.society}`, u.data.currency && `Money: ${u.data.currency}`].filter(Boolean).join('\n');
+  const world = [`World: ${u.name}`, u.description, u.data.genre && `Genre and tone: ${u.data.genre}`, u.data.rules && `How it works: ${u.data.rules.slice(0, 600)}`, u.data.society && `Society: ${u.data.society}`, u.data.currency && `Money: ${u.data.currency}`].filter(Boolean).join('\n');
   try {
     const text = await helperJson({ apiKey: o.apiKey, model: o.session.models.helper, zdr: o.session.zdr, signal: o.signal, maxTokens: 4000, messages: kitPrompt({ world, currency: u.data.currency }) });
     const kit = parseKit(text);
@@ -191,7 +191,7 @@ export async function recordSimTurn(db: SQLiteDatabase, sess: Session, wb: World
 
 function worldLine(u: Universe | null): string {
   if (!u) return '';
-  return [`World: ${u.name}`, u.description, u.data.genre && `Genre: ${u.data.genre}`, u.data.tone && `Tone: ${u.data.tone}`, u.data.technology && `Technology: ${u.data.technology}`, u.data.society && `Society: ${u.data.society}`].filter(Boolean).join('\n');
+  return [`World: ${u.name}`, u.description, u.data.genre && `Genre and tone: ${u.data.genre}`, u.data.rules && `How it works: ${u.data.rules.slice(0, 600)}`, u.data.society && `Society: ${u.data.society}`].filter(Boolean).join('\n');
 }
 
 /** Lay out a map the move needs: one helper call, or the rules when there is no key or the answer is unusable. */

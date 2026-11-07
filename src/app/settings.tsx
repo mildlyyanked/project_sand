@@ -11,7 +11,7 @@ import { Banner, Button, Card, Chip, Field, ListItem, Row, Section, Screen, Segm
 import { relTime, shortModel } from '@/ui/format';
 import { space } from '@/ui/theme';
 import { appVersion } from '@/ui/version';
-import { DEFAULT_ART_STYLE, DEFAULT_SIGIL_STYLE } from '@/core/world/forge';
+import { StyleBible } from '@/ui/components/StyleBible';
 
 export default function Settings() {
   const db = useSQLiteContext();
@@ -20,6 +20,7 @@ export default function Settings() {
   const [busy, setBusy] = useState<'test' | 'models' | null>(null);
   const [msg, setMsg] = useState<{ text: string; tone: 'ok' | 'danger' | 'info' } | null>(null);
   const [voices, setVoices] = useState<Style[]>([]);
+  const [bible, setBible] = useState(false);
   const [imgKey, setImgKey] = useState<string | null>(null);
   const ib = s.defaults.imageBackend;
   const setIb = (patch: Partial<typeof ib>) => s.setDefaults(db, { imageBackend: { ...ib, ...patch } });
@@ -106,8 +107,8 @@ export default function Settings() {
         {ib.kind !== 'prompt' ? <SwitchRow label="Show the prompt before painting" hint="Illustrate stops at the helper's description so you can read it, change it, then paint. Useful when a painter keeps refusing: cut what it objects to and try again, without touching the story." value={s.defaults.reviewImagePrompt} onChange={(v) => s.setDefaults(db, { reviewImagePrompt: v })} /> : null}
         <SwitchRow label="Lens (experimental)" hint="A Lens button on each passage: explore its people, places and things, look closer, pin details as fact, and in play gather clues. On demand only; uses the helper model." value={s.defaults.lens} onChange={(v) => s.setDefaults(db, { lens: v })} />
         <SwitchRow label="Entry tooltips in play" hint="When you play a character in a world of your own, the places, people, factions, things and lore a passage names are underlined; tap one for a quick card about it. Local, no model call." value={s.defaults.entryTips} onChange={(v) => s.setDefaults(db, { entryTips: v })} />
-        <Field label="Art direction" hint="For every picture in worlds that set none of their own (a world's page has its own). Medium, palette, light, influences." value={s.defaults.artStyle} onChangeText={(v) => s.setDefaults(db, { artStyle: v })} placeholder={DEFAULT_ART_STYLE} multiline />
-        <Field label="Sigil style" hint="How faction emblems are drawn." value={s.defaults.sigilStyle} onChangeText={(v) => s.setDefaults(db, { sigilStyle: v })} placeholder={DEFAULT_SIGIL_STYLE} multiline />
+        <ListItem icon="color-palette-outline" title="Default style bible" subtitle={s.defaults.art.look?.trim() || 'For every picture in worlds whose own bible leaves a line empty'} onPress={() => setBible((x) => !x)} chevron={false} />
+        {bible ? <StyleBible value={s.defaults.art} fallback={{}} onChange={(art) => void s.setDefaults(db, { art })} /> : null}
         {ib.kind === 'openrouter' ? <SwitchRow label="Use portraits as references" hint="When a passage names characters who have portraits, the portraits go with the illustration request so they look like themselves. For image models that take images in; others ignore them." value={s.defaults.portraitReferences} onChange={(v) => s.setDefaults(db, { portraitReferences: v })} /> : null}
         {ib.kind !== 'openrouter' ? <Row between><T>Image size</T><Stepper value={ib.size} min={512} max={1536} step={128} onChange={(v) => setIb({ size: v })} /></Row> : null}
         <T v="faint">Painting with: {describeBackend(ib)}</T>

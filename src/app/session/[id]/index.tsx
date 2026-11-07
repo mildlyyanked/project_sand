@@ -28,6 +28,7 @@ import { keepChapter, newChapter } from '@/state/memory';
 import { composePicture, entryImagePrompt } from '@/core/world/forge';
 import { complete, paintReady } from '@/state/paint';
 import { ForgeSheet } from '@/ui/components/Forge';
+import { entryRoute } from '@/ui/components/Entry';
 import { imageOf, namedIn } from '@/core/world/portraits';
 import { excerptsFor, type Newcomer } from '@/core/world/forge';
 import { KIND_NOUN, libraryDrafts, normName } from '@/core/world/drafts';
@@ -35,7 +36,7 @@ import { HEAT_LABELS } from '@/core/types';
 import { leafOf, siblingPosition, siblings } from '@/core/beatTree';
 import { voiceDrift } from '@/core/voiceDrift';
 import { useSession } from '@/state/session';
-import { useSettings } from '@/state/settings';
+import { useSettings, worldBible } from '@/state/settings';
 import { reweave } from '@/state/reweave';
 import { askNotificationPermission } from '@/state/foreground';
 import { Banner, Button, Chip, Empty, Field, IconButton, Ionicons, MenuItem, Pill, Row, Sheet, T } from '@/ui/components';
@@ -164,7 +165,7 @@ export default function Manuscript() {
   const tipPool = useMemo(() => {
     if (!tipsHere) return [];
     const characters = [...bundle.characters, ...wb.people].filter((c, i, a) => c.id !== wb.player?.id && a.findIndex((x) => x.id === c.id) === i);
-    return libraryDrafts({ universe: null, entities: wb.entities, characters, species: bundle.species, lore: bundle.lore });
+    return libraryDrafts({ universe: null, entities: wb.entities, characters, species: bundle.species, lore: bundle.lore, links: wb.links });
   }, [tipsHere, bundle, wb]);
   const mentionsByBeat = useMemo(() => {
     const m = new Map<string, ReturnType<typeof findMentions>>();
@@ -266,7 +267,7 @@ export default function Manuscript() {
     if (!session) return;
     try {
       const subject = await complete({ model: session.models.helper, messages: entryImagePrompt({ draft: { id: 'lens', kind: 'item', name, fields: { summary: description } }, world: worldLine(s.bundle.universe) }), maxTokens: 2000, temperature: 0.7, spend: { db, note: 'lens picture', sessionId: session.id } });
-      const prompt = composePicture('lore', subject.text.trim() || description, { art: s.bundle.universe?.data.artStyle?.trim() || useSettings.getState().defaults.artStyle.trim() });
+      const prompt = composePicture('lore', subject.text.trim() || description, worldBible(s.bundle.universe));
       useSession.setState({ imagePrompt: { beatId, prompt, canPaint: paintReady().ok } });
     } catch (e) {
       s.setNotice(e instanceof Error ? e.message : String(e));
@@ -682,7 +683,7 @@ export default function Manuscript() {
             data={row?.data as Record<string, unknown> | undefined}
             at={{ y: tip.y }}
             onClose={() => setTip(null)}
-            onOpen={() => { setTip(null); router.push(d.kind === 'character' ? `/library/character/${d.id}` : d.kind === 'species' || d.kind === 'lore' ? `/library/universe/${session.universeId}` : `/library/entity/${d.id}`); }}
+            onOpen={() => { setTip(null); router.push(entryRoute(d.kind, d.id) as never); }}
             onLens={lensOn ? () => { setTip(null); void lens.show(tip.beatId, at >= 0 ? [at] : []); } : undefined}
           />
         );

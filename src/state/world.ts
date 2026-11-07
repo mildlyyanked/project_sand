@@ -1,4 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import type { StoredLink } from '@/core/world/links';
+import { listLinks } from '@/db/repo/links';
 import type { Beat, Character, Session, Species, Universe } from '@/core/types';
 import type { WorldContext } from '@/core/context/assemble';
 import type { CheckResult, SceneState, WorldEntity, WorldEvent, WorldInstance } from '@/core/world/types';
@@ -25,19 +27,22 @@ export interface WorldBundle {
   player: Character | null;
   /** Everyone who lives in this world, for naming things the chronicle mentions. */
   people: Character[];
+  /** Stored ties between its entries. */
+  links: StoredLink[];
 }
 
-export const emptyWorldBundle: WorldBundle = { entities: [], instance: null, player: null, people: [] };
+export const emptyWorldBundle: WorldBundle = { entities: [], instance: null, player: null, people: [], links: [] };
 
 export async function loadWorldBundle(db: SQLiteDatabase, s: Session): Promise<WorldBundle> {
   if (!s.universeId) return emptyWorldBundle;
-  const [entities, instance, everyone, player] = await Promise.all([
+  const [entities, instance, everyone, player, links] = await Promise.all([
     listEntities(db, s.universeId),
     s.instanceId ? getInstance(db, s.instanceId) : primeInstance(db, s.universeId),
     listCharacters(db),
     s.pov?.characterId ? getCharacters(db, [s.pov.characterId]).then((r) => r[0] ?? null) : Promise.resolve(null),
+    listLinks(db, s.universeId),
   ]);
-  return { entities, instance, player, people: everyone.filter((c) => c.universeId === s.universeId || c.universeId == null) };
+  return { entities, instance, player, people: everyone.filter((c) => c.universeId === s.universeId || c.universeId == null), links };
 }
 
 /** Vanilla: the real world with nothing in it, continuity and chronicle off, writer mode. No world work at all. */
@@ -76,6 +81,8 @@ export async function buildWorldContext(db: SQLiteDatabase, s: Session, path: Be
   if (memory) siblings = siblings.filter((x) => !x.id || !memory.recapped.has(x.id));
   return {
     entities: wb.entities,
+    links: wb.links,
+    people: wb.people,
     instance: wb.instance,
     events,
     siblings,
@@ -119,7 +126,7 @@ export async function gmRead(o: { apiKey: string; model: string; zdr: boolean; s
 /** Three threads for the game master's back pocket, rooted in the world and the player's character. */
 export async function seedThreads(o: { apiKey: string; model: string; zdr: boolean; signal?: AbortSignal; session: Session; universe: Universe | null; species: Species[]; wb: WorldBundle; recent: string }): Promise<Thread[]> {
   if (!o.wb.player) return [];
-  const lib = { universe: o.universe, entities: o.wb.entities, characters: o.wb.people, species: o.species, lore: [] };
+  const lib = { universe: o.universe, entities: o.wb.entities, characters: o.wb.people, species: o.species, lore: [], links: o.wb.links };
   const pool = libraryDrafts(lib).filter((d) => d.id !== o.wb.player!.id);
   const me = characterDraft(o.wb.player, lib);
   const text = await helperJson({ apiKey: o.apiKey, model: o.model, zdr: o.zdr, signal: o.signal, maxTokens: 1200, messages: seedThreadsPrompt({ name: o.wb.player.name, knowledge: knowledge(pool, me, o.session.brief, 6000), player: draftCard(me), brief: o.session.brief, recent: o.recent }) });

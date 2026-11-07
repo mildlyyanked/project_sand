@@ -71,7 +71,7 @@ function withPoint(data: LensData, path: number[], fn: (p: LensPoint) => LensPoi
 /** The library the open story can see, for linking names and grounding cards. */
 function libraryOf(): Library {
   const s = useSession.getState();
-  return { universe: s.bundle.universe, entities: s.wb.entities, characters: [...s.wb.people, ...s.bundle.characters.filter((c) => !s.wb.people.some((p) => p.id === c.id))], species: s.bundle.species, lore: s.bundle.lore };
+  return { universe: s.bundle.universe, entities: s.wb.entities, characters: [...s.wb.people, ...s.bundle.characters.filter((c) => !s.wb.people.some((p) => p.id === c.id))], species: s.bundle.species, lore: s.bundle.lore, links: s.wb.links };
 }
 
 export const useLens = create<LensState>((set, get) => ({
@@ -304,6 +304,7 @@ export function currentBaseMap(): StoryMap {
     recent: prose.slice(-3).map((b) => b.text),
     present: scenePresence().names,
     castIds: ss.session?.characterIds ?? [],
+    links: ss.wb.links,
   });
 }
 

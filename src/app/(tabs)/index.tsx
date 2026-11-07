@@ -10,6 +10,8 @@ import { defaultWorldId, listInstances, primeInstance } from '@/db/repo/world';
 import { useSettings } from '@/state/settings';
 import { Card, Empty, Ionicons, MenuItem, Row, Sheet, T } from '@/ui/components';
 import { StoryCard, useStoryMenu } from '@/ui/components/Stories';
+import { QuestionCard } from '@/ui/components/Question';
+import { dayOf, worldOfTheDay } from '@/core/world/agent';
 import { Avatar } from '@/ui/components/EntryImage';
 import { appVersion } from '@/ui/version';
 import { radius, space, useTheme } from '@/ui/theme';
@@ -61,6 +63,8 @@ export default function Home() {
   }
 
   const realId = worlds.find((w) => w.isDefault)?.id ?? null;
+  // One world's question a day, in turn: the worlds of your own.
+  const questionWorld = worldOfTheDay(worlds.filter((w) => !w.isDefault), dayOf());
   const worldOf = (s: Session) => s.universeId ?? realId;
   const recent = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3);
   const folders = worlds
@@ -78,13 +82,18 @@ export default function Home() {
         data={folders}
         keyExtractor={(f) => f.w.id}
         contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: 120, flexGrow: 1 }}
-        ListHeaderComponent={recent.length ? (
-          <View style={{ gap: space.sm, marginBottom: space.sm }}>
-            <T v="label">Recent</T>
-            {recent.map((s) => <StoryCard key={s.id} s={s} words={stats[s.id]?.words} onHold={menu.hold} />)}
-            <T v="label" style={{ marginTop: space.sm }}>Worlds</T>
+        ListHeaderComponent={
+          <View style={{ gap: space.sm, marginBottom: recent.length ? space.sm : 0 }}>
+            {questionWorld ? <QuestionCard key={questionWorld.id} universe={questionWorld} hideWhenDone showWorld /> : null}
+            {recent.length ? (
+              <>
+                <T v="label">Recent</T>
+                {recent.map((s) => <StoryCard key={s.id} s={s} words={stats[s.id]?.words} onHold={menu.hold} />)}
+                <T v="label" style={{ marginTop: space.sm }}>Worlds</T>
+              </>
+            ) : null}
           </View>
-        ) : null}
+        }
         ListEmptyComponent={<Empty icon="book-outline" title="No stories yet" hint={apiKey ? 'Tap + to start one.' : 'Add your OpenRouter key in Settings, then tap + to start.'} />}
         ListFooterComponent={<T v="small" style={{ textAlign: 'center', marginTop: 8, opacity: 0.6 }}>{sessions.length ? 'Hold a story for options · ' : ''}{appVersion()}</T>}
         renderItem={({ item: f }) => (

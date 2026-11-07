@@ -7,6 +7,8 @@ import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { DB_NAME, migrate } from '@/db/schema';
+import { upgradeLibrary } from '@/db/upgrade';
+import { useJobs } from '@/state/jobs';
 import { seedIfEmpty } from '@/db/seed';
 import { useSettings } from '@/state/settings';
 import { dark, light, useScheme, useTheme } from '@/ui/theme';
@@ -20,6 +22,10 @@ function Boot({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void load(db);
   }, [db, load]);
+  // Library work left waiting or cut off when the app last closed picks up again.
+  useEffect(() => {
+    if (ready) void useJobs.getState().start(db);
+  }, [db, ready]);
   if (!ready) return <Spinner />;
   return <>{children}</>;
 }
@@ -43,6 +49,7 @@ const initDatabase = async (db: SQLiteDatabase) => {
   await migrate(db);
   await seedIfEmpty(db);
   await repairMisfiledBeats(db).catch(() => undefined);
+  await upgradeLibrary(db).catch((e) => console.warn('library upgrade', e));
 };
 
 /** Shown instead of a hard crash, with the message so it can be reported. */
@@ -101,6 +108,9 @@ export default function RootLayout() {
                 <Stack.Screen name="library/style/[id]" options={{ title: 'Voice' }} />
                 <Stack.Screen name="library/universe/[id]" options={{ title: 'World' }} />
                 <Stack.Screen name="library/entity/[id]" options={{ title: '' }} />
+                <Stack.Screen name="library/species/[id]" options={{ title: 'People' }} />
+                <Stack.Screen name="library/lore/[id]" options={{ title: 'Lore' }} />
+                <Stack.Screen name="world/workshop/[id]" options={{ title: 'Workshop' }} />
                 <Stack.Screen name="world/instance/[id]" options={{ title: 'Instance' }} />
                 <Stack.Screen name="stories/[world]" options={{ title: '' }} />
                 <Stack.Screen name="start" options={{ title: 'New story' }} />

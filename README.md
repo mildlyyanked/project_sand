@@ -95,11 +95,13 @@ OpenRouter's image models come with their providers' filters. **Settings → Ill
 
 The writer model invents library entries. Every Forge call first reads the world: the world card, a roster of every name in it, and in full the entries that bear on the request (linked to it, named in it, sharing its keywords), within a budget. New entries link to existing ones by exact name.
 
-- **Forge** on Library → Characters and Worlds, on each tab of a world, and **Grow the world** on its World tab (any mix of places, factions, characters, things, peoples and lore).
+- **Forge** on Library → Characters and Worlds, on a world's Entries tab (for the kind picked), and **Grow the world** on its Workshop tab (any mix of places, factions, characters, things, peoples and lore).
+- **In the background**: every forge, reforge and style bible is a job, saved before it runs. Close the sheet, leave the screen or the app: it keeps going (two at a time), and anything cut off by the app closing starts again on the next launch. Results wait in the world's **inbox** (Workshop tab, and the envelope on the world's header) until you add, edit or dismiss each one.
 - **Surprise me**: no wish needed. The world's loose threads (a faction without a leader or headquarters, a city nobody lives in, an enemy never written, someone a character knows who is not in the library) are offered to the model to pull on.
-- **Forge under this** on a place, faction, character, people or lore entry: places inside a place, members or branches of a faction, people and belongings of a character, members of a people, related lore. Each new entry is tied to the one it was forged under.
+- **Grow it** on a place, faction, thing, character, people or lore page (Places inside, Members, People in their life, Belongings, Rivals, Its history...) opens the world's workshop about that entry, with what you asked for: the agent proposes entries tied to it.
 - **Looks like** (characters): a real person or fictional character whose look inspires theirs. Forge writes the appearance from it in its own words; the name is kept on the character but never sent to the writer or an image model.
 - **Preview and edit**: tap any forged entry to open it before saving. Every field is editable and has a sparkle to reforge just that field, with an optional instruction.
+- **Typed ties**: forged entries can name their ties (family, partner, friend, mentor, serves, ally, rival, enemy, knows, tied to) with a line of note; they become links both ways. A tie to someone not in the library stays as words on the person.
 - **Links both ways on save**: Baker City forged as the seat of Baker Kingdom becomes the kingdom's headquarters (and is controlled by it); a character whose role in a faction is leader, chief, captain and so on becomes its leader; a thing with an owner goes into their inventory. Older entries whose text already points at a new one get the missing link (a kingdom described as "ruled from Baker City", a character who "lives in Baker City"). What was linked is listed after saving.
 
 Every field of every existing entry (world, place, faction, thing, character, people, lore) has the same sparkle: the model rewrites that field given the entry and what in the world bears on it; reference fields pick from the world's names. Reforged links follow the same two-way rules.
@@ -108,15 +110,21 @@ Replies are read leniently (fenced, prefaced, literal newlines inside strings, b
 
 ## Pictures of the world
 
-**Portraits** (on a world's page) holds the world's portrait direction: one paragraph every character portrait follows instead of the general art direction's framing, so the portraits look like one gallery (medium, crop and pose, lens, light, background, palette, how faces are drawn). Write it yourself, or **Write it** / **Refine it** has the helper draft it from the world, its art direction and the look of its people (with an optional note on what you want); **Try it on** paints a test portrait of any character to judge it against the gallery of existing portraits beside it, and **Keep** makes it their portrait. Like all art direction, it is never sent to the writer.
+Each world has one **style bible** (World tab, in edit): **the look** every picture shares (medium, palette, light, texture, influences), and how **portraits**, **places** and **things** are framed within it; **sigils** have their own line, since heraldry is not a painting. Write it yourself, or **Write the bible** / **Refine the bible** has the helper write all five lines at once so they agree (or the sparkle on one line rewrites just that one), in the background, as a proposal to use or dismiss. **Try it on** paints a test of any character, place or faction with the bible as it stands in the edit, beside the pictures already there, and **Keep** makes it their picture. Settings → Illustrations → **Default style bible** fills any line a world leaves empty. The bible never reaches the writer.
 
-Characters get a **portrait**, places a **view**, factions a **sigil**, things and peoples a **picture**, shown large at the head of their page (tap for full size, with Paint again, the prompt, and remove). The helper describes only the subject (appearance, materials, colours, never a lookalike's name); the app puts the world's **art direction** and a fixed framing for the kind in front of it (portraits head and shoulders, three-quarter view; views wide at eye level; objects centred on plain ground; sigils in the world's **sigil style**), so a world's pictures match. Art direction and sigil style live on the world's page (forgeable like any field) with a fallback in Settings → Illustrations; they never reach the writer. Passage illustrations use the same art direction.
+Characters get a **portrait**, places a **view**, factions a **sigil**, things and peoples a **picture**, shown large at the head of their page (tap for full size, with Paint again, the prompt, and remove). The helper describes only the subject (appearance, materials, colours, never a lookalike's name); the app puts the bible's look and the framing for the kind in front of it (the bible's line, or by default: portraits head and shoulders, three-quarter view; views wide at eye level; objects centred on plain ground; sigils by the sigil line), so a world's pictures match. Passage illustrations use the same look.
 
 Pictures show wherever the entry does: thumbnails in the place, faction and thing trees, avatars in character lists, in every reference picker (leader, home, faction...), on the story's cast and start screens, beside every passage that names a character, on the play strip and in the People tab. When a passage is illustrated, the people it names are described by their appearance, the scene's place by its description, and with an OpenRouter image model their portraits go with the request as references (Settings → Illustrations → Use portraits as references).
 
+## Entry pages
+
+Every entry reads as a page: its picture (or a small Paint button), kind and type, the name and its line, short facts, then the same sections for every kind (at a glance, look and feel, life, edge, in play), with secrets folded until you tap to read them, and **Connections**: everything it is tied to, grouped by how (inside, contains, lives in, home of, leads, members, seat of, controls, family, ally, enemy, serves, carries, kept at...), each a tap away. The pencil opens **edit**: the same fields as editors under the same headings, the picture, its **Ties** (add a tie to anything in the world, pick its type, write how) and the danger zone. **Save** keeps the edit, **Discard** drops it, and leaving with unsaved changes asks. A new entry opens straight into edit.
+
+The fields were consolidated in 0.17: one description for what a place is like (atmosphere, climate, landmarks, ways in), one for its life and trade, a faction's aims and methods, its strength and structure, its image; a thing's powers and history; a people's nature; a character's wants and fears (tells are part of personality). Existing entries were folded into the new fields on first launch, word for word, and free-text allies, enemies and relationships that named someone in the library became typed ties.
+
 ## Finding things
 
-Places, factions and things are trees: sub-factions and places inside places fold under their parent, with a count, and open with the arrow. Every list in a world (and the Library's characters, voices and worlds) has a search once it holds more than a handful; a search flattens a tree to its matches, each with the path it sits in. Reference pickers (a faction's leader, a character's home or faction, a place's controller) get a search box once there are more than eight to choose from.
+A world's **Entries** tab searches every field of every entry, filters by kind, sorts by name, recently changed or most tied, and narrows to what is tied to one entry (tap its tie count). Places and factions are trees: sub-factions and places inside places fold under their parent, with a count, and open with the arrow. Every list in a world (and the Library's characters, voices and worlds) has a search once it holds more than a handful; a search flattens a tree to its matches, each with the path it sits in. Reference pickers (a faction's leader, a character's home or faction, a place's controller) get a search box once there are more than eight to choose from.
 
 ## Retcon
 
@@ -130,14 +138,18 @@ Stories bring in new names. With the Chronicle on, each passage's chronicle also
 
 Every story lives in a world. **The real world** is the default and sends nothing to the writer unless you write something on its page, so a blank story there is exactly the old vanilla experience: no extra context, no extra calls, free writing. Stories on the Stories tab are grouped by world, with filter chips once there is more than one.
 
-A world (Library → Worlds) is a template with tabs:
+A world (Library → Worlds) is a template with four tabs:
 
-- **World**: description, genre, tone, rules (magic, physics, law), technology, society, themes, currency, and a calendar (the real Gregorian one, or your own year label, month names, days per year and hours per day).
-- **Places**: a hierarchy (continent › city › district › room), each with kind, summary, climate, dangers, resources, population, controlling faction, keywords and anything else that fits its kind.
-- **Characters**: people with appearance, personality, backstory, goals, fears, secrets, skills, occupation, home place, memberships with roles, attributes, inventory and money, on top of voice, tells, relationships and limits.
-- **Factions**, **Things** (objects, artefacts, goods), **Peoples** (species and races with traits, lifespan, adulthood in their own terms, culture, homeland) and **Lore** by category (history, religion, magic, law, custom...).
+- **World**: description, genre and tone, how the world works (magic, physics, technology), society, themes, currency, the style bible, and a calendar (the real Gregorian one, or your own year label, month names, days per year and hours per day).
+- **Workshop**: today's question, the inbox, and the world's agent.
+- **Entries**: places (a hierarchy: continent › city › district › room), characters, factions, things, peoples (adulthood in their own terms) and lore, searchable and tied together.
+- **Instances**: the versions of the world stories happen in.
 
-Forge works on every tab: the writer model invents places within places, factions with headquarters, people with homes and memberships, fitted to what the world already holds.
+### The world's agent
+
+Each world has an agent that owns its forging: a curious co-author that has read everything in the world, keeps a **brief** of what you want it to be (the vision, what you love, what to avoid, decisions made, questions open), and talks it through with you in the world's **workshop**. It asks good questions, offers concrete options, notices contradictions and gaps, aims at what the world is thin on, and never repeats what is there. When the conversation has earned it, it proposes new entries and changes to existing ones, which wait for you to add, edit or dismiss. Replies are written in the background and the conversation is kept: leave and come back. Open it from the Workshop tab, or from **Grow it** on any entry to talk about that entry. The brief is yours to edit too (the page icon in the workshop).
+
+**Today's question**: once a day each world's agent asks one question that would most enrich the world, specific and answerable in a few sentences, never one it asked before. Stories shows one world's question a day, in turn, and each world's Workshop tab shows its own. Answer it and the agent folds the answer into the world: changes to the entries it touches, entries it implies, the brief; or skip it, or ask for another.
 
 The writer gets only what the scene calls for: the world card, the place the scene is in with its parents and children, and any place, faction, thing, person, people or lore whose keywords show up in the recent passages, within the **World** budget (context strategy).
 

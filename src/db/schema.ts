@@ -90,6 +90,20 @@ const MIGRATIONS: string[] = [
   CREATE TABLE memory (id TEXT PRIMARY KEY, instance_id TEXT NOT NULL, kind TEXT NOT NULL, ref TEXT NOT NULL, data_json TEXT NOT NULL, updated_at INTEGER NOT NULL);
   CREATE INDEX memory_instance ON memory(instance_id, kind);
   `,
+  // 12: the library revamp: typed links between entries, background jobs and what they propose, each world's agent and its conversation, and one-off data upgrades.
+  `
+  CREATE TABLE links (id TEXT PRIMARY KEY, universe_id TEXT NOT NULL, from_id TEXT NOT NULL, to_id TEXT NOT NULL, type TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
+  CREATE INDEX links_universe ON links(universe_id);
+  CREATE INDEX links_from ON links(from_id);
+  CREATE INDEX links_to ON links(to_id);
+  CREATE TABLE jobs (id TEXT PRIMARY KEY, universe_id TEXT, kind TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL, input_json TEXT NOT NULL, output_json TEXT, error TEXT, attempts INTEGER NOT NULL DEFAULT 0, progress INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX jobs_status ON jobs(status, created_at);
+  CREATE INDEX jobs_universe ON jobs(universe_id, created_at);
+  CREATE TABLE agent (universe_id TEXT PRIMARY KEY, data_json TEXT NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE TABLE workshop (id TEXT PRIMARY KEY, universe_id TEXT NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL, data_json TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL);
+  CREATE INDEX workshop_universe ON workshop(universe_id, created_at);
+  CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  `,
 ];
 
 export async function migrate(db: SQLiteDatabase): Promise<void> {

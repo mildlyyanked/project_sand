@@ -7,7 +7,8 @@ import type { Draft, LibKind } from '@/core/world/drafts';
 import { composePicture, entryImagePrompt } from '@/core/world/forge';
 import { imageOf, type EntryImageData } from '@/core/world/portraits';
 import { newId, now } from '@/core/ids';
-import { useSettings } from '@/state/settings';
+import { useSettings, worldBible } from '@/state/settings';
+import { worldLine } from '@/core/world/lines';
 import { complete, paint, paintReady } from '@/state/paint';
 import { removeImage, saveImage } from '@/state/images';
 import { runInForeground } from '@/state/foreground';
@@ -24,13 +25,7 @@ const WHAT: Partial<Record<LibKind, { noun: string; verb: string; icon: 'person-
   species: { noun: 'study', verb: 'Paint a study', icon: 'body-outline' },
 };
 
-export function worldLine(u: Universe | null | undefined): string {
-  if (!u) return '';
-  const d = u.data;
-  const bits = [u.name, d.genre, d.technology, d.tone].filter((x) => x && x.trim()).join('; ');
-  const desc = u.description.trim().slice(0, 400);
-  return u.isDefault && !desc ? 'the real world, the present day' : [bits, desc].filter(Boolean).join('. ');
-}
+export { worldLine };
 
 /** Round thumbnail for lists, the cast, the play strip. Factions' sigils and characters' portraits alike. */
 export function Avatar({ data, size = 36, name }: { data: Record<string, unknown> | undefined | null; size?: number; name?: string }) {
@@ -51,7 +46,7 @@ export function Avatar({ data, size = 36, name }: { data: Record<string, unknown
  * are put in front, so a world's pictures match; then the painter from
  * Settings paints it. With prompt-only or review on, the prompt is shown first.
  */
-export function EntryImage({ kind, name, data, draft, world, onChange }: { kind: LibKind; name: string; data: Record<string, unknown>; draft: () => Draft; world: Universe | null | undefined; onChange: (image: EntryImageData | null) => void }) {
+export function EntryImage({ kind, name, data, draft, world, onChange, quiet }: { kind: LibKind; name: string; data: Record<string, unknown>; draft: () => Draft; world: Universe | null | undefined; onChange: (image: EntryImageData | null) => void; /** Reading, not editing: no empty frame, just a small way to paint one. */ quiet?: boolean }) {
   const t = useTheme();
   const db = useSQLiteContext();
   const { defaults } = useSettings();
@@ -61,7 +56,7 @@ export function EntryImage({ kind, name, data, draft, world, onChange }: { kind:
   const [err, setErr] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<string | null>(null);
   const [full, setFull] = useState(false);
-  const style = { art: world?.data.artStyle?.trim() || defaults.artStyle.trim(), sigil: world?.data.sigilStyle?.trim() || defaults.sigilStyle.trim(), portrait: world?.data.portraitStyle?.trim() || '' };
+  const style = worldBible(world);
 
   async function describe(): Promise<string> {
     const { text } = await complete({ model: defaults.models.helper, messages: entryImagePrompt({ draft: draft(), world: worldLine(world) }), maxTokens: 2000, temperature: 0.7, spend: { db, note: `${what.noun} prompt` } });
@@ -109,6 +104,15 @@ export function EntryImage({ kind, name, data, draft, world, onChange }: { kind:
   const wide = kind === 'location';
   const box = wide ? { width: '100%' as const, aspectRatio: 16 / 10, borderRadius: radius.lg } : { width: round ? 168 : 200, height: round ? 168 : 200, borderRadius: round ? 84 : radius.lg };
 
+  if (quiet && !img && !prompt) {
+    return (
+      <View style={{ alignItems: 'flex-start', gap: 6 }}>
+        {err ? <View style={{ alignSelf: 'stretch' }}><Banner text={err} onClose={() => setErr(null)} /></View> : null}
+        <Button small kind="ghost" icon={what.icon} title={busy ? (busy === 'prompt' ? 'Describing…' : 'Painting…') : what.verb} loading={!!busy} onPress={start} />
+      </View>
+    );
+  }
+
   return (
     <View style={{ gap: 8, alignItems: 'center', marginBottom: 12 }}>
       {err ? <View style={{ alignSelf: 'stretch' }}><Banner text={err} onClose={() => setErr(null)} /></View> : null}
@@ -124,13 +128,13 @@ export function EntryImage({ kind, name, data, draft, world, onChange }: { kind:
           </Pressable>
         )}
       </View>
-      {img ? (
+      {img && !quiet ? (
         <Row gap={2}>
           <Button small kind="ghost" icon="color-palette-outline" title={busy ? (busy === 'prompt' ? 'Describing…' : 'Painting…') : 'Paint again'} onPress={start} loading={!!busy} />
           <IconButton name="document-text-outline" size={18} onPress={() => setPrompt(img.prompt)} />
           <IconButton name="trash-outline" size={18} onPress={async () => { await removeImage(img.uri); onChange(null); }} />
         </Row>
-      ) : (
+      ) : quiet ? null : (
         <T v="faint" style={{ textAlign: 'center' }}>{kind === 'character' ? 'Tap to paint a portrait from the appearance. It shows beside them in lists, pickers and passages, and keeps their look in illustrations.' : kind === 'organization' ? 'Tap to paint the sigil. It shows wherever the faction is picked or listed.' : `Tap to paint it from the entry.${ready.ok ? '' : ' Prompt only for now: copy it into any generator.'}`}</T>
       )}
       <Modal visible={full && !!img} transparent animationType="fade" onRequestClose={() => setFull(false)}>

@@ -82,7 +82,7 @@ function placeFrom(e: WorldEntity, entities: WorldEntity[], kit: Kit, seed: numb
   const parentOk = !!e.parentId && entities.some((x) => x.id === e.parentId && x.kind === 'location');
   const p: Place = {
     id: e.id, name: e.name, venue, type, parent: parentOk ? e.parentId : null, libId: e.id, exits: [],
-    note: firstSentence(e.summary || String(e.data.description ?? '') || String(e.data.atmosphere ?? '')),
+    note: firstSentence(e.summary || String(e.data.description ?? '')),
     danger: Math.max(0, Math.min(5, Number(e.data.danger) || 0)), known: false, visited: false,
     ...(owner ? { owner } : {}),
   };

@@ -42,7 +42,7 @@ export async function staleChapters(db: SQLiteDatabase, instanceId: string, exce
 
 function worldLine(u: Universe | null): string {
   if (!u) return '';
-  return [`World: ${u.name}`, u.description, u.data.genre && `Genre: ${u.data.genre}`, u.data.tone && `Tone: ${u.data.tone}`].filter(Boolean).join('\n');
+  return [`World: ${u.name}`, u.description, u.data.genre && `Genre and tone: ${u.data.genre}`].filter(Boolean).join('\n');
 }
 
 /**

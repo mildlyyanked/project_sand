@@ -1,8 +1,9 @@
 import type { Character, LoreEntry, Species, Universe } from '../types';
-import { now } from '../ids';
+import { newId, now } from '../ids';
 import type { FieldDef } from './schema';
 import { CHARACTER_FIELDS, ITEM_FIELDS, LOCATION_FIELDS, LORE_CATEGORIES, ORGANIZATION_FIELDS, SPECIES_FIELDS, WORLD_FIELDS } from './schema';
 import type { EntityKind, Membership, WorldCalendar, WorldEntity } from './types';
+import { STORED, parseTies, type DraftTie, type StoredLink } from './links';
 
 /**
  * Library entries as drafts: every kind as a flat record of fields, with
@@ -19,6 +20,8 @@ export interface Library {
   characters: Character[];
   species: Species[];
   lore: LoreEntry[];
+  /** Stored links between its entries. */
+  links?: StoredLink[];
 }
 
 export interface Draft {
@@ -38,33 +41,33 @@ const KEYS: FieldDef = { key: 'keys', label: 'Also called', type: 'keys', hint: 
 export const NAME_FIELD: FieldDef = { key: 'name', label: 'Name', type: 'text' };
 
 const charField = (k: string) => CHARACTER_FIELDS.find((f) => f.key === k)!;
+/** Typed ties to other entries, by name: family, allies, enemies, who serves whom. */
+export const TIES_FIELD: FieldDef = { key: 'ties', label: 'Ties', type: 'ties', inContext: true };
 
 /** Every field a draft of each kind carries, in editing order. */
 export const DRAFT_FIELDS: Record<LibKind, FieldDef[]> = {
-  world: [{ key: 'description', label: 'Description', type: 'long', hint: 'Always sent to the writer when a story is set here.', inContext: true }, ...WORLD_FIELDS],
-  location: [SUMMARY, KEYS, { key: 'within', label: 'Inside', type: 'ref', ref: 'location', inContext: true }, { key: 'seatOf', label: 'Seat of', type: 'ref', ref: 'organization', hint: 'The faction whose capital or headquarters this is.', inContext: true }, ...LOCATION_FIELDS],
-  organization: [SUMMARY, KEYS, { key: 'within', label: 'Part of', type: 'ref', ref: 'organization', inContext: true }, ...ORGANIZATION_FIELDS],
-  item: [SUMMARY, KEYS, ...ITEM_FIELDS],
-  species: [{ key: 'adulthood', label: 'Adulthood', type: 'text', hint: "When a member counts as adult, in the world's terms.", inContext: true }, ...SPECIES_FIELDS, { key: 'notes', label: 'Notes', type: 'long', inContext: true }],
-  lore: [{ key: 'category', label: 'Category', type: 'select', options: LORE_CATEGORIES, inContext: true }, { ...KEYS, label: 'Keywords', hint: 'Comma separated, lower case. Any of these in the story brings this entry in.' }, { key: 'text', label: 'Text', type: 'long', inContext: true }, { key: 'alwaysOn', label: 'Always on', type: 'bool' }],
+  world: [{ key: 'description', label: 'Description', type: 'long', hint: 'Always sent to the writer when a story is set here.', forge: 'one paragraph of 120 to 220 words: place, era, what governs life there, what is strange or particular, the texture a writer needs', inContext: true }, ...WORLD_FIELDS],
+  location: [SUMMARY, KEYS, { key: 'within', label: 'Inside', type: 'ref', ref: 'location', inContext: true }, { key: 'seatOf', label: 'Seat of', type: 'ref', ref: 'organization', hint: 'The faction whose capital or headquarters this is.', inContext: true }, ...LOCATION_FIELDS, TIES_FIELD],
+  organization: [SUMMARY, KEYS, { key: 'within', label: 'Part of', type: 'ref', ref: 'organization', inContext: true }, ...ORGANIZATION_FIELDS, TIES_FIELD],
+  item: [SUMMARY, KEYS, ...ITEM_FIELDS, TIES_FIELD],
+  species: [{ key: 'adulthood', label: 'Adulthood', type: 'text', hint: "When a member counts as adult, in the world's terms.", inContext: true, section: 'basics' }, ...SPECIES_FIELDS, TIES_FIELD],
+  lore: [{ key: 'category', label: 'Category', type: 'select', options: LORE_CATEGORIES, inContext: true }, { ...KEYS, label: 'Keywords', hint: 'Comma separated, lower case. Any of these in the story brings this entry in.', forge: '3 to 6 lower-case words that should bring this entry in when they appear in the story' }, { key: 'text', label: 'Text', type: 'long', forge: '60 to 140 words a writer can use directly', inContext: true }, { key: 'alwaysOn', label: 'Always on', type: 'bool', forge: 'true only for what every scene needs' }],
   character: [
     { key: 'summary', label: 'Summary', type: 'text', hint: 'One or two lines the writer always sees.', inContext: true },
-    { key: 'species', label: 'People', type: 'ref', ref: 'species', inContext: true },
-    { key: 'lifeStage', label: 'Life stage', type: 'text', inContext: true },
-    { key: 'adult', label: 'Adult', type: 'bool', hint: "By their people's definition. Explicit sessions only take characters with this on." },
-    charField('occupation'),
-    charField('lookalike'),
-    ...['appearance', 'personality', 'backstory', 'goals', 'fears', 'secrets', 'skills'].map(charField),
+    { key: 'species', label: 'People', type: 'ref', ref: 'species', inContext: true, forge: 'one of the world\'s peoples by exact name, or "" for human' },
+    { key: 'lifeStage', label: 'Life stage', type: 'text', inContext: true, forge: 'age or stage, in the world\'s terms' },
+    { key: 'adult', label: 'Adult', type: 'bool', hint: "By their people's definition. Explicit sessions only take characters with this on.", forge: "by that people's own definition" },
+    ...['occupation', 'lookalike', 'appearance', 'personality', 'backstory', 'skills', 'drives', 'secrets'].map(charField),
     { key: 'home', label: 'Home', type: 'ref', ref: 'location', inContext: true },
     { key: 'faction', label: 'Faction', type: 'ref', ref: 'organization', inContext: true },
     { key: 'factionRole', label: 'Role in it', type: 'text', inContext: true },
     { key: 'voice', label: 'Voice', type: 'long', hint: 'How they talk and think.', inContext: true },
-    { key: 'tells', label: 'Tells', type: 'text', hint: 'Habits, gestures, verbal tics.', inContext: true },
-    { key: 'relationships', label: 'Relationships', type: 'long', inContext: true },
+    { key: 'relationships', label: 'Other ties', type: 'long', hint: 'People in their life who are not in the library, or more on the ties above.', forge: 'people in their life who are not entries, in a sentence or two; "" if the ties say it all', inContext: true },
     { key: 'limits', label: 'Limits', type: 'text', hint: 'What this character will not do or have done to them.' },
     { key: 'preferences', label: 'Preferences', type: 'text', hint: 'What they lean into.' },
     charField('inventory'),
     charField('money'),
+    TIES_FIELD,
   ],
 };
 
@@ -87,7 +90,28 @@ function nameIndex(lib: Library) {
   for (const e of lib.entities) m.set(e.id, e.name);
   for (const c of lib.characters) m.set(c.id, c.name);
   for (const s of lib.species) m.set(s.id, s.name);
+  for (const l of lib.lore) m.set(l.id, l.title);
   return (id: unknown) => (typeof id === 'string' && id ? m.get(id) ?? '' : '');
+}
+
+/**
+ * An entry's stored ties as the draft holds them: by name, read from its
+ * side. Its own ties, and symmetric ones others made with it, go in `ties`
+ * (saving them again changes nothing); one-way ties pointing at it
+ * ("taught by", "served by") go in `tiesIn`, for reading only.
+ */
+function draftTies(id: string, lib: Library): { ties?: DraftTie[]; tiesIn?: string[] } {
+  const nameOf = nameIndex(lib);
+  const ties: DraftTie[] = [];
+  const tiesIn: string[] = [];
+  for (const l of lib.links ?? []) {
+    if (l.from === id && nameOf(l.to)) ties.push({ to: nameOf(l.to), type: l.type, note: l.note });
+    else if (l.to === id && nameOf(l.from)) {
+      if (STORED[l.type]?.symmetric) ties.push({ to: nameOf(l.from), type: l.type, note: l.note });
+      else tiesIn.push(`${STORED[l.type]?.inverse ?? 'Tied to'} ${nameOf(l.from)}${l.note ? ` (${l.note})` : ''}`);
+    }
+  }
+  return { ...(ties.length ? { ties } : {}), ...(tiesIn.length ? { tiesIn } : {}) };
 }
 
 function dataToFields(defs: FieldDef[], data: Record<string, unknown>, nameOf: (id: unknown) => string): Record<string, unknown> {
@@ -105,7 +129,7 @@ export function entityDraft(e: WorldEntity, lib: Library): Draft {
   const fields: Record<string, unknown> = { summary: e.summary, keys: e.keys, ...dataToFields(ENTITY_FIELDS[e.kind], e.data, nameOf) };
   if (e.kind !== 'item') fields.within = nameOf(e.parentId);
   if (e.kind === 'location') fields.seatOf = lib.entities.find((o) => o.kind === 'organization' && o.data.headquarters === e.id)?.name ?? '';
-  return { id: e.id, kind: e.kind, name: e.name, fields, existing: true };
+  return { id: e.id, kind: e.kind, name: e.name, fields: { ...fields, ...draftTies(e.id, lib) }, existing: true };
 }
 
 export function characterDraft(c: Character, lib: Library): Draft {
@@ -116,14 +140,18 @@ export function characterDraft(c: Character, lib: Library): Draft {
     summary: c.summary, species: nameOf(c.speciesId), lifeStage: c.lifeStage, adult: c.adult,
     ...dataToFields(CHARACTER_FIELDS.filter((f) => f.key !== 'homeLocationId'), d as Record<string, unknown>, nameOf),
     home: nameOf(d.homeLocationId), faction: m ? nameOf(m.orgId) : '', factionRole: m?.role ?? '',
-    voice: c.voice, tells: c.tells, relationships: c.relationships, limits: c.limits, preferences: c.preferences,
+    voice: c.voice, relationships: c.relationships, limits: c.limits, preferences: c.preferences,
+    ...draftTies(c.id, lib),
   };
+  if (c.tells.trim()) fields.personality = [fields.personality, `Tells: ${c.tells.trim()}`].filter(Boolean).join('\n\n');
   if (d.attributes) fields.attributes = d.attributes;
   return { id: c.id, kind: 'character', name: c.name, fields, existing: true };
 }
 
 export function speciesDraft(s: Species, lib: Library): Draft {
-  return { id: s.id, kind: 'species', name: s.name, fields: { adulthood: s.adulthood, notes: s.notes, ...dataToFields(SPECIES_FIELDS, s.data, nameIndex(lib)) }, existing: true };
+  const fields: Record<string, unknown> = { adulthood: s.adulthood, ...dataToFields(SPECIES_FIELDS, s.data, nameIndex(lib)), ...draftTies(s.id, lib) };
+  if (s.notes.trim()) fields.culture = [fields.culture, s.notes.trim()].filter(Boolean).join('\n\n');
+  return { id: s.id, kind: 'species', name: s.name, fields, existing: true };
 }
 
 export function loreDraft(l: LoreEntry): Draft {
@@ -148,8 +176,14 @@ export function libraryDrafts(lib: Library): Draft[] {
 // ---------------------------------------------------------------------------
 // Cards and relevance
 
+/** Ties as one line: "Ally: the Salt Guild (since the flood); Enemy: Varo". */
+export function tiesText(v: unknown): string {
+  return parseTies(v).map((t) => `${STORED[t.type].label} ${t.to}${t.note ? ` (${t.note})` : ''}`).join('; ');
+}
+
 function show(def: FieldDef, v: unknown): string {
   if (v == null || v === '') return '';
+  if (def.type === 'ties') return tiesText(v);
   if (def.type === 'bool') return '';
   if (def.type === 'keys') return Array.isArray(v) ? v.join(', ') : String(v);
   if (def.type === 'number') return Number(v) ? String(v) : '';
@@ -165,17 +199,18 @@ export function draftCard(d: Draft, o: { maxField?: number } = {}): string {
     const v = show(def, d.fields[def.key]);
     if (v) lines.push(`${def.label}: ${cut(v)}`);
   }
+  if (Array.isArray(d.fields.tiesIn) && d.fields.tiesIn.length) lines.push(`Also: ${(d.fields.tiesIn as string[]).join('; ')}`);
   const at = d.fields.attributes as Record<string, number> | undefined;
   if (d.kind === 'character' && at && Object.keys(at).length) lines.push(`Attributes: ${Object.entries(at).map(([k, v]) => `${k} ${v}`).join(', ')}`);
   return lines.join('\n');
 }
 
 function textOf(d: Draft): string {
-  return [d.name, ...Object.values(d.fields).map((v) => (typeof v === 'string' ? v : Array.isArray(v) ? v.join(' ') : ''))].join(' \n ').toLowerCase();
+  return [d.name, ...Object.entries(d.fields).map(([k, v]) => (k === 'ties' ? tiesText(v) : typeof v === 'string' ? v : Array.isArray(v) ? v.filter((x) => typeof x === 'string').join(' ') : ''))].join(' \n ').toLowerCase();
 }
 
 function refValues(d: Draft): string[] {
-  return DRAFT_FIELDS[d.kind].filter((f) => f.type === 'ref').map((f) => d.fields[f.key]).filter((v): v is string => typeof v === 'string' && !!v.trim()).map(normName);
+  return [...DRAFT_FIELDS[d.kind].filter((f) => f.type === 'ref').map((f) => d.fields[f.key]), ...parseTies(d.fields.ties).map((t) => t.to)].filter((v): v is string => typeof v === 'string' && !!v.trim()).map(normName);
 }
 
 const mentions = (hay: string, name: string) => {
@@ -258,8 +293,8 @@ export function hooks(pool: Draft[], max = 8): string[] {
     if (d.kind === 'organization') {
       if (!f.leader) out.push(`${d.name} has no leader yet.`);
       if (!f.headquarters) out.push(`${d.name} has no headquarters yet.`);
-      if (typeof f.enemies === 'string' && f.enemies && !pool.some((x) => x.kind === 'organization' && x.id !== d.id && mentions(f.enemies as string, x.name))) out.push(`${d.name}'s enemies (${f.enemies.slice(0, 80)}) are not in the library.`);
     }
+    for (const t of parseTies(f.ties)) if (!pool.some((x) => normName(x.name) === normName(t.to))) { out.push(`${d.name}'s ${STORED[t.type].label.toLowerCase()} ${t.to} is not in the library.`); break; }
     if (d.kind === 'location' && !pool.some((x) => x.kind === 'location' && x.fields.within === d.name) && ['city', 'town', 'nation', 'region', 'district', 'station', 'planet', 'continent'].includes(String(f.type ?? ''))) out.push(`${d.name} has nothing inside it yet.`);
     if (d.kind === 'location' && !pool.some((x) => x.kind === 'character' && x.fields.home === d.name) && ['city', 'town', 'village', 'district', 'building', 'station', 'ship'].includes(String(f.type ?? ''))) out.push(`Nobody lives in ${d.name} yet.`);
     if (d.kind === 'character' && !f.faction && !f.home) out.push(`${d.name} has no home or faction.`);
@@ -281,6 +316,8 @@ export interface Plan {
   characters: Character[];
   species: Species[];
   lore: LoreEntry[];
+  /** Typed ties the drafts asked for, resolved to ids. Only ever added: an edit that drops a tie does not delete it here. */
+  links: StoredLink[];
   /** What was linked beyond the drafts themselves, for the person to read. */
   notes: string[];
 }
@@ -321,7 +358,8 @@ export function planDrafts(drafts: Draft[], lib: Library, universeId: string | n
   const worldDraft = live.find((d) => d.kind === 'world' && !d.existing);
   if (worldDraft) {
     const f = worldDraft.fields;
-    const data = { ...(o.defaultData ?? ({} as Universe['data'])), ...Object.fromEntries(WORLD_FIELDS.map((w) => [w.key, asStr(f[w.key])])), calendar: (f.calendar as WorldCalendar | undefined) ?? o.calendar ?? DEFAULT_CAL } as Universe['data'];
+    const art = f.art && typeof f.art === 'object' ? (f.art as Universe['data']['art']) : {};
+    const data = { ...(o.defaultData ?? ({} as Universe['data'])), ...Object.fromEntries(WORLD_FIELDS.map((w) => [w.key, asStr(f[w.key])])), art, calendar: (f.calendar as WorldCalendar | undefined) ?? o.calendar ?? DEFAULT_CAL } as Universe['data'];
     universe = { id: worldDraft.id, name: worldDraft.name.trim(), description: asStr(f.description), isDefault: false, data, createdAt: t, updatedAt: t };
     universeId = universe.id;
   } else {
@@ -350,22 +388,23 @@ export function planDrafts(drafts: Draft[], lib: Library, universeId: string | n
       const base = entities.get(d.id) ?? { id: d.id, universeId: uid, kind: d.kind, name: d.name, parentId: null, summary: '', keys: [], data: {}, createdAt: t, updatedAt: t };
       const data: Record<string, unknown> = { ...base.data };
       for (const def of ENTITY_FIELDS[d.kind]) if (def.type !== 'ref' && def.key in f) data[def.key] = def.type === 'number' ? Number(f[def.key]) || 0 : f[def.key];
-      touch(entities, { ...base, name: d.name.trim(), summary: asStr(f.summary), keys: asKeys(f.keys), data, updatedAt: t });
+      touch(entities, { ...base, name: d.name.trim(), summary: 'summary' in f ? asStr(f.summary) : base.summary, keys: 'keys' in f ? asKeys(f.keys) : base.keys, data, updatedAt: t });
     } else if (d.kind === 'character') {
       const base = characters.get(d.id) ?? { id: d.id, universeId: universeId, speciesId: null, name: d.name, lifeStage: '', adult: true, summary: '', voice: '', tells: '', relationships: '', limits: '', preferences: '', data: {}, createdAt: t, updatedAt: t };
       const data: Record<string, unknown> = { ...base.data };
       for (const def of CHARACTER_FIELDS) if (def.type !== 'ref' && def.key in f) data[def.key] = def.type === 'number' ? Number(f[def.key]) || 0 : asStr(f[def.key]);
       if (f.attributes && typeof f.attributes === 'object') data.attributes = f.attributes;
-      touch(characters, { ...base, name: d.name.trim(), summary: asStr(f.summary), lifeStage: asStr(f.lifeStage), adult: f.adult !== false, voice: asStr(f.voice), tells: asStr(f.tells), relationships: asStr(f.relationships), limits: asStr(f.limits), preferences: asStr(f.preferences), data: data as Character['data'], updatedAt: t });
+      const keep = (k: 'summary' | 'lifeStage' | 'voice' | 'relationships' | 'limits' | 'preferences') => (k in f ? asStr(f[k]) : base[k]);
+      touch(characters, { ...base, name: d.name.trim(), summary: keep('summary'), lifeStage: keep('lifeStage'), adult: 'adult' in f ? f.adult !== false : base.adult, voice: keep('voice'), tells: 'tells' in f ? asStr(f.tells) : 'personality' in f ? '' : base.tells, relationships: keep('relationships'), limits: keep('limits'), preferences: keep('preferences'), data: data as Character['data'], updatedAt: t });
     } else if (d.kind === 'species') {
       const base = species.get(d.id) ?? { id: d.id, universeId: uid, name: d.name, adulthood: '', notes: '', data: {} };
       const data: Record<string, unknown> = { ...base.data };
       for (const def of SPECIES_FIELDS) if (def.type !== 'ref' && def.key in f) data[def.key] = asStr(f[def.key]);
-      touch(species, { ...base, name: d.name.trim(), adulthood: asStr(f.adulthood), notes: asStr(f.notes), data });
+      touch(species, { ...base, name: d.name.trim(), adulthood: 'adulthood' in f ? asStr(f.adulthood) : base.adulthood, notes: 'notes' in f ? asStr(f.notes) : 'culture' in f ? '' : base.notes, data });
     } else if (d.kind === 'lore') {
       const base = lore.get(d.id) ?? { id: d.id, universeId: uid, title: d.name, keys: [], text: '', alwaysOn: false, priority: 0, category: 'other' };
-      const alwaysOn = f.alwaysOn === true;
-      touch(lore, { ...base, title: d.name.trim(), keys: asKeys(f.keys), text: asStr(f.text), alwaysOn, priority: alwaysOn ? Math.max(1, base.priority) : base.priority, category: LORE_CATEGORIES.includes(asStr(f.category)) ? asStr(f.category) : 'other' });
+      const alwaysOn = 'alwaysOn' in f ? f.alwaysOn === true : base.alwaysOn;
+      touch(lore, { ...base, title: d.name.trim(), keys: 'keys' in f ? asKeys(f.keys) : base.keys, text: 'text' in f ? asStr(f.text) : base.text, alwaysOn, priority: alwaysOn ? Math.max(1, base.priority) : base.priority, category: !('category' in f) ? base.category : LORE_CATEGORIES.includes(asStr(f.category)) ? asStr(f.category) : 'other' });
     }
   }
 
@@ -456,6 +495,28 @@ export function planDrafts(drafts: Draft[], lib: Library, universeId: string | n
     }
   }
 
+  // Typed ties, by name, to anything in the world: people, factions, peoples, places, things, lore.
+  const links: StoredLink[] = [];
+  const findAny = (name: unknown): string | null => {
+    for (const k of ['character', 'organization', 'species', 'location', 'item'] as const) { const id = find(k, name); if (id) return id; }
+    const n = normName(asStr(name));
+    return n ? [...lore.values()].find((l) => normName(l.title) === n)?.id ?? null : null;
+  };
+  for (const d of live) {
+    if (d.kind === 'world') continue;
+    for (const tie of parseTies(d.fields.ties)) {
+      const to = findAny(tie.to);
+      if (!to || to === d.id) {
+        const c = characters.get(d.id);
+        // A tie to someone not in the library stays as words on a person.
+        if (c && !to && !c.relationships.toLowerCase().includes(tie.to.toLowerCase())) touch(characters, { ...c, relationships: [c.relationships, `${STORED[tie.type].label} ${tie.to}${tie.note ? `: ${tie.note}` : ''}.`].filter(Boolean).join(' ') });
+        continue;
+      }
+      const l: StoredLink = { id: newId(), universeId: uid, from: d.id, to, type: tie.type, note: tie.note, createdAt: t };
+      if (!links.some((x) => x.type === l.type && ((x.from === l.from && x.to === l.to) || (STORED[l.type].symmetric && x.from === l.to && x.to === l.from)))) links.push(l);
+    }
+  }
+
   // Older entries whose own words already point at something new.
   const textFields = (o: Record<string, unknown>, extra: string[] = []) => [...extra, ...Object.values(o).filter((v): v is string => typeof v === 'string')].join(' \n ');
   for (const id of fresh) {
@@ -494,5 +555,5 @@ export function planDrafts(drafts: Draft[], lib: Library, universeId: string | n
   }
 
   const pick = <T extends { id: string }>(m: Map<string, T>) => [...m.values()].filter((v) => touched.has(v.id));
-  return { universe, entities: pick(entities), characters: pick(characters), species: pick(species), lore: pick(lore), notes: [...new Set(notes)] };
+  return { universe, entities: pick(entities), characters: pick(characters), species: pick(species), lore: pick(lore), links, notes: [...new Set(notes)] };
 }

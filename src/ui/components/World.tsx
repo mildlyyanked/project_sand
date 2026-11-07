@@ -52,6 +52,7 @@ export function FieldEditor({ defs, data, onChange, refs = {}, play = true, onFo
       {defs.filter((d) => play || !d.play).map((d) => {
         const v = data[d.key];
         const forge = onForge ? () => onForge(d) : undefined;
+        if (d.type === 'ties') return null;
         if (d.type === 'bool') return <SwitchRow key={d.key} label={d.label} hint={d.hint} value={v === true} onChange={(x) => onChange({ [d.key]: x })} />;
         if (d.type === 'select') {
           return (

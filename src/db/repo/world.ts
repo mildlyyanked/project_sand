@@ -28,6 +28,7 @@ export async function deleteEntity(db: SQLiteDatabase, id: Id): Promise<void> {
   const e = await getEntity(db, id);
   if (!e) return;
   await db.runAsync('UPDATE entities SET parent_id = ? WHERE parent_id = ?', e.parentId, id);
+  await db.runAsync('DELETE FROM links WHERE from_id = ? OR to_id = ?', id, id);
   await db.runAsync('DELETE FROM entities WHERE id = ?', id);
 }
 export const newEntity = (universeId: Id, kind: EntityKind, name?: string, parentId: Id | null = null): WorldEntity => ({ id: newId(), universeId, kind, name: name ?? (kind === 'location' ? 'New place' : kind === 'organization' ? 'New faction' : 'New thing'), parentId, summary: '', keys: [], data: {}, createdAt: now(), updatedAt: now() });

@@ -204,7 +204,7 @@ describe('assembling with a world', () => {
     const ctx = assembleContext({ ...base, session: s, characters: [character({ data: { homeLocationId: 'L1' } })], universe: universe({ name: 'Vell world', data: { ...universe().data, genre: 'drowned fantasy' } }), world: { entities: [vell, market, guild], instance: null, events: [ev({ id: 'e1', at: 10, title: 'The flood', importance: 3 })], siblings: [{ title: 'Elsewhere', mode: 'writer', clockStart: 0, clock: 5, summary: 'Another tale.', excerpt: '' }], now: 60, scene: { locationId: 'L3', locationName: 'Tide Market' }, player: null } });
     const keys = ctx.layers.map((l) => l.key);
     expect(keys).toEqual(expect.arrayContaining(['universe', 'place', 'elements', 'continuity', 'stories']));
-    expect(ctx.layers.find((l) => l.key === 'universe')!.text).toContain('Genre: drowned fantasy');
+    expect(ctx.layers.find((l) => l.key === 'universe')!.text).toContain('Genre and tone: drowned fantasy');
     expect(ctx.layers.find((l) => l.key === 'place')!.text).toContain('Vell › Tide Market');
     expect(ctx.layers.find((l) => l.key === 'elements')!.text).toContain('## Salvage Guild');
     expect(ctx.layers.find((l) => l.key === 'characters')!.text).toContain('Home: Vell');

@@ -1,8 +1,10 @@
 import type { ChatMessage } from '../types';
 import { newId } from '../ids';
 import { lenientJson } from '../json';
-import type { FieldDef } from './schema';
-import { LORE_CATEGORIES } from './schema';
+import type { ArtBible, FieldDef } from './schema';
+import { BIBLE_FIELDS, bibleOf } from './schema';
+import { TIE_SHAPE, parseTies } from './links';
+import { foldLegacy } from './upgrade';
 import { DRAFT_FIELDS, KIND_NOUN, draftCard, fieldDef, normName, type Draft, type LibKind } from './drafts';
 
 /**
@@ -12,24 +14,54 @@ import { DRAFT_FIELDS, KIND_NOUN, draftCard, fieldDef, normName, type Draft, typ
  */
 export type ForgeKind = LibKind | 'mixed';
 
-const PLACE_SHAPE = '{"name", "type": one of realm|planet|continent|region|nation|province|city|town|village|district|street|building|room|wilderness|route|landmark|ruin|dungeon|station|ship|other, "within": string (the place it sits inside, by exact name, or ""), "seatOf": string (the faction whose capital or headquarters this is, by exact name, or ""), "controlledBy": string (faction name or ""), "summary": string (one line), "keys": string[] (other names it goes by, lower case), "description": string (60 to 120 words), "atmosphere": string, "climate": string, "population": string, "features": string (what a visitor notices, exits), "services": string, "resources": string (food, water, shelter to be found), "dangers": string, "danger": 0-5, "travel": string, "secrets": string}';
-const FACTION_SHAPE = '{"name", "type": one of government|empire|federation|kingdom|guild|company|religion|military|order|school|family|gang|cult|rebellion|tribe|other, "within": string (parent faction by exact name, or ""), "summary": string (one line), "keys": string[], "description": string (60 to 100 words), "goals": string, "methods": string, "leader": string (a character by exact name, or ""), "headquarters": string (a place by exact name, or ""), "size": string, "resources": string, "ranks": string, "symbols": string, "allies": string, "enemies": string, "reputation": string, "secrets": string}';
-const ITEM_SHAPE = '{"name", "type": one of weapon|armor|tool|food|drink|medicine|consumable|artifact|document|key|currency|resource|vehicle|clothing|other, "rarity": one of common|uncommon|rare|legendary|unique, "summary": string (one line), "keys": string[], "description": string (40 to 80 words), "properties": string, "origin": string, "owner": string (a character by exact name, or ""), "location": string (a place by exact name, or ""), "value": number, "effects": string (for things that are used up: like "satiety +30, hydration +10" or "health +25"; "" otherwise)}';
-const SPECIES_SHAPE = '{"name", "adulthood": string (when a member counts as adult, in the world\'s own terms), "appearance": string, "lifespan": string, "traits": string, "abilities": string, "weaknesses": string, "needs": string (diet and sleep), "culture": string, "homeland": string (a place by exact name, or ""), "relations": string, "notes": string}';
-const LORE_SHAPE = `{"title", "category": one of ${LORE_CATEGORIES.join('|')}, "keys": string[] (3 to 6 lower-case words that should bring this entry in when they appear in the story), "text": string (60 to 140 words a writer can use directly), "alwaysOn": boolean (true only for what every scene needs)}`;
-const CHARACTER_SHAPE = '{"name", "species": string (one of the world\'s peoples by exact name, or "" for human), "lifeStage": string (age or stage, in the world\'s terms), "adult": boolean (by that people\'s own definition), "occupation": string, "summary": string (one or two lines the writer always sees), "appearance": string, "personality": string, "backstory": string (2 to 4 lines), "goals": string, "fears": string, "secrets": string, "skills": string, "voice": string (how they talk and think), "tells": string (habits, gestures, verbal tics), "relationships": string (naming the people by exact name), "home": string (a place by exact name, or ""), "faction": string (a faction by exact name, or ""), "factionRole": string, "attributes": {"might": 1-5, "agility": 1-5, "wits": 1-5, "presence": 1-5, "resolve": 1-5} (2 is ordinary; total about 13), "inventory": string (what they carry, one item per line like "2 × waterskin"), "money": number, "limits": string, "preferences": string}';
+const FORGE_LABEL: Record<string, string> = { character: 'a character', location: 'a place', organization: 'a faction', item: 'a thing', species: 'a people' };
 
-const SHAPE_OF: Record<Exclude<LibKind, 'world'>, string> = { location: PLACE_SHAPE, organization: FACTION_SHAPE, item: ITEM_SHAPE, species: SPECIES_SHAPE, lore: LORE_SHAPE, character: CHARACTER_SHAPE };
+/** One field as the JSON shape asks for it. */
+function shapeField(def: FieldDef): string | null {
+  if (def.forge === false || def.type === 'ties') return null;
+  const hint = typeof def.forge === 'string' ? def.forge : '';
+  const t = (base: string) => `"${def.key}": ${base}${hint && base !== 'number' ? ` (${hint})` : hint && base === 'number' ? ` ${hint}` : ''}`;
+  switch (def.type) {
+    case 'select': return `"${def.key}": one of ${(def.options ?? []).join('|')}`;
+    case 'ref': return `"${def.key}": string (${hint || `${FORGE_LABEL[def.ref ?? 'location']} by exact name, or ""`})`;
+    case 'number': return t('number');
+    case 'bool': return t('boolean');
+    case 'keys': return t('string[]');
+    case 'lines': return `"${def.key}": string (one item per line, like "2 × waterskin")`;
+    default: return t('string');
+  }
+}
+
+const SPECIAL: Partial<Record<LibKind, string[]>> = {
+  location: ['"within": string (the place it sits inside, by exact name, or "")', '"seatOf": string (the faction whose capital or headquarters this is, by exact name, or "")'],
+  organization: ['"within": string (parent faction by exact name, or "")'],
+  character: ['"attributes": {"might": 1-5, "agility": 1-5, "wits": 1-5, "presence": 1-5, "resolve": 1-5} (2 is ordinary; total about 13)'],
+};
+
+/** The JSON shape forge asks for, built from the same fields the editors show, so the two never drift. */
+export function entryShape(kind: Exclude<LibKind, 'world'>): string {
+  const special = SPECIAL[kind] ?? [];
+  const fields = DRAFT_FIELDS[kind].filter((d) => !special.some((x) => x.startsWith(`"${d.key}"`))).map(shapeField).filter((x): x is string => !!x);
+  const name = kind === 'lore' ? '"title"' : '"name"';
+  const ties = DRAFT_FIELDS[kind].some((d) => d.type === 'ties') ? [TIE_SHAPE] : [];
+  // Within and seat of read best next to the name; attributes after the person.
+  const head = kind === 'character' ? [] : special;
+  const tail = kind === 'character' ? special : [];
+  return `{${[name, ...head, ...fields, ...tail, ...ties].join(', ')}}`;
+}
+
+const SHAPE_OF = (kind: Exclude<LibKind, 'world'>) => entryShape(kind);
 const LIST_KEY: Record<Exclude<LibKind, 'world'>, string> = { location: 'places', organization: 'factions', item: 'things', species: 'species', lore: 'lore', character: 'characters' };
 const LIST_ALIASES: Record<Exclude<LibKind, 'world'>, string[]> = { location: ['places', 'locations'], organization: ['factions', 'organizations', 'groups'], item: ['things', 'items', 'objects'], species: ['species', 'peoples', 'races'], lore: ['lore', 'entries'], character: ['characters', 'people', 'persons'] };
 
-const WORLD_SHAPE = `{"name": string (2 to 4 words), "description": string (one paragraph of 120 to 220 words: place, era, what governs life there, what is strange or particular, the texture a writer needs), "genre": string, "tone": string, "rules": string (how the world works: magic, physics, what is possible and its cost), "technology": string, "society": string (who rules, what people fear, what is taboo), "themes": string, "currency": string (name of the money), "artStyle": string (one line of art direction for every picture of this world: medium, palette, light, influences), "sigilStyle": string (how its faction emblems are drawn), "calendar": {"kind": "custom" | "gregorian", "yearLabel": string, "startYear": number, "daysPerYear": number, "monthNames": string[], "start": "YYYY-MM-DDTHH:MM" for gregorian}, "places": [${PLACE_SHAPE}] (4 to 7, nested: at least one place inside another), "factions": [${FACTION_SHAPE}] (2 to 4), "species": [${SPECIES_SHAPE}] (0 to 3, only if the world calls for them), "lore": [${LORE_SHAPE}] (2 to 4)}`;
-const MIXED_SHAPE = `{"places": [${PLACE_SHAPE}], "factions": [${FACTION_SHAPE}], "characters": [${CHARACTER_SHAPE}], "things": [${ITEM_SHAPE}], "species": [${SPECIES_SHAPE}], "lore": [${LORE_SHAPE}]} (leave out the lists you do not use)`;
+const BIBLE_SHAPE = `"art": {${BIBLE_FIELDS.map((b) => `"${b.key}": string (${b.hint.toLowerCase().replace(/\.$/, '')})`).join(', ')}} (the style bible every picture of this world follows: one line each, one coherent look)`;
+const worldShape = () => `{"name": string (2 to 4 words), ${DRAFT_FIELDS.world.map(shapeField).filter(Boolean).join(', ')}, ${BIBLE_SHAPE}, "calendar": {"kind": "custom" | "gregorian", "yearLabel": string, "startYear": number, "daysPerYear": number, "monthNames": string[], "start": "YYYY-MM-DDTHH:MM" for gregorian}, "places": [${SHAPE_OF('location')}] (4 to 7, nested: at least one place inside another), "factions": [${SHAPE_OF('organization')}] (2 to 4), "species": [${SHAPE_OF('species')}] (0 to 3, only if the world calls for them), "lore": [${SHAPE_OF('lore')}] (2 to 4)}`;
+const mixedShape = () => `{"places": [${SHAPE_OF('location')}], "factions": [${SHAPE_OF('organization')}], "characters": [${SHAPE_OF('character')}], "things": [${SHAPE_OF('item')}], "species": [${SHAPE_OF('species')}], "lore": [${SHAPE_OF('lore')}]} (leave out the lists you do not use)`;
 
 export function forgeShape(kind: ForgeKind): string {
-  if (kind === 'world') return WORLD_SHAPE;
-  if (kind === 'mixed') return MIXED_SHAPE;
-  return `{"${LIST_KEY[kind]}": [${SHAPE_OF[kind]}]}`;
+  if (kind === 'world') return worldShape();
+  if (kind === 'mixed') return mixedShape();
+  return `{"${LIST_KEY[kind]}": [${SHAPE_OF(kind)}]}`;
 }
 
 const NOUN: Record<ForgeKind, [string, string]> = { world: ['world', 'worlds'], location: ['place', 'places'], organization: ['faction', 'factions'], item: ['thing', 'things'], species: ['people', 'peoples'], lore: ['lore entry', 'lore entries'], character: ['character', 'characters'], mixed: ['entry', 'entries'] };
@@ -138,14 +170,27 @@ export function fieldValue(def: FieldDef, v: unknown): unknown {
   }
 }
 
-export function itemDraft(kind: LibKind, o: Record<string, unknown>): Draft | null {
-  const name = str(o.name ?? o.title);
+export function itemDraft(kind: LibKind, raw: Record<string, unknown>): Draft | null {
+  const name = str(raw.name ?? raw.title);
   if (!name) return null;
+  // A reply in the library's older shape still lands in the new fields.
+  let o = raw;
+  if (kind !== 'lore') {
+    const folded = foldLegacy(kind, raw);
+    o = folded.data;
+    const into = kind === 'species' ? 'culture' : 'aims';
+    for (const t of folded.ties) o[into] = [str(o[into]), `${t.type === 'ally' ? 'Allies' : t.type === 'enemy' ? 'Enemies' : 'Relations'}: ${t.text}`].filter(Boolean).join('\n\n');
+    if (kind === 'character' && str(raw.tells)) o.personality = [str(o.personality), `Tells: ${str(raw.tells)}`].filter(Boolean).join('\n\n');
+  }
   const fields: Record<string, unknown> = {};
   for (const def of DRAFT_FIELDS[kind]) {
     const v = fieldValue(def, o[def.key]);
     if (v !== undefined && v !== '') fields[def.key] = v;
   }
+  const ties = parseTies(o.ties);
+  if (ties.length) fields.ties = ties;
+  else delete fields.ties;
+  if (kind === 'world' && o.art && typeof o.art === 'object') fields.art = bibleOf(o.art as Partial<ArtBible>);
   if (kind === 'character') {
     fields.adult = o.adult !== false && !/^(false|no)$/i.test(str(o.adult));
     const at = o.attributes && typeof o.attributes === 'object' ? (o.attributes as Record<string, unknown>) : null;
@@ -274,31 +319,55 @@ const FRAME: Record<LibKind, string> = {
   world: 'Panoramic view',
 };
 
-export interface ArtDirection { art?: string; sigil?: string; /** Portraits only: the world's curated portrait direction; it outranks the general art direction for people. */ portrait?: string }
+/** Which line of the bible frames each kind of picture. */
+const BIBLE_KEY: Partial<Record<LibKind, keyof ArtBible>> = { character: 'portraits', species: 'portraits', location: 'places', item: 'things' };
 
 const clause = (s: string) => s.trim().replace(/[.\s]+$/, '');
 
 /**
- * The final picture prompt: the world's art direction, then the framing for
- * the kind, then the helper's description of the subject. The same art
- * direction and framing every time is what makes a world's pictures match.
+ * The final picture prompt: the bible's look, then its framing for the kind
+ * (or the default framing), then the helper's description of the subject.
+ * The same look and framing every time is what makes a world's pictures
+ * match. Sigils follow their own line of the bible: heraldry, not paint.
  */
-export function composePicture(kind: LibKind, subject: string, style: ArtDirection = {}): string {
-  if (kind === 'organization') return [clause(style.sigil || DEFAULT_SIGIL_STYLE), `The device: ${clause(subject)}`, 'No text, letters or words'].filter(Boolean).join('. ') + '.';
-  if (kind === 'character' && style.portrait?.trim()) return [clause(style.portrait), clause(subject), 'No text or lettering'].filter(Boolean).join('. ') + '.';
-  return [clause(style.art || DEFAULT_ART_STYLE), FRAME[kind], clause(subject), 'No text or lettering'].filter(Boolean).join('. ') + '.';
+export function composePicture(kind: LibKind, subject: string, bible: Partial<ArtBible> = {}): string {
+  const b = bibleOf(bible);
+  if (kind === 'organization') return [clause(b.sigils || DEFAULT_SIGIL_STYLE), `The device: ${clause(subject)}`, 'No text, letters or words'].filter(Boolean).join('. ') + '.';
+  const key = BIBLE_KEY[kind];
+  const frame = (key && b[key]) || FRAME[kind];
+  return [clause(b.look || DEFAULT_ART_STYLE), clause(frame), clause(subject), 'No text or lettering'].filter(Boolean).join('. ') + '.';
 }
 
 /**
- * A portrait direction for a world: one paragraph an image model can follow
- * for every portrait, so they read as one gallery. Starts from the world and
- * its art direction, and any direction already written.
+ * A style bible for a world, written whole so its lines agree: the shared
+ * look and how portraits, places, things and sigils sit within it. Starts
+ * from the world and whatever the bible already says; `only` rewrites one
+ * line and keeps the rest.
  */
-export function portraitDirectionPrompt(o: { world: string; art: string; current: string; people: string[]; wish: string }): ChatMessage[] {
+export function biblePrompt(o: { world: string; current: Partial<ArtBible>; people: string[]; wish: string; only?: keyof ArtBible }): ChatMessage[] {
+  const cur = bibleOf(o.current);
+  const filled = BIBLE_FIELDS.filter((f) => cur[f.key]).map((f) => `${f.label}: ${cur[f.key]}`).join('\n');
+  const which = o.only ? BIBLE_FIELDS.find((f) => f.key === o.only)! : null;
   return [
-    { role: 'system', content: 'You write the portrait direction for a story world: the fixed instructions an image model follows for every character portrait, so the portraits look like one consistent gallery. Cover, concretely: medium and rendering (paint, ink, photo, line weight, texture), framing (crop, pose, angle, eye level), lens or perspective, lighting (key light, direction, mood), background treatment, colour palette, how faces and skin are rendered, and what must stay the same across every portrait. Fit the world exactly. Never name, describe or invent a particular character; never mention text or lettering. 70 to 130 words, one paragraph of plain instructions, output only the paragraph.' },
-    { role: 'user', content: [o.world, o.art ? `The world\'s art direction: ${o.art}` : '', o.current ? `The current portrait direction (refine it): ${o.current}` : '', o.people.length ? `Some of the people to be portrayed (for range only): ${o.people.slice(0, 6).join(' | ')}` : '', o.wish ? `What the writer wants: ${o.wish}` : ''].filter(Boolean).join('\n\n') },
+    { role: 'system', content: [
+      'You write the style bible for a story world: the fixed art direction an image model follows for every picture of it, so they all look like one body of work. Be concrete and visual: medium and rendering, palette, light, texture, influences; for each kind of picture, its framing (crop, angle, lens, background, scale). Fit the world exactly. Never name, describe or invent a particular character, place or object; never mention text or lettering.',
+      which ? `Rewrite only "${which.label}" (${which.hint}), consistent with the other lines. 25 to 70 words. Output only that line, no label.` : `Output only JSON: {${BIBLE_FIELDS.map((f) => `"${f.key}": string (${f.hint.toLowerCase().replace(/\.$/, '')})`).join(', ')}}. Each 25 to 70 words; the four framings build on the look, except sigils, which are flat heraldry in the world's own idiom.`,
+    ].join('\n\n') },
+    { role: 'user', content: [o.world, filled ? `The bible so far (keep what works, refine the rest):\n${filled}` : '', o.people.length ? `Some of the people to be portrayed (for range only): ${o.people.slice(0, 6).join(' | ')}` : '', o.wish ? `What the writer wants: ${o.wish}` : ''].filter(Boolean).join('\n\n') },
   ];
+}
+
+/** A bible reply: the whole bible, or one line of it. Null when unusable. */
+export function parseBible(text: string, only?: keyof ArtBible): Partial<ArtBible> | null {
+  if (only) {
+    const v = text.trim().replace(/^```[a-z]*\s*|\s*```$/g, '').replace(/^[A-Za-z ]+:\s*/, '').replace(/^"|"$/g, '').trim();
+    return v ? { [only]: v } : null;
+  }
+  const j = lenientJson<Record<string, unknown>>(text);
+  if (!j) return null;
+  const out: Partial<ArtBible> = {};
+  for (const f of BIBLE_FIELDS) if (typeof j[f.key] === 'string' && (j[f.key] as string).trim()) out[f.key] = (j[f.key] as string).trim();
+  return Object.keys(out).length ? out : null;
 }
 
 /** The helper's half of a picture prompt: what the entry looks like, nothing about style. */

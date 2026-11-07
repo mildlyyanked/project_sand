@@ -1,3 +1,4 @@
+import { STORED, parseTies } from './links';
 import { DRAFT_FIELDS, KIND_NOUN, normName, type Draft } from './drafts';
 import type { PovState } from './types';
 
@@ -91,12 +92,12 @@ export function entryTip(d: Draft, o: { pov?: PovState | null; currency?: string
       break;
     case 'location':
       kind = [...kind, str(f.type)];
-      text = str(f.summary) || str(f.description) || str(f.atmosphere);
+      text = str(f.summary) || str(f.description);
       facts = [...fact('within'), ...fact('seatOf'), ...fact('controlledBy'), ...(Number(f.danger) ? fact('danger', `${Number(f.danger)} of 5`) : [])];
       break;
     case 'organization':
       kind = [...kind, str(f.type)];
-      text = str(f.summary) || str(f.description) || str(f.reputation);
+      text = str(f.summary) || str(f.description) || str(f.image);
       facts = [...fact('leader'), ...fact('headquarters'), ...fact('within')];
       break;
     case 'item':
@@ -105,7 +106,7 @@ export function entryTip(d: Draft, o: { pov?: PovState | null; currency?: string
       facts = [...fact('owner'), ...fact('location'), ...(Number(f.value) ? fact('value', `${Number(f.value)} ${o.currency ?? ''}`.trim()) : [])];
       break;
     case 'species':
-      text = str(f.appearance) || str(f.notes) || str(f.traits);
+      text = str(f.appearance) || str(f.nature) || str(f.culture);
       facts = fact('lifespan');
       break;
     case 'lore':
@@ -115,6 +116,8 @@ export function entryTip(d: Draft, o: { pov?: PovState | null; currency?: string
     default:
       text = str(f.description);
   }
+  // Its strongest ties, after what its own fields say.
+  for (const t of parseTies(f.ties).slice(0, Math.max(0, 4 - facts.length))) facts.push({ label: STORED[t.type].label, value: t.note ? `${t.to} (${brief(t.note, 60)})` : t.to });
   const yours: string[] = [];
   if (o.pov) {
     const n = normName(d.name);

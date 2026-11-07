@@ -1,3 +1,4 @@
+import { STORED, type StoredLink } from './world/links';
 import type { Character, ChatMessage } from './types';
 import type { WorldEntity, WorldEvent } from './world/types';
 import { lenientJson } from './json';
@@ -40,6 +41,8 @@ const clampTone = (n: unknown) => Math.max(-3, Math.min(3, Math.round(Number(n) 
 
 export interface MapInputs {
   entities: WorldEntity[];
+  /** Typed ties between entries. */
+  links?: StoredLink[];
   /** The cast and the world's people, the player included or not. */
   characters: Character[];
   player: Character | null;
@@ -96,6 +99,14 @@ export function baseMap(o: MapInputs): StoryMap {
     if (c) tie({ a: c.name, b: o.player.name, kind: r.attitude >= 2 ? 'friend' : r.attitude <= -2 ? 'enemy' : 'other', label: r.note, tone: clampTone(r.attitude) });
   }
   const everyone = o.player ? [...cast, o.player] : cast;
+  // Typed ties from the library first: they say exactly what the tie is.
+  const TIE_OF: Record<string, [TieKind, number]> = { family: ['family', 2], partner: ['romance', 2], friend: ['friend', 2], ally: ['ally', 1], serves: ['work', 1], mentor: ['work', 1], rival: ['rival', -1], enemy: ['enemy', -2], knows: ['other', 0], tied: ['other', 0] };
+  for (const l of o.links ?? []) {
+    const a = everyone.find((c) => c.id === l.from);
+    const b = everyone.find((c) => c.id === l.to);
+    const [kind, tone] = TIE_OF[l.type] ?? ['other', 0];
+    if (a && b) tie({ a: a.name, b: b.name, kind, label: l.note || STORED[l.type].label.toLowerCase(), tone });
+  }
   for (const c of everyone) {
     for (const d of everyone) {
       if (c.id === d.id) continue;

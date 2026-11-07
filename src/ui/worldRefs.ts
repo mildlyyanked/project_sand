@@ -1,10 +1,10 @@
-import type { Character } from '@/core/types';
+import type { Character, Species } from '@/core/types';
 import type { WorldEntity } from '@/core/world/types';
 import type { RefOption, RefOptions } from './components/World';
 import { imageOf } from '@/core/world/portraits';
 
 /** Places as an indented tree, factions and things flat, people of this world: for reference pickers. */
-export function refOptions(entities: WorldEntity[], people: Character[], exclude: string[] = []): RefOptions {
+export function refOptions(entities: WorldEntity[], people: Character[], exclude: string[] = [], species: Species[] = []): RefOptions {
   const skip = new Set(exclude);
   const tree = (kind: WorldEntity['kind']): RefOption[] => {
     const items = entities.filter((e) => e.kind === kind && !skip.has(e.id));
@@ -19,7 +19,7 @@ export function refOptions(entities: WorldEntity[], people: Character[], exclude
     walk(null, 0);
     return out;
   };
-  return { location: tree('location'), organization: tree('organization'), item: tree('item'), character: people.map((c) => ({ id: c.id, name: c.name, image: imageOf(c.data as Record<string, unknown>)?.uri, hint: c.summary })) };
+  return { location: tree('location'), organization: tree('organization'), item: tree('item'), character: people.map((c) => ({ id: c.id, name: c.name, image: imageOf(c.data as Record<string, unknown>)?.uri, hint: c.summary })), species: species.map((s) => ({ id: s.id, name: s.name, image: imageOf(s.data)?.uri, hint: s.adulthood })) };
 }
 
 /** The element and everything nested under it, so a place cannot be put inside itself. */

@@ -19,23 +19,24 @@ export interface WorldCalendar {
 }
 
 export interface WorldData {
+  /** Genre and tone, in a line. */
   genre: string;
-  tone: string;
-  /** How the world works: magic, physics, what is possible and what it costs. */
+  /** How the world works: magic, physics, technology; what is possible and what it costs. */
   rules: string;
-  technology: string;
   /** Social order in a line: who rules, what people fear, what is taboo. */
   society: string;
   themes: string;
   /** Name of the money, for POV play ("crowns", "credits"). */
   currency: string;
-  /** Art direction for every picture of the world; not part of the writer's context. */
-  artStyle?: string;
-  /** How faction sigils are drawn. */
-  sigilStyle?: string;
-  /** The curated portrait direction: every character portrait follows it, so they look like one gallery. Never sent to the writer. */
-  portraitStyle?: string;
+  /** The style bible every picture of the world follows. Never sent to the writer. */
+  art?: Partial<import('./schema').ArtBible>;
   calendar: WorldCalendar;
+  /** Before the library was consolidated; folded into the fields above on upgrade. */
+  tone?: string;
+  technology?: string;
+  artStyle?: string;
+  sigilStyle?: string;
+  portraitStyle?: string;
 }
 
 export type EntityKind = 'location' | 'organization' | 'item';
@@ -67,8 +68,8 @@ export interface CharacterData {
   appearance?: string;
   personality?: string;
   backstory?: string;
-  goals?: string;
-  fears?: string;
+  /** What they want and what they fear. */
+  drives?: string;
   secrets?: string;
   skills?: string;
   occupation?: string;

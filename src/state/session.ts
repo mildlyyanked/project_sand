@@ -28,7 +28,7 @@ import { client } from './client';
 import { runInForeground } from './foreground';
 import { imageDataUrl, removeImage, saveImage } from './images';
 import { generateViaBackend } from './imageBackend';
-import { useSettings } from './settings';
+import { useSettings, worldBible } from './settings';
 import { recordSpend } from '@/db/repo/spend';
 import { deleteEventsForBeat } from '@/db/repo/world';
 import { deleteBeats, getSession, insertBeat, listBeats, makeBeat, patchSession, updateBeatText, updateBeatWorld, upsertSession } from '@/db/repo/sessions';
@@ -860,7 +860,7 @@ export const useSession = create<SessionState>((set, get) => {
           prompt = prompt.trim();
           if (!prompt) throw new Error('The helper produced no image prompt.');
           // The world's art direction leads, so illustrations match its portraits and views.
-          const art = bundle.universe?.data.artStyle?.trim() || defaults.artStyle.trim() || DEFAULT_ART_STYLE;
+          const art = worldBible(bundle.universe).look || DEFAULT_ART_STYLE;
           prompt = `${art.replace(/[.\s]+$/, '')}. ${prompt}`;
           if (promptOnly || defaults.reviewImagePrompt) {
             setFor(sid, { imagePrompt: { beatId, prompt, canPaint } });

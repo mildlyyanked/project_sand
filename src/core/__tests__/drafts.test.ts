@@ -182,7 +182,7 @@ describe('retcon', () => {
 describe('picture prompts', () => {
   it('put the art direction and framing in front of the subject, the same way every time', async () => {
     const { composePicture } = await import('../world/forge');
-    expect(composePicture('character', 'A grey-eyed woman in oilskins.', { art: 'Ink and wash.' })).toBe('Ink and wash. Portrait, head and shoulders, three-quarter view, eye level, softly blurred background. A grey-eyed woman in oilskins. No text or lettering.');
-    expect(composePicture('organization', 'a millstone under a crown', { sigil: 'Woodcut seal' })).toMatch(/^Woodcut seal\. The device: a millstone under a crown\. No text/);
+    expect(composePicture('character', 'A grey-eyed woman in oilskins.', { look: 'Ink and wash.' })).toBe('Ink and wash. Portrait, head and shoulders, three-quarter view, eye level, softly blurred background. A grey-eyed woman in oilskins. No text or lettering.');
+    expect(composePicture('organization', 'a millstone under a crown', { sigils: 'Woodcut seal' })).toMatch(/^Woodcut seal\. The device: a millstone under a crown\. No text/);
   });
 });

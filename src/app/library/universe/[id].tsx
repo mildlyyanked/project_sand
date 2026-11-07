@@ -1,100 +1,100 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, ScrollView, View } from 'react-native';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import type { Character, LoreEntry, Species, Universe } from '@/core/types';
-import type { EntityKind, WorldCalendar, WorldEntity, WorldInstance } from '@/core/world/types';
-import { LORE_CATEGORIES, SPECIES_FIELDS, WORLD_FIELDS } from '@/core/world/schema';
+import type { Universe } from '@/core/types';
+import type { EntityKind, WorldCalendar, WorldInstance } from '@/core/world/types';
+import type { WorkshopMessage } from '@/core/world/agent';
+import { KIND_NOUN, KIND_NOUN_PLURAL, type LibKind } from '@/core/world/drafts';
+import { BIBLE_FIELDS, WORLD_FIELDS, bibleOf } from '@/core/world/schema';
+import { connectionsOf } from '@/core/world/links';
 import { formatShort, formatTime } from '@/core/world/calendar';
-import { deleteLore, deleteSpecies, deleteUniverse, getUniverse, listCharacters, listLore, listSpecies, newCharacter, newLore, newSpecies, saveCharacter, saveLore, saveSpecies, saveUniverse } from '@/db/repo/library';
-import { instanceClock, listEntities, listInstances, newEntity, newInstance, saveEntity, saveInstance, sessionsInInstance } from '@/db/repo/world';
-import { useEntity } from '@/ui/useEntity';
-import { Badge, Button, Card, Chip, Field, ListItem, Row, Screen, SearchBox, Section, Sheet, Stepper, SwitchRow, T, matches } from '@/ui/components';
-import { FieldEditor, KeysField } from '@/ui/components/World';
+import { deleteUniverse, getUniverse, newCharacter, newLore, newSpecies, saveCharacter, saveLore, saveSpecies, saveUniverse } from '@/db/repo/library';
+import { instanceClock, listInstances, newEntity, newInstance, saveEntity, saveInstance, sessionsInInstance } from '@/db/repo/world';
+import { getAgent, listWorkshop } from '@/db/repo/agent';
+import { useJobs, inboxOf } from '@/state/jobs';
+import { Badge, Button, Card, Chip, Field, IconButton, MenuItem, Row, Screen, SearchBox, Section, Sheet, Stepper, T, matches } from '@/ui/components';
 import { useEntryReforge } from '@/ui/components/Reforge';
-import type { LibKind, Library } from '@/core/world/drafts';
-import { rowDraft, type LibraryRow } from '@/state/library';
-import { RetconSheet } from '@/ui/components/Retcon';
-import { Avatar, EntryImage } from '@/ui/components/EntryImage';
 import { ForgeSheet } from '@/ui/components/Forge';
-import { PortraitDirection } from '@/ui/components/PortraitDirection';
 import type { ForgeKind } from '@/core/world/forge';
-import { refOptions } from '@/ui/worldRefs';
 import { EntityTree } from '@/ui/components/Tree';
-import { space } from '@/ui/theme';
+import { StyleBible } from '@/ui/components/StyleBible';
+import { QuestionCard } from '@/ui/components/Question';
+import { InboxList, ProposalSheet } from '@/ui/components/Proposals';
+import { Block, EditActions, EditingBar, Lede, MiniAvatar, SectionsEditor, SectionsView, openEntry, useEditable, useLeaveGuard, workshopRoute } from '@/ui/components/Entry';
+import { useWorld, type EntryRef } from '@/ui/useWorld';
+import { radius, space, useTheme } from '@/ui/theme';
 
-type Tab = 'overview' | 'places' | 'factions' | 'things' | 'people' | 'peoples' | 'lore' | 'instances';
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'overview', label: 'World' }, { key: 'places', label: 'Places' }, { key: 'people', label: 'Characters' }, { key: 'factions', label: 'Factions' },
-  { key: 'things', label: 'Things' }, { key: 'peoples', label: 'Peoples' }, { key: 'lore', label: 'Lore' }, { key: 'instances', label: 'Instances' },
-];
+type Tab = 'world' | 'workshop' | 'entries' | 'instances';
+type Filter = 'all' | LibKind;
+type Sort = 'name' | 'recent' | 'tied';
 
-/** A world template: what it is, everything in it, and the versions of it stories happen in. */
+/** Older links name the tabs that used to be here. */
+const LEGACY: Record<string, { tab: Tab; kind?: Filter }> = {
+  overview: { tab: 'world' }, places: { tab: 'entries', kind: 'location' }, people: { tab: 'entries', kind: 'character' }, factions: { tab: 'entries', kind: 'organization' },
+  things: { tab: 'entries', kind: 'item' }, peoples: { tab: 'entries', kind: 'species' }, lore: { tab: 'entries', kind: 'lore' }, instances: { tab: 'instances' }, workshop: { tab: 'workshop' }, entries: { tab: 'entries' }, world: { tab: 'world' },
+};
+const KINDS: LibKind[] = ['location', 'character', 'organization', 'item', 'species', 'lore'];
+const FORGE_OF: Record<Filter, ForgeKind> = { all: 'mixed', world: 'mixed', location: 'location', character: 'character', organization: 'organization', item: 'item', species: 'species', lore: 'lore' };
+
+/** A world: what it is, its agent and inbox, everything in it, and the versions of it stories happen in. */
 export default function WorldHub() {
-  const { id, tab: initialTab } = useLocalSearchParams<{ id: string; tab?: Tab }>();
+  const { id, tab: tabParam, kind: kindParam } = useLocalSearchParams<{ id: string; tab?: string; kind?: Filter }>();
   const db = useSQLiteContext();
-  const [u, update] = useEntity<Universe>(() => getUniverse(db, id!), (v) => saveUniverse(db, v), [id]);
-  const [tab, setTabRaw] = useState<Tab>(initialTab ?? 'overview');
+  const start = LEGACY[tabParam ?? ''] ?? { tab: 'world' as Tab };
+  const [tab, setTab] = useState<Tab>(start.tab);
+  const [filter, setFilter] = useState<Filter>(kindParam ?? start.kind ?? 'all');
   const [q, setQ] = useState('');
-  const setTab = (t: Tab) => { setTabRaw(t); setQ(''); };
-  const [entities, setEntities] = useState<WorldEntity[]>([]);
-  const [people, setPeople] = useState<Character[]>([]);
-  const [species, setSpecies] = useState<Species[]>([]);
-  const [lore, setLore] = useState<LoreEntry[]>([]);
+  const [sort, setSort] = useState<Sort>('name');
+  const [tiedTo, setTiedTo] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [forge, setForge] = useState<ForgeKind | null>(null);
+  const [review, setReview] = useState<string | null>(null);
   const [instances, setInstances] = useState<(WorldInstance & { clock: number; stories: number })[]>([]);
-  const [edit, setEdit] = useState<{ kind: 'species'; v: Species } | { kind: 'lore'; v: LoreEntry } | null>(null);
-  const [forge, setForge] = useState<{ kind: ForgeKind; anchor?: { kind: LibKind; id: string } } | null>(null);
-  const [retcon, setRetcon] = useState<LibraryRow | null>(null);
   const [newInst, setNewInst] = useState<{ name: string; description: string } | null>(null);
+  const [preview, setPreview] = useState<{ brief: string; last: WorkshopMessage | null }>({ brief: '', last: null });
+  const ed = useEditable<Universe>(() => getUniverse(db, id!), (v) => saveUniverse(db, v), [id]);
+  const w = useWorld(id);
+  const jobs = useJobs((s) => s.jobs);
+  const inbox = useMemo(() => jobs.filter((j) => j.universeId === id && (inboxOf([j], id).length || j.status === 'queued' || j.status === 'running' || j.status === 'failed') && j.kind !== 'question'), [jobs, id]);
+  const waiting = inboxOf(jobs, id).filter((j) => j.kind !== 'question').length;
+  const u = ed.value;
+  const rowOf = useCallback(() => (ed.value ? { kind: 'world' as const, row: ed.value } : null), [ed.value]);
+  const takeSelf = useCallback((row: unknown) => ed.setBuffer((b) => (b ? { ...b, ...(row as Universe), data: { ...b.data, ...(row as Universe).data } } : b)), [ed]);
+  const rf = useEntryReforge({ db, universeId: id, row: rowOf, onSelf: takeSelf });
+  useLeaveGuard(ed.dirty, ed.commit);
 
-  const worldRf = useEntryReforge({ db, universeId: id, row: useCallback(() => (u ? { kind: 'world' as const, row: u } : null), [u]), onSelf: useCallback((row: unknown) => update(row as Universe), [update]) });
-  const editRf = useEntryReforge({ db, universeId: id, row: useCallback(() => (edit ? (edit.kind === 'species' ? { kind: 'species' as const, row: edit.v } : { kind: 'lore' as const, row: edit.v }) : null), [edit]), onSelf: useCallback((row: unknown) => setEdit((e) => (e ? ({ kind: e.kind, v: row } as typeof e) : e)), []) });
-
-  const retconRow = useCallback(() => retcon, [retcon]);
-  const retconSelf = useCallback(async (row: unknown) => {
-    if (retcon?.kind === 'species') await saveSpecies(db, row as Species);
-    else if (retcon?.kind === 'lore') await saveLore(db, row as LoreEntry);
-  }, [db, retcon]);
-
-  const reload = useCallback(() => {
+  const reloadSide = useCallback(() => {
     if (!id) return;
-    void Promise.all([listEntities(db, id), listCharacters(db), listSpecies(db, id), listLore(db, id), listInstances(db, id)]).then(async ([e, c, s, l, inst]) => {
-      setEntities(e); setPeople(c.filter((x) => x.universeId === id)); setSpecies(s); setLore(l);
-      setInstances(await Promise.all(inst.map(async (i) => ({ ...i, clock: await instanceClock(db, i.id), stories: (await sessionsInInstance(db, i.id)).length }))));
-    });
+    void useJobs.getState().refresh(db);
+    void listInstances(db, id).then(async (inst) => setInstances(await Promise.all(inst.map(async (i) => ({ ...i, clock: await instanceClock(db, i.id), stories: (await sessionsInInstance(db, i.id)).length })))));
+    void Promise.all([getAgent(db, id), listWorkshop(db, id, 4)]).then(([a, m]) => setPreview({ brief: a.brief, last: [...m].reverse().find((x) => x.role === 'agent' && x.text) ?? null }));
   }, [db, id]);
-  useFocusEffect(reload);
+  useFocusEffect(reloadSide);
+  const stamp = jobs.filter((j) => j.universeId === id).map((j) => j.status).join();
+  useEffect(() => { reloadSide(); }, [stamp, reloadSide]);
+
+  // Search text and tie counts for every entry.
+  const hay = useMemo(() => new Map(w.pool.map((d) => [d.id, [d.name, ...Object.values(d.fields).map((v) => (typeof v === 'string' ? v : Array.isArray(v) ? v.filter((x) => typeof x === 'string').join(' ') : ''))].join(' ')])), [w.pool]);
+  const ties = useMemo(() => { const m = new Map<string, number>(); for (const e of w.index) m.set(e.id, connectionsOf(e.id, w.graph).length); return m; }, [w.index, w.graph]);
+  const near = useMemo(() => (tiedTo ? new Set(connectionsOf(tiedTo, w.graph).map((c) => c.other)) : null), [tiedTo, w.graph]);
+  const updated = useMemo(() => { const m = new Map<string, number>(); for (const e of w.lib?.entities ?? []) m.set(e.id, e.updatedAt); for (const c of w.lib?.characters ?? []) m.set(c.id, c.updatedAt); return m; }, [w.lib]);
+
   if (!u) return null;
-
-  const refs = refOptions(entities, people);
-  const libNow = (): Library => ({ universe: u, entities, characters: people, species, lore });
-  const speciesDraftOf = (v: Species) => rowDraft({ kind: 'species', row: v }, libNow());
   const cal = u.data.calendar;
-  const setCal = (p: Partial<WorldCalendar>) => update({ data: { ...u.data, calendar: { ...cal, ...p } } });
+  const setCal = (p: Partial<WorldCalendar>) => ed.change({ data: { ...u.data, calendar: { ...cal, ...p } } });
+  const counts = Object.fromEntries(KINDS.map((k) => [k, w.index.filter((e) => e.kind === k).length])) as Record<LibKind, number>;
+  const results = w.index
+    .filter((e) => (filter === 'all' || e.kind === filter) && (!near || near.has(e.id)) && (!q.trim() || matches(q, hay.get(e.id) ?? e.name)))
+    .sort((a, b) => (sort === 'tied' ? (ties.get(b.id) ?? 0) - (ties.get(a.id) ?? 0) : sort === 'recent' ? (updated.get(b.id) ?? 0) - (updated.get(a.id) ?? 0) : 0) || a.name.localeCompare(b.name));
+  const treeKind = (filter === 'location' || filter === 'organization') && !q.trim() && !near && sort === 'name' ? (filter as EntityKind) : null;
 
-  async function addEntity(kind: EntityKind) {
-    const e = newEntity(u!.id, kind);
-    await saveEntity(db, e);
-    router.push(`/library/entity/${e.id}`);
-  }
-  async function addPerson() {
-    const c = { ...newCharacter(), universeId: u!.id };
-    await saveCharacter(db, c);
-    router.push(`/library/character/${c.id}`);
-  }
-  async function saveEdit() {
-    if (!edit) return;
-    if (edit.kind === 'species') await saveSpecies(db, edit.v);
-    else await saveLore(db, edit.v);
-    setEdit(null);
-    reload();
-  }
-  async function removeEdit() {
-    if (!edit) return;
-    if (edit.kind === 'species') await deleteSpecies(db, edit.v.id);
-    else await deleteLore(db, edit.v.id);
-    setEdit(null);
-    reload();
+  async function add(kind: LibKind) {
+    setAddOpen(false);
+    if (kind === 'location' || kind === 'organization' || kind === 'item') { const e = newEntity(u!.id, kind); await saveEntity(db, e); router.push(`/library/entity/${e.id}?edit=1`); }
+    else if (kind === 'character') { const c = { ...newCharacter(), universeId: u!.id }; await saveCharacter(db, c); router.push(`/library/character/${c.id}?edit=1`); }
+    else if (kind === 'species') { const s = newSpecies(u!.id); await saveSpecies(db, s); router.push(`/library/species/${s.id}?edit=1`); }
+    else if (kind === 'lore') { const l = newLore(u!.id); await saveLore(db, l); router.push(`/library/lore/${l.id}?edit=1`); }
   }
   async function createInstance() {
     if (!newInst?.name.trim()) return;
@@ -104,31 +104,33 @@ export default function WorldHub() {
     router.push(`/world/instance/${i.id}`);
   }
 
-  const forgeButton = (k: ForgeKind) => <Button small kind="ghost" icon="sparkles-outline" title="Forge" onPress={() => setForge({ kind: k })} />;
+  const tabs: { key: Tab; label: string }[] = [{ key: 'world', label: 'World' }, ...(u.isDefault ? [] : [{ key: 'workshop' as Tab, label: waiting ? `Workshop · ${waiting}` : 'Workshop' }]), { key: 'entries', label: `Entries${w.index.length ? ` · ${w.index.length}` : ''}` }, { key: 'instances', label: 'Instances' }];
+  const bible = bibleOf(u.data.art);
+  const headerRight = () => (tab === 'world'
+    ? <EditActions editing={ed.editing} dirty={ed.dirty} saving={ed.saving} onEdit={ed.begin} onSave={() => void ed.commit()} onDiscard={ed.discard} />
+    : !u.isDefault ? <IconButton name="mail-outline" badge={waiting > 0} onPress={() => setTab('workshop')} /> : null);
 
   return (
     <Screen scroll>
-      <Stack.Screen options={{ title: u.name }} />
+      <Stack.Screen options={{ title: u.name, headerRight }} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: space.md }}>
-        {TABS.map((x) => <Chip key={x.key} label={x.label} selected={tab === x.key} onPress={() => setTab(x.key)} />)}
+        {tabs.map((x) => <Chip key={x.key} label={x.label} selected={tab === x.key} onPress={() => setTab(x.key)} />)}
       </ScrollView>
 
-      {tab === 'overview' ? (
+      {tab === 'world' ? (ed.editing ? (
         <>
-          <Section title="The world">
+          <EditingBar dirty={ed.dirty} />
+          <View style={{ gap: 14 }}>
             {u.isDefault ? <T v="faint">The real world sends nothing to the writer unless you write something here. Stories set in it stay exactly as plain as before.</T> : null}
-            <Field label="Name" value={u.name} onChangeText={(v) => update({ name: v })} onForge={() => worldRf.open('name')} />
-            <Field label="Description" hint="Always sent to the writer when a story is set here." value={u.description} onChangeText={(v) => update({ description: v })} multiline style={{ minHeight: 120 }} onForge={() => worldRf.open('description')} />
-            <FieldEditor defs={WORLD_FIELDS} data={u.data as unknown as Record<string, unknown>} onChange={(p) => update({ data: { ...u.data, ...p } })} onForge={(d) => worldRf.open(d.key)} />
-          </Section>
-          <Section title="Portraits">
-            <PortraitDirection u={u} people={people.filter((c) => c.universeId === u.id)} onChange={(v) => update({ data: { ...u.data, portraitStyle: v } })} onPortrait={reload} />
-          </Section>
-          <Section title="Grow the world">
-            <T v="faint">Forge any mix of places, factions, characters, things, peoples and lore that the world most needs, read against everything already in it. Surprise me pulls on its loose threads: factions without leaders, cities nobody lives in, names mentioned but never written.</T>
-            <Button kind="outline" icon="leaf-outline" title="Grow the world" onPress={() => setForge({ kind: 'mixed' })} />
-          </Section>
-          <Section title="Calendar">
+            <Field label="Name" value={u.name} onChangeText={(v) => ed.change({ name: v })} onForge={() => void rf.open('name')} />
+            <Field label="Description" hint="Always sent to the writer when a story is set here." value={u.description} onChangeText={(v) => ed.change({ description: v })} multiline style={{ minHeight: 140 }} onForge={() => void rf.open('description')} />
+          </View>
+          <View style={{ height: 18 }} />
+          <SectionsEditor defs={WORLD_FIELDS} data={u.data as unknown as Record<string, unknown>} onChange={(p) => ed.change({ data: { ...u.data, ...p } })} onForge={(d) => void rf.open(d.key)} />
+          <Block title="Style bible">
+            <StyleBible value={u.data.art ?? {}} onChange={(art) => ed.change({ data: { ...u.data, art } })} universe={u} people={w.lib?.characters ?? []} entities={w.lib?.entities ?? []} />
+          </Block>
+          <Block title="Calendar">
             <Row>
               <Chip label="Real dates" selected={cal.kind === 'gregorian'} onPress={() => setCal({ kind: 'gregorian' })} />
               <Chip label="Its own reckoning" selected={cal.kind === 'custom'} onPress={() => setCal({ kind: 'custom' })} />
@@ -149,45 +151,88 @@ export default function WorldHub() {
               </>
             )}
             <T v="faint">Minute zero reads as {formatTime(cal, 0)}. Stories keep their own clocks on this calendar; the writer always knows the time.</T>
+          </Block>
+          {!u.isDefault ? (
+            <Block title="Danger zone">
+              <Button kind="danger" title="Delete world" onPress={() => Alert.alert('Delete world?', 'Places, factions, things, peoples, lore, ties, instances and their timelines go with it, and its workshop. Characters stay, detached. Stories move to the real world.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { await deleteUniverse(db, u.id); ed.discard(); setTimeout(() => router.back(), 0); } }])} />
+            </Block>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <Lede kicker={['World', u.data.genre.split('\n')[0]?.slice(0, 60)].filter(Boolean).join(' · ')} title={u.name} />
+          {u.description ? u.description.split(/\n{2,}/).map((p, i) => <T key={i} v="serif" style={{ fontSize: 17, lineHeight: 26, marginBottom: 10 }}>{p.trim()}</T>) : <T v="faint">{u.isDefault ? 'The real world sends nothing to the writer unless you write something here.' : 'No description yet. Tap the pencil to write one, or ask the agent in the Workshop.'}</T>}
+          <View style={{ height: 12 }} />
+          <SectionsView defs={WORLD_FIELDS.map((d) => (d.key === 'genre' ? { ...d, section: 'look' as const, type: 'long' as const } : d))} data={u.data as unknown as Record<string, unknown>} />
+          {!u.isDefault ? (
+            <Block title="What is in it">
+              <Row style={{ flexWrap: 'wrap' }}>
+                {KINDS.map((k) => <Chip key={k} small label={`${counts[k]} ${KIND_NOUN_PLURAL[k].toLowerCase()}`} onPress={() => { setFilter(k); setTab('entries'); }} />)}
+              </Row>
+            </Block>
+          ) : null}
+          <Block title="Style bible">
+            {BIBLE_FIELDS.some((f) => bible[f.key]) ? BIBLE_FIELDS.filter((f) => bible[f.key]).map((f) => <View key={f.key} style={{ gap: 2 }}><T v="small" style={{ textTransform: 'uppercase', letterSpacing: 0.6 }}>{f.label}</T><T v="dim">{bible[f.key]}</T></View>) : <T v="faint">No style bible yet: pictures use the app’s. Tap the pencil to write one, or have the helper write it.</T>}
+          </Block>
+          <Block title="Calendar"><T v="dim">{cal.kind === 'gregorian' ? 'Real dates' : 'Its own reckoning'} · minute zero is {formatTime(cal, 0)}</T></Block>
+        </>
+      )) : null}
+
+      {tab === 'workshop' ? (
+        <>
+          <View style={{ marginBottom: space.lg }}><QuestionCard universe={u} /></View>
+          <Section title={`Inbox${waiting ? ` · ${waiting}` : ''}`}>
+            <InboxList jobs={inbox} onOpen={setReview} empty="Nothing waiting. What forge, reforge and the agent write lands here for you to accept or dismiss; it keeps going when you leave." />
           </Section>
-          {!u.isDefault ? <Button kind="danger" title="Delete world" onPress={() => Alert.alert('Delete world?', 'Places, factions, things, peoples, lore, instances and their timelines go with it. Characters stay, detached. Stories move to the real world.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { await deleteUniverse(db, u.id); router.back(); } }])} /> : null}
+          <Section title="The agent" right={<Button small kind="outline" icon="chatbubbles-outline" title="Open" onPress={() => router.push(workshopRoute(u.id) as never)} />}>
+            <Card onPress={() => router.push(workshopRoute(u.id) as never)} style={{ gap: 8 }}>
+              <T v="label">The brief</T>
+              {preview.brief ? <T v="dim" numberOfLines={8}>{preview.brief}</T> : <T v="faint">Empty so far. The agent starts one as it learns what you want for this world.</T>}
+              {preview.last ? <><T v="label">Last said</T><T v="dim" numberOfLines={3}>{preview.last.text}</T></> : null}
+            </Card>
+            <Row style={{ flexWrap: 'wrap' }}>
+              <Button small kind="outline" icon="leaf-outline" title="Grow the world" onPress={() => setForge('mixed')} />
+              <Button small kind="ghost" icon="help-circle-outline" title="What does it need?" onPress={() => router.push(`${workshopRoute(u.id)}?intent=${encodeURIComponent('whatever this world most needs next')}` as never)} />
+            </Row>
+            <T v="faint">The agent is a curious co-author: it knows everything in this world, keeps a brief of what you want, and proposes entries and changes. Grow the world forges a batch straight away.</T>
+          </Section>
         </>
       ) : null}
 
-      {tab === 'places' || tab === 'factions' || tab === 'things' ? (() => {
-        const kind: EntityKind = tab === 'places' ? 'location' : tab === 'factions' ? 'organization' : 'item';
-        const empty = { location: 'Realms, cities, districts, rooms. Nest them: a market inside a quarter inside a city. The writer gets where the scene is and what is nearby.', organization: 'Governments, guilds, churches, gangs, families. Goals, methods, leaders, enemies.', item: 'Weapons, relics, documents, food. In play, things with effects can be used from the inventory.' }[kind];
-        const items = entities.filter((e) => e.kind === kind);
-        return (
-          <Section title={`${tab === 'places' ? 'Places' : tab === 'factions' ? 'Factions' : 'Things'}${items.length ? ` · ${items.length}` : ''}`} right={<Row gap={4}>{forgeButton(kind)}<Button small kind="outline" icon="add" title="Add" onPress={() => addEntity(kind)} /></Row>}>
-            {items.length > 5 ? <SearchBox value={q} onChange={setQ} placeholder={`Search ${tab}`} /> : null}
-            {items.length ? <EntityTree items={items} query={q} onOpen={(e) => router.push(`/library/entity/${e.id}`)} /> : <T v="faint">{empty}</T>}
-            {items.length && !q ? <T v="faint">{kind === 'item' ? '' : 'Tap the arrow to open what sits inside.'}</T> : null}
-          </Section>
-        );
-      })() : null}
-
-      {tab === 'people' ? (
-        <Section title={`Characters${people.length ? ` · ${people.length}` : ''}`} right={<Row gap={4}>{forgeButton('character')}<Button small kind="outline" icon="add" title="Add" onPress={addPerson} /></Row>}>
-          {people.length > 5 ? <SearchBox value={q} onChange={setQ} placeholder="Search characters" /> : null}
-          {people.length ? people.filter((c) => matches(q, c.name, c.summary, c.data.occupation, c.lifeStage)).map((c) => <ListItem key={c.id} left={<Avatar data={c.data as Record<string, unknown>} name={c.name} />} title={c.name} subtitle={[c.data.occupation, c.summary].filter(Boolean).join(' · ')} right={!c.adult ? <Badge label="not adult" tone="warn" /> : undefined} onPress={() => router.push(`/library/character/${c.id}`)} />) : <T v="faint">Characters who belong to this world. The same people appear in every story set here, kept consistent by each instance’s timeline.</T>}
-        </Section>
-      ) : null}
-
-      {tab === 'peoples' ? (
-        <Section title="Peoples" right={<Row gap={4}>{forgeButton('species')}<Button small kind="outline" icon="add" title="Add" onPress={() => setEdit({ kind: 'species', v: newSpecies(u.id) })} /></Row>}>
-          <T v="faint">Races and species. Each defines adulthood in its own terms; character cards show it next to their adult flag.</T>
-          {species.length > 5 ? <SearchBox value={q} onChange={setQ} placeholder="Search peoples" /> : null}
-          {species.filter((x) => matches(q, x.name, x.notes, String(x.data.traits ?? ''))).map((x) => <ListItem key={x.id} left={<Avatar data={x.data} name={x.name} />} title={x.name} subtitle={x.adulthood} onPress={() => setEdit({ kind: 'species', v: x })} />)}
-        </Section>
-      ) : null}
-
-      {tab === 'lore' ? (
-        <Section title="Lore" right={<Row gap={4}>{forgeButton('lore')}<Button small kind="outline" icon="add" title="Add" onPress={() => setEdit({ kind: 'lore', v: newLore(u.id) })} /></Row>}>
-          <T v="faint">Sent when one of its keywords appears in the recent passages. Always-on entries ride with the world description.</T>
-          {lore.length > 5 ? <SearchBox value={q} onChange={setQ} placeholder="Search lore" /> : null}
-          {lore.filter((l) => matches(q, l.title, l.text, l.keys.join(' '), l.category)).map((l) => <ListItem key={l.id} title={l.title} subtitle={[l.category !== 'other' ? l.category : '', l.alwaysOn ? 'always on' : l.keys.join(', ') || 'no keywords'].filter(Boolean).join(' · ')} right={l.priority ? <Badge label={`p${l.priority}`} /> : undefined} onPress={() => setEdit({ kind: 'lore', v: l })} />)}
-        </Section>
+      {tab === 'entries' ? (
+        <>
+          <SearchBox value={q} onChange={setQ} placeholder={`Search ${u.name}`} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: space.sm }}>
+            <Chip small label={`All · ${w.index.length}`} selected={filter === 'all'} onPress={() => setFilter('all')} />
+            {KINDS.map((k) => <Chip key={k} small label={`${KIND_NOUN_PLURAL[k]}${counts[k] ? ` · ${counts[k]}` : ''}`} selected={filter === k} onPress={() => setFilter(k)} />)}
+          </ScrollView>
+          <Row between style={{ marginBottom: space.sm }}>
+            <Row gap={4}>
+              {(['name', 'recent', 'tied'] as Sort[]).map((s) => <Chip key={s} small label={s === 'name' ? 'A–Z' : s === 'recent' ? 'Recent' : 'Most tied'} selected={sort === s} onPress={() => setSort(s)} />)}
+            </Row>
+            <Row gap={4}>
+              <Button small kind="ghost" icon="sparkles-outline" title="Forge" onPress={() => setForge(FORGE_OF[filter])} />
+              <Button small kind="outline" icon="add" title="Add" onPress={() => (filter === 'all' || filter === 'world' ? setAddOpen(true) : void add(filter))} />
+            </Row>
+          </Row>
+          {tiedTo ? (
+            <Row gap={6} style={{ marginBottom: space.sm }}>
+              <T v="small">Tied to</T>
+              <Chip small label={`${w.byId.get(tiedTo)?.name ?? '…'}  ×`} selected onPress={() => setTiedTo(null)} />
+            </Row>
+          ) : null}
+          {treeKind ? (
+            <EntityTree items={(w.lib?.entities ?? []).filter((e) => e.kind === treeKind)} onOpen={(e) => openEntry(e.kind, e.id)} />
+          ) : results.length ? (
+            <View style={{ gap: 2 }}>
+              {results.slice(0, 200).map((e) => <EntryRow key={e.id} e={e} ties={ties.get(e.id) ?? 0} onTied={() => setTiedTo(e.id)} />)}
+            </View>
+          ) : (
+            <T v="faint" style={{ marginTop: space.md }}>{w.index.length ? 'Nothing matches.' : 'Nothing here yet. Add an entry, forge some, or ask the agent in the Workshop.'}</T>
+          )}
+          {results.length > 200 ? <T v="faint">Showing 200 of {results.length}: search to narrow it.</T> : null}
+          {treeKind ? <T v="faint" style={{ marginTop: space.sm }}>Tap the arrow to open what sits inside. Search or sort to see them flat.</T> : null}
+        </>
       ) : null}
 
       {tab === 'instances' ? (
@@ -203,48 +248,35 @@ export default function WorldHub() {
         </Section>
       ) : null}
 
-      <ForgeSheet open={!!forge} onClose={() => setForge(null)} kind={forge?.kind ?? 'species'} anchor={forge?.anchor} universeId={u.id} onSaved={reload} />
-      {worldRf.sheet}
-      <RetconSheet open={!!retcon} onClose={() => { setRetcon(null); reload(); }} universeId={u.id} row={retconRow} onSelf={retconSelf} />
-      {editRf.sheet}
+      <ForgeSheet open={!!forge} onClose={() => { setForge(null); void w.reload(); }} kind={forge ?? 'mixed'} universeId={u.id} onSaved={() => void w.reload()} />
+      <ProposalSheet jobId={review} onClose={() => { setReview(null); void w.reload(); void ed.reload(); }} onAccepted={() => void w.reload()} />
+      {rf.sheet}
+      <Sheet open={addOpen} onClose={() => setAddOpen(false)} title="Add to the world">
+        {KINDS.map((k) => <MenuItem key={k} icon={({ location: 'location-outline', character: 'person-outline', organization: 'flag-outline', item: 'cube-outline', species: 'body-outline', lore: 'book-outline' } as const)[k as 'location']} label={KIND_NOUN[k]} onPress={() => void add(k)} />)}
+      </Sheet>
       <Sheet open={!!newInst} onClose={() => setNewInst(null)} title="New instance">
         <Field label="Name" value={newInst?.name ?? ''} onChangeText={(v) => setNewInst((x) => (x ? { ...x, name: v } : x))} placeholder="e.g. The Long Winter, What if the duke lived" autoFocus />
         <Field label="How it differs" value={newInst?.description ?? ''} onChangeText={(v) => setNewInst((x) => (x ? { ...x, description: v } : x))} multiline placeholder="Optional. Sent with every story in it." />
         <T v="faint">Starts with an empty timeline. To branch from an existing instance at a moment, use Fork on that instance instead.</T>
         <Button title="Create" onPress={createInstance} disabled={!newInst?.name.trim()} />
       </Sheet>
-      <Sheet open={!!edit} onClose={saveEdit} title={edit?.kind === 'species' ? 'People' : 'Lore entry'} full>
-        {edit?.kind === 'species' ? (
-          <>
-            <Field label="Name" value={edit.v.name} onChangeText={(v) => setEdit({ kind: 'species', v: { ...edit.v, name: v } })} onForge={() => editRf.open('name')} />
-            <Field label="Adulthood" hint="When a member counts as adult, in the world's terms." value={edit.v.adulthood} onChangeText={(v) => setEdit({ kind: 'species', v: { ...edit.v, adulthood: v } })} multiline onForge={() => editRf.open('adulthood')} />
-            <EntryImage kind="species" name={edit.v.name} data={edit.v.data} draft={() => speciesDraftOf(edit.v)} world={u} onChange={(image) => setEdit({ kind: 'species', v: { ...edit.v, data: { ...edit.v.data, image } } })} />
-            <FieldEditor defs={SPECIES_FIELDS} data={edit.v.data} refs={refs} onChange={(p) => setEdit({ kind: 'species', v: { ...edit.v, data: { ...edit.v.data, ...p } } })} onForge={(d) => editRf.open(d.key)} />
-            <Field label="Notes" value={edit.v.notes} onChangeText={(v) => setEdit({ kind: 'species', v: { ...edit.v, notes: v } })} multiline onForge={() => editRf.open('notes')} />
-          </>
-        ) : edit?.kind === 'lore' ? (
-          <>
-            <Field label="Title" value={edit.v.title} onChangeText={(v) => setEdit({ kind: 'lore', v: { ...edit.v, title: v } })} onForge={() => editRf.open('name')} />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-              {LORE_CATEGORIES.map((c) => <Chip key={c} small label={c} selected={edit.v.category === c} onPress={() => setEdit({ kind: 'lore', v: { ...edit.v, category: c } })} />)}
-            </ScrollView>
-            <KeysField label="Keywords" hint="Comma separated" value={edit.v.keys} onChange={(keys) => setEdit({ kind: 'lore', v: { ...edit.v, keys } })} onForge={() => editRf.open('keys')} />
-            <Field label="Text" value={edit.v.text} onChangeText={(v) => setEdit({ kind: 'lore', v: { ...edit.v, text: v } })} multiline style={{ minHeight: 120 }} onForge={() => editRf.open('text')} />
-            <SwitchRow label="Always on" value={edit.v.alwaysOn} onChange={(v) => setEdit({ kind: 'lore', v: { ...edit.v, alwaysOn: v } })} />
-            <Row between><T>Priority</T><Stepper value={edit.v.priority} min={0} max={10} onChange={(v) => setEdit({ kind: 'lore', v: { ...edit.v, priority: v } })} /></Row>
-          </>
-        ) : null}
-        {edit ? (
-          <Row>
-            <Button kind="outline" icon="git-branch-outline" title="Forge under this" onPress={async () => { const e = edit; await saveEdit(); setForge({ kind: e.kind === 'species' ? 'character' : 'lore', anchor: { kind: e.kind, id: e.v.id } }); }} style={{ flex: 1 }} />
-            <Button kind="outline" icon="git-compare-outline" title="Retcon" onPress={async () => { const e = edit; await saveEdit(); setRetcon(e.kind === 'species' ? { kind: 'species', row: e.v } : { kind: 'lore', row: e.v }); }} style={{ flex: 1 }} />
-          </Row>
-        ) : null}
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <Button title="Done" onPress={saveEdit} style={{ flex: 1 }} />
-          <Button kind="danger" title="Delete" onPress={removeEdit} />
-        </View>
-      </Sheet>
+      <View style={{ height: 40 }} />
     </Screen>
+  );
+}
+
+/** One entry in a list: picture, name, kind and type, a line about it, how tied it is. */
+function EntryRow({ e, ties, onTied }: { e: EntryRef; ties: number; onTied: () => void }) {
+  const t = useTheme();
+  return (
+    <Card onPress={() => openEntry(e.kind, e.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderRadius: radius.md }}>
+      <MiniAvatar e={e} size={40} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <T numberOfLines={1} style={{ fontWeight: '600' }}>{e.name}</T>
+        <T v="small" numberOfLines={1}>{[KIND_NOUN[e.kind], e.type].filter(Boolean).join(' · ')}</T>
+        {e.hint ? <T v="faint" numberOfLines={1}>{e.hint}</T> : null}
+      </View>
+      {ties ? <Chip small label={`${ties} ${ties === 1 ? 'tie' : 'ties'}`} onPress={onTied} color={t.dim} /> : null}
+    </Card>
   );
 }
