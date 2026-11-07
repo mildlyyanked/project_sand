@@ -66,7 +66,7 @@ export function resolveMap(sim: SimState, a: MapAction, o: { kit: Kit; calendar?
         const stop = way.path[Math.floor(way.path.length / 2)]!;
         const part = findPath(l, pos, stop);
         const faces = facesAt(sim, o.kit, here, o.calendar);
-        const what = here.danger >= 2 && r() < 0.5
+        const what = here.danger >= 2 && r() < (here.danger >= 5 ? 0.85 : 0.5)
           ? 'trouble: someone who looks like they mean you harm blocks the way'
           : faces.length ? `a ${faces[0]!.look} ${faces[0]!.role} steps into your path and wants a word` : 'something on the way makes you stop and look';
         return { action: `You set off${spot ? ` for ${spot.name}` : ''}.`, outcome: `Halfway, ${what}. Stop the walk there and let the player answer.`, ops: [{ op: 'step', x: stop.x, y: stop.y, minutes: walkMinutes(l, part?.cost ?? way.cost / 2) }], narrate: true };

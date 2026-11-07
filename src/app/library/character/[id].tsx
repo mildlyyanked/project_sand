@@ -17,6 +17,7 @@ import { Avatar, EntryImage } from '@/ui/components/EntryImage';
 import { RetconSheet } from '@/ui/components/Retcon';
 import { Block, ConnectionsView, EditActions, EditingBar, Lede, SectionsEditor, SectionsView, TiesEditor, useEditable, useLeaveGuard, useStartEditing, workshopRoute } from '@/ui/components/Entry';
 import { useWorld } from '@/ui/useWorld';
+import { InspirationEditor } from '@/ui/components/Inspiration';
 
 interface Editable { id: string; row: Character; links: StoredLink[] }
 
@@ -90,7 +91,11 @@ export default function CharacterPage() {
             <SwitchRow label="Adult" hint="By their people's definition. Explicit sessions only take characters with this on." value={c.adult} onChange={(v) => set({ adult: v })} />
           </Block>
           <View style={{ height: 18 }} />
-          <SectionsEditor defs={CHARACTER_FIELDS.filter((d) => !d.play)} data={c.data as Record<string, unknown>} refs={w.refs} onChange={setData} onForge={(d) => void rf.open(d.key === 'homeLocationId' ? 'home' : d.key)} />
+          <Block title="Inspiration">
+            <InspirationEditor c={c} lib={w.lib} onChange={set} />
+          </Block>
+          <View style={{ height: 18 }} />
+          <SectionsEditor defs={CHARACTER_FIELDS.filter((d) => !d.play && d.key !== 'inspiredBy')} data={c.data as Record<string, unknown>} refs={w.refs} onChange={setData} onForge={(d) => void rf.open(d.key === 'homeLocationId' ? 'home' : d.key)} />
           <Block title="Voice">
             <Field label="Voice" hint="How they talk and think." value={c.voice} onChangeText={(v) => set({ voice: v })} multiline onForge={() => void rf.open('voice')} />
           </Block>
@@ -140,8 +145,9 @@ export default function CharacterPage() {
             c.lifeStage ? <Badge key="l" label={c.lifeStage} /> : null,
             !c.adult ? <Badge key="a" label="not adult" tone="warn" /> : null,
             world ? <T key="w" v="faint">{world.name}</T> : null,
+            c.data.inspiredBy?.trim() ? <T key="i" v="faint">Inspired by {c.data.inspiredBy.trim()}</T> : null,
           ]} />
-          <SectionsView defs={CHARACTER_FIELDS} data={c.data as Record<string, unknown>} extra={{
+          <SectionsView defs={CHARACTER_FIELDS.filter((d) => d.key !== 'inspiredBy')} data={c.data as Record<string, unknown>} extra={{
             look: c.voice ? [{ label: 'Voice', text: c.voice }] : [],
             life: c.relationships ? [{ label: c.universeId ? 'Other ties' : 'Relationships', text: c.relationships }] : [],
             edge: [...(c.limits ? [{ label: 'Limits', text: c.limits }] : []), ...(c.preferences ? [{ label: 'Leans into', text: c.preferences }] : [])],

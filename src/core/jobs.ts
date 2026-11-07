@@ -2,7 +2,8 @@ import type { ChatMessage, Id } from './types';
 import type { Draft, LibKind } from './world/drafts';
 import { normName } from './world/drafts';
 import type { ForgeKind } from './world/forge';
-import { ensureAnchor, parseBible, parseFieldValue, parseForgeDrafts } from './world/forge';
+import { ensureAnchor, parseBible, parseFieldValue, parseForgeDrafts, parseInspired } from './world/forge';
+import type { InspireAspect } from './world/types';
 import type { ArtBible, FieldDef } from './world/schema';
 
 /**
@@ -13,7 +14,7 @@ import type { ArtBible, FieldDef } from './world/schema';
  * restarting the app loses nothing: the result waits in the world's inbox.
  * Everything here is pure; the runner lives in state/jobs.ts.
  */
-export type JobKind = 'forge' | 'reforge' | 'bible' | 'workshop' | 'question';
+export type JobKind = 'forge' | 'reforge' | 'bible' | 'workshop' | 'question' | 'inspire';
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 
 export interface ForgeInput {
@@ -21,7 +22,7 @@ export interface ForgeInput {
   model: string;
   messages: ChatMessage[];
   maxTokens: number;
-  lookalike?: string;
+  inspiredBy?: string;
   anchor?: { kind: LibKind; name: string } | null;
   canon?: string | null;
   /** Names already in the world, as kind:name: never offered twice. */
@@ -38,6 +39,8 @@ export interface BibleOutput { bible: Partial<ArtBible> }
 export interface WorkshopInput { model: string; messages: ChatMessage[]; maxTokens?: number; /** The thread message this reply answers. */ replyTo: Id; focus?: { kind: LibKind; id: string; name: string } | null; taken: string[] }
 export interface WorkshopOutput { reply: string; drafts: Draft[]; brief: string | null }
 
+export interface InspireInput { model: string; messages: ChatMessage[]; draft: Draft; who: string; aspects: InspireAspect[]; maxTokens?: number }
+
 export interface QuestionInput { model: string; messages: ChatMessage[]; date: string; maxTokens?: number }
 export interface QuestionOutput { question: string; why: string; about: string }
 
@@ -47,6 +50,7 @@ export interface JobIO {
   bible: [BibleInput, BibleOutput];
   workshop: [WorkshopInput, WorkshopOutput];
   question: [QuestionInput, QuestionOutput];
+  inspire: [InspireInput, ForgeOutput];
 }
 
 export interface Job<K extends JobKind = JobKind> {
@@ -72,7 +76,8 @@ export function proposalCount(j: Job): number {
   if (j.status !== 'done' || !j.output) return 0;
   const left = (ids: string[]) => ids.filter((id) => !j.decisions[id]).length;
   switch (j.kind) {
-    case 'forge': return left((j.output as ForgeOutput).drafts.map((d) => d.id));
+    case 'forge':
+    case 'inspire': return left((j.output as ForgeOutput).drafts.map((d) => d.id));
     case 'workshop': return left((j.output as WorkshopOutput).drafts.map((d) => d.id));
     case 'reforge':
     case 'bible': return j.decisions.all ? 0 : 1;
@@ -90,7 +95,7 @@ const peekOf = (text: string) => {
 
 /** A forge reply as proposals: parsed, tied to the anchor, nothing the world already has. Throws with a readable reason. */
 export function finishForge(input: ForgeInput, text: string, finish?: string): ForgeOutput {
-  let r = parseForgeDrafts(input.kind, text, { lookalike: input.lookalike });
+  let r = parseForgeDrafts(input.kind, text, { inspiredBy: input.inspiredBy });
   if (!r) {
     const { peek, tail } = peekOf(text);
     if (finish === 'length') throw new Error(`The reply was still unfinished after it was continued three times, and nothing in it was complete. Ask for fewer at a time, or try another model. It began: “${peek}…”`);
@@ -114,6 +119,14 @@ export function finishBible(input: BibleInput, text: string): BibleOutput {
   const b = parseBible(text, input.only);
   if (!b) throw new Error(`The helper did not write a usable style bible: “${text.trim().slice(0, 140)}”. Try again.`);
   return { bible: b };
+}
+
+/** An inspiration reply as one proposed change to the character: only the fields it rewrote. */
+export function finishInspire(input: InspireInput, text: string): ForgeOutput {
+  const f = parseInspired(text, input.aspects);
+  if (!f) throw new Error(`The model did not write the character from ${input.who}: “${text.trim().slice(0, 140)}”. Try again.`);
+  const d: Draft = { ...input.draft, existing: true, fields: { ...input.draft.fields, ...f, _changed: Object.keys(f) } };
+  return { drafts: [d], truncated: false };
 }
 
 /** A short title for the inbox: what was asked for, in a few words. */

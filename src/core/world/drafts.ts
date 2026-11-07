@@ -57,7 +57,7 @@ export const DRAFT_FIELDS: Record<LibKind, FieldDef[]> = {
     { key: 'species', label: 'People', type: 'ref', ref: 'species', inContext: true, forge: 'one of the world\'s peoples by exact name, or "" for human' },
     { key: 'lifeStage', label: 'Life stage', type: 'text', inContext: true, forge: 'age or stage, in the world\'s terms' },
     { key: 'adult', label: 'Adult', type: 'bool', hint: "By their people's definition. Explicit sessions only take characters with this on.", forge: "by that people's own definition" },
-    ...['occupation', 'lookalike', 'appearance', 'personality', 'backstory', 'skills', 'drives', 'secrets'].map(charField),
+    ...['occupation', 'inspiredBy', 'appearance', 'personality', 'backstory', 'skills', 'drives', 'secrets'].map(charField),
     { key: 'home', label: 'Home', type: 'ref', ref: 'location', inContext: true },
     { key: 'faction', label: 'Faction', type: 'ref', ref: 'organization', inContext: true },
     { key: 'factionRole', label: 'Role in it', type: 'text', inContext: true },
@@ -145,6 +145,7 @@ export function characterDraft(c: Character, lib: Library): Draft {
   };
   if (c.tells.trim()) fields.personality = [fields.personality, `Tells: ${c.tells.trim()}`].filter(Boolean).join('\n\n');
   if (d.attributes) fields.attributes = d.attributes;
+  if (d.inspire?.length) fields.inspire = d.inspire;
   return { id: c.id, kind: 'character', name: c.name, fields, existing: true };
 }
 
@@ -394,6 +395,7 @@ export function planDrafts(drafts: Draft[], lib: Library, universeId: string | n
       const data: Record<string, unknown> = { ...base.data };
       for (const def of CHARACTER_FIELDS) if (def.type !== 'ref' && def.key in f) data[def.key] = def.type === 'number' ? Number(f[def.key]) || 0 : asStr(f[def.key]);
       if (f.attributes && typeof f.attributes === 'object') data.attributes = f.attributes;
+      if (Array.isArray(f.inspire)) data.inspire = f.inspire;
       const keep = (k: 'summary' | 'lifeStage' | 'voice' | 'relationships' | 'limits' | 'preferences') => (k in f ? asStr(f[k]) : base[k]);
       touch(characters, { ...base, name: d.name.trim(), summary: keep('summary'), lifeStage: keep('lifeStage'), adult: 'adult' in f ? f.adult !== false : base.adult, voice: keep('voice'), tells: 'tells' in f ? asStr(f.tells) : 'personality' in f ? '' : base.tells, relationships: keep('relationships'), limits: keep('limits'), preferences: keep('preferences'), data: data as Character['data'], updatedAt: t });
     } else if (d.kind === 'species') {

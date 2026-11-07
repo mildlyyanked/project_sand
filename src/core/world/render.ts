@@ -1,6 +1,6 @@
 import type { Character, LoreEntry, Species, Universe } from '../types';
 import type { FieldDef } from './schema';
-import { CHARACTER_FIELDS, FIELDS_BY_KIND, SPECIES_FIELDS, WORLD_FIELDS } from './schema';
+import { CHARACTER_FIELDS, FIELDS_BY_KIND, SPECIES_FIELDS, WORLD_FIELDS, levelOf } from './schema';
 import type { WorldEntity } from './types';
 import { locationChain } from './scan';
 
@@ -8,6 +8,7 @@ export type RefName = (id: string) => string | undefined;
 
 function value(def: FieldDef, raw: unknown, refName: RefName): string {
   if (raw == null || raw === '') return '';
+  if (def.type === 'level') { const l = def.levels ? levelOf(def.levels, raw) : null; return l && l.value > 0 ? `${l.label}. ${l.hint}` : ''; }
   if (def.type === 'ref') return typeof raw === 'string' ? refName(raw) ?? '' : '';
   if (def.type === 'number') return Number.isFinite(Number(raw)) && Number(raw) !== 0 ? String(raw) : '';
   if (def.type === 'effects' && typeof raw === 'object') return Object.entries(raw as Record<string, number>).map(([k, v]) => `${k} ${v > 0 ? '+' : ''}${v}`).join(', ');

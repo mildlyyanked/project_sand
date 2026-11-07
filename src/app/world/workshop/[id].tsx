@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlatList, Platform, Pressable, TextInput, View } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import type { WorkshopMessage } from '@/core/world/agent';
+import { changedFields, removing, type WorkshopMessage } from '@/core/world/agent';
 import type { LibKind } from '@/core/world/drafts';
 import { KIND_NOUN } from '@/core/world/drafts';
 import { proposalCount } from '@/core/jobs';
@@ -115,8 +115,8 @@ export default function Workshop() {
             {drafts.slice(0, 5).map((d) => (
               <Row key={d.id} gap={8}>
                 <MiniAvatar e={{ kind: d.kind, name: d.name }} size={22} />
-                <T numberOfLines={1} style={{ flex: 1 }}>{d.existing ? `Change ${d.name}` : d.name}</T>
-                <T v="small">{job?.decisions[d.id] === 'accepted' ? 'added' : job?.decisions[d.id] === 'dismissed' ? 'dismissed' : d.existing ? 'change' : KIND_NOUN[d.kind].toLowerCase()}</T>
+                <T numberOfLines={1} style={{ flex: 1 }}>{removing(d) ? `Remove ${d.name}` : d.existing ? (changedFields(d).includes('name') ? `${String(d.fields._was ?? '')} → ${d.name}` : `Change ${d.name}`) : d.name}</T>
+                <T v="small">{job?.decisions[d.id] === 'accepted' ? (removing(d) ? 'removed' : d.existing ? 'applied' : 'added') : job?.decisions[d.id] === 'dismissed' ? 'dismissed' : removing(d) ? 'remove' : d.existing ? 'change' : KIND_NOUN[d.kind].toLowerCase()}</T>
               </Row>
             ))}
             {drafts.length > 5 ? <T v="small">and {drafts.length - 5} more</T> : null}

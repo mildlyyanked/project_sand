@@ -3,7 +3,7 @@ import { Alert, Image, Pressable, ScrollView, View } from 'react-native';
 import { router, useNavigation } from 'expo-router';
 import { usePreventRemove } from 'expo-router/react-navigation';
 import type { FieldDef, Section } from '@/core/world/schema';
-import { SECTION_LABEL, SECTION_ORDER } from '@/core/world/schema';
+import { SECTION_LABEL, SECTION_ORDER, levelOf } from '@/core/world/schema';
 import type { LibKind } from '@/core/world/drafts';
 import { KIND_NOUN } from '@/core/world/drafts';
 import { STORED, STORED_TYPES, connectionsOf, groupConnections, type Edge, type StoredLink, type StoredType } from '@/core/world/links';
@@ -143,13 +143,14 @@ export function Lede({ kicker, title, lede, picture, badges }: { kicker: string;
 
 const shown = (def: FieldDef, v: unknown): string => {
   if (v == null || v === '' || def.type === 'ref' || def.type === 'ties' || def.type === 'bool') return '';
+  if (def.type === 'level') { const l = def.levels ? levelOf(def.levels, v) : null; return l ? `${l.label}. ${l.hint}` : ''; }
   if (def.type === 'number') return Number(v) ? String(v) : '';
   if (def.type === 'keys') return Array.isArray(v) ? v.join(', ') : '';
   if (def.type === 'effects' && typeof v === 'object') return Object.entries(v as Record<string, number>).map(([k, n]) => `${k} ${n > 0 ? '+' : ''}${n}`).join(', ');
   return typeof v === 'string' ? v.trim() : String(v);
 };
 
-/** Short facts (type, rarity, value, danger) as one row of quiet labels. */
+/** Short facts (rarity, value, occupation) as one row of quiet labels. */
 function Facts({ items }: { items: { label: string; value: string }[] }) {
   const t = useTheme();
   if (!items.length) return null;
@@ -182,10 +183,10 @@ function Prose({ label, text }: { label: string; text: string }) {
 export function SectionsView({ defs, data, play = true, extra }: { defs: FieldDef[]; data: Record<string, unknown>; play?: boolean; extra?: Partial<Record<Section, { label: string; text: string }[]>> }) {
   const t = useTheme();
   const [reveal, setReveal] = useState(false);
-  const facts = defs.filter((d) => d.section === 'basics' && d.key !== 'type' && (d.type === 'select' || d.type === 'number' || d.type === 'text')).map((d) => ({ label: d.label, value: d.key === 'danger' ? `${shown(d, data[d.key])} of 5` : shown(d, data[d.key]) })).filter((x) => x.value && x.value !== ' of 5');
+  const facts = defs.filter((d) => d.section === 'basics' && d.key !== 'type' && (d.type === 'select' || d.type === 'number' || d.type === 'text')).map((d) => ({ label: d.label, value: shown(d, data[d.key]) })).filter((x) => x.value);
   const blocks: React.ReactNode[] = [];
   for (const sec of SECTION_ORDER) {
-    const items = [...defs.filter((d) => d.section === sec && !(sec === 'basics' && (d.type === 'select' || d.type === 'number' || d.type === 'text')) && (play || !d.play)).map((d) => ({ label: d.key === 'danger' ? 'Danger level' : d.label, text: d.key === 'danger' ? (Number(data[d.key]) ? `${Number(data[d.key])} of 5` : '') : shown(d, data[d.key]) })), ...(extra?.[sec] ?? [])].filter((x) => x.text);
+    const items = [...defs.filter((d) => d.section === sec && !(sec === 'basics' && (d.type === 'select' || d.type === 'number' || d.type === 'text')) && (play || !d.play)).map((d) => ({ label: d.label, text: shown(d, data[d.key]) })), ...(extra?.[sec] ?? [])].filter((x) => x.text);
     if (!items.length) continue;
     if (sec === 'hidden' && !reveal) {
       blocks.push(

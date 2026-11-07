@@ -102,6 +102,7 @@ const PERSONA = [
   '- Know the world. Everything already in it is below: stay consistent, never contradict it, never propose a name or an idea it already has, and never repeat yourself. Point out a contradiction or a gap when you see one.',
   '- Keep the brief: what the writer wants this world to be, the things they love, what to avoid, decisions made, questions still open. Update it when the conversation reveals something new; keep it short, plain and in their terms.',
   '- Propose entries when the conversation has earned them, not every turn: new ones, or changes to existing ones that fold in what was just decided. Proposals are suggestions; the writer accepts or dismisses each.',
+  '- Rework what exists when the writer wants it: a place they do not like, a person who should be someone else, a faction that should not exist. Work it out with them first (what is wrong with it, what it should be instead); once it is settled, revise it (and rename it if it needs a new name) or remove it. Every entry that mentions it is brought in line for you, so say the whole new truth, not just the difference. Use changes only for a field or two on an entry that otherwise stays as it is.',
   '- Be warm and brief. No flattery, no lists of everything you could do. Under 180 words of conversation.',
 ].join('\n');
 
@@ -109,8 +110,8 @@ const FORMAT = (shape: string) => [
   'Answer in two parts.',
   'First, your reply to the writer, in plain prose (no headings, no JSON).',
   'Then, only if you have proposals or the brief changed, one fenced ```json block:',
-  `{"brief": string (the whole updated brief; leave out if unchanged), "proposals": ${shape}, "changes": [{"entry": string (an existing entry by exact name), "field": string (one of its field keys, listed below), "value": string (the whole new value of that field)}]}`,
-  'Leave out "proposals" or "changes" when you have none. Inside string values quote with single quotes, never bare double quotes.',
+  `{"brief": string (the whole updated brief; leave out if unchanged), "proposals": ${shape}, "changes": [{"entry": string (an existing entry by exact name), "field": string (one of its field keys, listed below), "value": string (the whole new value of that field)}], "revise": [{"entry": string (an existing entry by exact name), "change": string (what is now true about it, everything you and the writer settled, in plain words), "rename": string (its new name; leave out to keep the name)}], "remove": [{"entry": string (an existing entry by exact name), "why": string (one line)}]}`,
+  'Leave out any list you have nothing for. Inside string values quote with single quotes, never bare double quotes.',
 ].join('\n');
 
 /** Field keys the agent may change on existing entries, per kind. */
@@ -158,9 +159,11 @@ export function agentPrompt(o: AgentTurn): ChatMessage[] {
 }
 
 export interface AgentChange { entry: string; field: string; value: string }
+export interface AgentRevise { entry: string; change: string; rename?: string }
+export interface AgentRemove { entry: string; why: string }
 
 /** An agent reply: what it says, what it proposes, the new brief. */
-export function parseAgentReply(text: string): { reply: string; drafts: Draft[]; changes: AgentChange[]; brief: string | null } {
+export function parseAgentReply(text: string): { reply: string; drafts: Draft[]; changes: AgentChange[]; revise: AgentRevise[]; remove: AgentRemove[]; brief: string | null } {
   const fence = /```(?:json)?\s*([\s\S]*?)(?:```|$)/i.exec(text);
   let reply = text;
   let json: Record<string, unknown> | null = null;
@@ -169,7 +172,7 @@ export function parseAgentReply(text: string): { reply: string; drafts: Draft[];
     json = lenientJson<Record<string, unknown>>(fence[1] ?? '');
   } else {
     // A bare JSON object after the prose.
-    const i = text.search(/\n\s*\{\s*"(brief|proposals|changes)"/);
+    const i = text.search(/\n\s*\{\s*"(brief|proposals|changes|revise|remove)"/);
     if (i >= 0) { reply = text.slice(0, i); json = lenientJson<Record<string, unknown>>(text.slice(i)); }
   }
   const drafts = json?.proposals && typeof json.proposals === 'object' ? parseForgeDrafts('mixed', JSON.stringify(json.proposals)) ?? [] : [];
@@ -181,8 +184,13 @@ export function parseAgentReply(text: string): { reply: string; drafts: Draft[];
     const value = typeof r.value === 'string' ? r.value.trim() : '';
     return entry && field && value ? [{ entry, field, value }] : [];
   }) : [];
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object') : []);
+  const revise: AgentRevise[] = list(json?.revise).map((r) => ({ entry: str(r.entry), change: str(r.change), ...(str(r.rename) ? { rename: str(r.rename) } : {}) })).filter((r) => r.entry && (r.change || r.rename));
+  const remove: AgentRemove[] = list(json?.remove).map((r) => ({ entry: str(r.entry), why: str(r.why) })).filter((r) => r.entry);
   const brief = typeof json?.brief === 'string' && json.brief.trim() ? json.brief.trim() : null;
-  return { reply: reply.trim() || (drafts.length || changes.length ? 'Here is what I would add.' : ''), drafts, changes, brief };
+  const any = drafts.length || changes.length || revise.length || remove.length;
+  return { reply: reply.trim() || (any ? 'Here is what I would change.' : ''), drafts, changes, revise, remove, brief };
 }
 
 /**
@@ -199,6 +207,24 @@ export function changeDrafts(pool: Draft[], changes: AgentChange[]): Draft[] {
     if (!def) continue;
     const changed = [...((base.fields._changed as string[] | undefined) ?? []), c.field];
     out.set(normName(c.entry), { ...base, existing: true, fields: { ...base.fields, [c.field]: c.value, _changed: [...new Set(changed)] } });
+  }
+  return [...out.values()];
+}
+
+/** A proposal to take an entry out of the world. */
+export const removing = (d: Draft): boolean => d.fields._remove === true;
+
+/** Retcon edits as change drafts, one per entry, each knowing what it changes and why. Drafts for the same entry merge. */
+export function retconChanges(pool: Draft[], edits: { id: string; key: string; after: unknown }[], why: string, into: Draft[] = []): Draft[] {
+  const out = new Map(into.map((d) => [d.id, d]));
+  for (const e of edits) {
+    const base = out.get(e.id) ?? pool.find((d) => d.id === e.id);
+    if (!base || removing(base)) continue;
+    const changed = [...new Set([...changedFields(base), e.key])];
+    const was = typeof base.fields._was === 'string' ? base.fields._was : base.name;
+    out.set(e.id, e.key === 'name'
+      ? { ...base, existing: true, name: String(e.after), fields: { ...base.fields, _changed: changed, _was: was, _why: base.fields._why ?? why } }
+      : { ...base, existing: true, fields: { ...base.fields, [e.key]: e.after, _changed: changed, _why: base.fields._why ?? why } });
   }
   return [...out.values()];
 }

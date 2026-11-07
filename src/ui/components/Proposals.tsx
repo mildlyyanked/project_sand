@@ -3,7 +3,7 @@ import { Pressable, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import type { BibleOutput, Job, ReforgeInput, ReforgeOutput } from '@/core/jobs';
 import { proposalCount } from '@/core/jobs';
-import { changedFields } from '@/core/world/agent';
+import { changedFields, removing } from '@/core/world/agent';
 import { DRAFT_FIELDS, KIND_NOUN, fieldDef, normName, tiesText, type Draft } from '@/core/world/drafts';
 import { BIBLE_FIELDS } from '@/core/world/schema';
 import { useJobs } from '@/state/jobs';
@@ -66,9 +66,13 @@ export function DraftEditor({ draft, pool, onChange, onReforge }: { draft: Draft
 
 /** What a change to an existing entry changes, field by field. */
 function ChangeLines({ d }: { d: Draft }) {
+  if (removing(d)) return <T v="dim">Taken out of the world, with its ties.{d.fields._why ? ` Why: ${str(d.fields._why)}` : ''}</T>;
   return (
     <View style={{ gap: 4 }}>
-      {changedFields(d).map((k) => <T key={k} v="dim" numberOfLines={4}><T v="dim" style={{ fontWeight: '600' }}>{fieldDef(d.kind, k)?.label ?? k}: </T>{str(d.fields[k])}</T>)}
+      {typeof d.fields._why === 'string' && d.fields._why ? <T v="small">{d.fields._why}</T> : null}
+      {changedFields(d).map((k) => k === 'name'
+        ? <T key={k} v="dim"><T v="dim" style={{ fontWeight: '600' }}>Name: </T>{str(d.fields._was)} → {d.name}</T>
+        : <T key={k} v="dim" numberOfLines={4}><T v="dim" style={{ fontWeight: '600' }}>{fieldDef(d.kind, k)?.label ?? k}: </T>{str(d.fields[k]) || '(cleared)'}</T>)}
     </View>
   );
 }
@@ -193,11 +197,11 @@ export function ProposalReview({ job, onDone, onAccepted }: { job: Job; onDone?:
         const decided = job.decisions[d.id];
         const off = skip.has(d.id);
         return (
-          <Card key={d.id} onPress={decided ? undefined : () => void openDraft(d.id)} style={{ gap: 4, opacity: decided === 'dismissed' ? 0.4 : off ? 0.55 : 1 }}>
+          <Card key={d.id} onPress={decided || removing(d) ? undefined : () => void openDraft(d.id)} style={{ gap: 4, opacity: decided === 'dismissed' ? 0.4 : off ? 0.55 : 1 }}>
             <Row between>
               {decided ? <Ionicons name={decided === 'accepted' ? 'checkmark-circle' : 'close-circle-outline'} size={20} color={decided === 'accepted' ? t.ok : t.faint} /> : <IconButton name={off ? 'square-outline' : 'checkbox'} size={20} onPress={() => setSkip((s) => { const n = new Set(s); if (n.has(d.id)) n.delete(d.id); else n.add(d.id); return n; })} />}
               <T v="h" style={{ flex: 1 }} numberOfLines={1}>{d.name}</T>
-              {d.existing ? <Badge label="change" tone="info" /> : <Badge label={KIND_NOUN[d.kind].toLowerCase()} tone="dim" />}
+              {removing(d) ? <Badge label="remove" tone="danger" /> : d.existing ? <Badge label={changedFields(d).includes('name') ? 'rename' : 'change'} tone="info" /> : <Badge label={KIND_NOUN[d.kind].toLowerCase()} tone="dim" />}
               {d.kind === 'character' && d.fields.adult === false ? <Badge label="not adult" tone="warn" /> : null}
               {edited[d.id] ? <Badge label="edited" tone="accent" /> : null}
             </Row>
@@ -206,16 +210,16 @@ export function ProposalReview({ job, onDone, onAccepted }: { job: Job; onDone?:
             {!decided && !isWorld ? (
               <Row gap={4} style={{ justifyContent: 'flex-end' }}>
                 <Button small kind="ghost" title="Dismiss" onPress={() => void dismissDrafts(db, job, [d.id])} />
-                <Button small kind="outline" icon="add" title={d.existing ? 'Apply' : 'Add'} loading={busy} onPress={() => void accept([d.id])} />
+                <Button small kind={removing(d) ? 'danger' : 'outline'} icon={removing(d) ? 'trash-outline' : 'add'} title={removing(d) ? 'Remove' : d.existing ? 'Apply' : 'Add'} loading={busy} onPress={() => void accept([d.id])} />
               </Row>
             ) : null}
-            {decided ? <T v="small">{decided === 'accepted' ? (d.existing ? 'Applied' : 'Added to the world') : 'Dismissed'}</T> : null}
+            {decided ? <T v="small">{decided === 'accepted' ? (removing(d) ? 'Removed' : d.existing ? 'Applied' : 'Added to the world') : 'Dismissed'}</T> : null}
           </Card>
         );
       })}
       {undecided.length ? (
         <>
-          <Button title={isWorld ? `Create the world with ${chosen.length - 1} entries` : `Add ${chosen.length} to the world`} icon="checkmark" loading={busy} disabled={!chosen.length || (isWorld && !chosen.some((d) => d.kind === 'world'))} onPress={() => void accept(chosen.map((d) => d.id))} />
+          <Button title={isWorld ? `Create the world with ${chosen.length - 1} entries` : chosen.every((d) => d.existing) ? `Apply ${chosen.length} ${chosen.length === 1 ? 'change' : 'changes'}` : `Add and apply ${chosen.length}`} icon="checkmark" loading={busy} disabled={!chosen.length || (isWorld && !chosen.some((d) => d.kind === 'world'))} onPress={() => void accept(chosen.map((d) => d.id))} />
           <Button kind="ghost" title={`Dismiss ${undecided.length === 1 ? 'it' : 'the rest'}`} onPress={() => void useJobs.getState().dismissAll(db, job.id)} />
         </>
       ) : onDone ? <Button title="Done" onPress={onDone} /> : null}
@@ -233,7 +237,7 @@ export function ProposalSheet({ jobId, onClose, onAccepted }: { jobId: string | 
   );
 }
 
-const KIND_LABEL: Record<Job['kind'], string> = { forge: 'Forge', reforge: 'Reforge', bible: 'Style bible', workshop: 'Workshop', question: 'Question' };
+const KIND_LABEL: Record<Job['kind'], string> = { forge: 'Forge', reforge: 'Reforge', bible: 'Style bible', workshop: 'Workshop', question: 'Question', inspire: 'Inspiration' };
 
 /** A world's inbox: what is being written, and what waits on a decision. */
 export function InboxList({ jobs, onOpen, empty }: { jobs: Job[]; onOpen: (id: string) => void; empty?: string }) {

@@ -2,8 +2,9 @@ import type { ChatMessage } from '../types';
 import { newId } from '../ids';
 import { lenientJson } from '../json';
 import type { ArtBible, FieldDef } from './schema';
-import { BIBLE_FIELDS, bibleOf } from './schema';
+import { BIBLE_FIELDS, bibleOf, levelOf } from './schema';
 import { TIE_SHAPE, parseTies } from './links';
+import type { InspireAspect } from './types';
 import { foldLegacy } from './upgrade';
 import { DRAFT_FIELDS, KIND_NOUN, draftCard, fieldDef, normName, type Draft, type LibKind } from './drafts';
 
@@ -24,6 +25,7 @@ function shapeField(def: FieldDef): string | null {
   switch (def.type) {
     case 'select': return `"${def.key}": one of ${(def.options ?? []).join('|')}`;
     case 'ref': return `"${def.key}": string (${hint || `${FORGE_LABEL[def.ref ?? 'location']} by exact name, or ""`})`;
+    case 'level': return `"${def.key}": one of ${(def.levels ?? []).map((l) => `${l.value} (${l.label.toLowerCase()})`).join(' | ')}`;
     case 'number': return t('number');
     case 'bool': return t('boolean');
     case 'keys': return t('string[]');
@@ -100,6 +102,49 @@ export function anchorLink(anchor: { kind: LibKind; name: string }, kind: ForgeK
   return rules[key] ?? `Each is tied to ${n}; make the tie explicit in its fields, naming ${n}.`;
 }
 
+/** Which part of a character each field carries, for inspiration. */
+const ASPECT_OF_FIELD: Record<string, InspireAspect> = { appearance: 'look', personality: 'mind', drives: 'mind', voice: 'voice' };
+
+/**
+ * How a character inspired by someone from other media is written: an
+ * original take, carried into this world, in our own words. The traits come
+ * through; the name, catchphrases, plot and world of the source do not.
+ */
+export function inspiration(who: string, aspects: InspireAspect[]): string {
+  const parts = [aspects.includes('look') ? 'their look (face, build, colouring, hair, bearing, how they dress), as it would exist in this world' : '', aspects.includes('mind') ? 'their temperament, habits, wants and fears, and how they treat people' : '', aspects.includes('voice') ? 'how they talk and think: rhythm, register, what they say and leave unsaid' : ''].filter(Boolean);
+  return `The character is an original take inspired by ${who}. Carry over ${parts.join('; ')}, translated into this world and written in your own words. Never name ${who}, never quote their lines or catchphrases, and never bring in their story, world or people: what comes through is who they are, not where they come from.`;
+}
+
+/** The fields each part of an inspiration writes. */
+export const INSPIRE_FIELDS: Record<InspireAspect, string[]> = { look: ['appearance'], mind: ['personality', 'drives'], voice: ['voice'] };
+
+/**
+ * Write a character's look, personality and voice as an original take on
+ * what inspires them, fitted to who they already are in this world: their
+ * name, role, history and ties stay; the inspiration shapes the rest.
+ */
+export function inspirePrompt(o: { draft: Draft; who: string; aspects: InspireAspect[]; knowledge: string; wish?: string }): ChatMessage[] {
+  const keys = o.aspects.flatMap((a) => INSPIRE_FIELDS[a]);
+  const what: Record<string, string> = { appearance: 'string (face, build, colouring, hair, bearing, dress; 50 to 100 words)', personality: 'string (temperament, habits, gestures, tics, how they treat people; 50 to 100 words)', drives: 'string (what they want, what they would do for it, what they dread; 30 to 70 words)', voice: 'string (how they talk and think: rhythm, register, what they say and leave unsaid; 30 to 70 words)' };
+  return [
+    { role: 'system', content: [
+      "You rewrite part of a character in a fiction writer's library so they become an original take on someone who inspires them. Keep everything else about them: their name, place in the world, history and ties. Write with a novelist's specificity, concrete over adjectives.",
+      inspiration(o.who, o.aspects),
+      `Output only JSON: {${keys.map((k) => `"${k}": ${what[k]}`).join(', ')}}. Inside string values quote with single quotes, never bare double quotes.`,
+    ].join('\n\n') },
+    { role: 'user', content: [o.knowledge, `# The character\n${draftCard(o.draft, { maxField: 900 })}`, o.wish?.trim() ? `What I want: ${o.wish.trim()}` : ''].filter(Boolean).join('\n\n') },
+  ];
+}
+
+/** An inspiration reply as the fields it rewrote, or null. */
+export function parseInspired(text: string, aspects: InspireAspect[]): Record<string, string> | null {
+  const j = lenientJson<Record<string, unknown>>(text);
+  if (!j) return null;
+  const out: Record<string, string> = {};
+  for (const k of aspects.flatMap((a) => INSPIRE_FIELDS[a])) if (typeof j[k] === 'string' && (j[k] as string).trim()) out[k] = (j[k] as string).trim();
+  return Object.keys(out).length ? out : null;
+}
+
 export interface ForgeRequest {
   wish: string;
   count: number;
@@ -109,8 +154,8 @@ export interface ForgeRequest {
   anchor?: Draft;
   /** No wish: grow from what is there. */
   surprise?: { hooks: string[] };
-  /** For characters: a real person or fictional character whose look inspires theirs. */
-  lookalike?: string;
+  /** For characters: a character from other media, or a real person, they are an original take on. */
+  inspiredBy?: string;
   /** Canonize: a name that appeared in a story, with the passages that show it. */
   canon?: { name: string; excerpts: string[] };
 }
@@ -126,7 +171,7 @@ export function forgePrompt(kind: ForgeKind, o: ForgeRequest): ChatMessage[] {
     kind === 'lore' ? 'Each entry is what a writer needs when its subject comes up: how it works, how it looks, what it costs, who cares. Keywords are the words a passage would use.' : '',
     kind === 'location' ? 'Places nest: use "within" to put a district in a city or a room in a building, naming an existing place or one you are creating now.' : '',
     kind === 'mixed' ? 'Choose the kinds yourself: whatever would most enrich the world as it stands. Link the new entries to each other and to what exists.' : '',
-    o.lookalike?.trim() && (kind === 'character' || kind === 'mixed') ? `The look of the character is inspired by ${o.lookalike.trim()}. Write the appearance from that look in your own words (face, build, colouring, hair, bearing, style of dress) as it would exist in this world, without naming them anywhere.` : '',
+    o.inspiredBy?.trim() && (kind === 'character' || kind === 'mixed') ? inspiration(o.inspiredBy.trim(), ['look', 'mind', 'voice']) : '',
     o.canon ? `This entry already exists in a story. Everything the story passages state about ${o.canon.name} is fact: keep their name, what they did, said and looked like, where they were and with whom. Fill everything else so it fits those facts and the world.` : '',
     `Output only JSON of this shape: ${forgeShape(kind)}. Inside string values quote with single quotes, never bare double quotes. ${kind === 'world' ? 'Exactly one world.' : `Exactly ${n} ${kind === 'mixed' ? 'entries in total' : forgeNoun(kind, n)}.`}`,
   ].filter(Boolean).join('\n\n');
@@ -154,6 +199,10 @@ export function fieldValue(def: FieldDef, v: unknown): unknown {
     case 'number': {
       const x = Number(v);
       return Number.isFinite(x) ? x : undefined;
+    }
+    case 'level': {
+      const l = def.levels ? levelOf(def.levels, typeof v === 'string' ? v.replace(/[^0-9.]/g, '') || def.levels.find((x) => v.toLowerCase().includes(x.label.toLowerCase()))?.value : v) : null;
+      return l ? l.value : undefined;
     }
     case 'bool':
       return v === true || /^(true|yes|y|1)$/i.test(str(v));
@@ -210,7 +259,7 @@ function listOf(j: Record<string, unknown>, kind: Exclude<LibKind, 'world'>): Re
 }
 
 /** A forge reply as drafts, world first. Null when nothing usable came back. */
-export function parseForgeDrafts(kind: ForgeKind, text: string, o: { lookalike?: string } = {}): Draft[] | null {
+export function parseForgeDrafts(kind: ForgeKind, text: string, o: { inspiredBy?: string } = {}): Draft[] | null {
   const j = lenientJson<Record<string, unknown>>(text);
   if (!j) return null;
   const out: Draft[] = [];
@@ -233,7 +282,7 @@ export function parseForgeDrafts(kind: ForgeKind, text: string, o: { lookalike?:
     if (!list.length) list = arr(Object.values(j).find((v) => Array.isArray(v)));
     for (const x of list) { const d = itemDraft(kind, x); if (d) out.push(d); }
   }
-  if (o.lookalike?.trim()) for (const d of out) if (d.kind === 'character' && !d.fields.lookalike) d.fields.lookalike = o.lookalike.trim();
+  if (o.inspiredBy?.trim()) for (const d of out) if (d.kind === 'character' && !d.fields.inspiredBy) d.fields.inspiredBy = o.inspiredBy.trim();
   return out.length ? out : null;
 }
 
@@ -254,8 +303,12 @@ export function fieldForgePrompt(o: { draft: Draft; key: string; instruction: st
     select: `Exactly one of: ${(def.options ?? []).join(', ')}.`,
     ref: `Exactly one name from this list, or "none": ${(o.options ?? []).join('; ') || '(the list is empty: answer none)'}.`,
     effects: 'Like "satiety +30, hydration +10", or nothing.',
+    level: `Exactly one of: ${(def.levels ?? []).map((l) => `${l.label} (${l.hint})`).join('; ')}.`,
   };
-  const lookalike = o.key === 'appearance' && typeof o.draft.fields.lookalike === 'string' && o.draft.fields.lookalike.trim() ? ` Base the look on ${o.draft.fields.lookalike.trim()}, described in your own words (face, build, colouring, hair, bearing, dress) as it would exist in this world; never name them.` : '';
+  const who = typeof o.draft.fields.inspiredBy === 'string' ? o.draft.fields.inspiredBy.trim() : '';
+  const aspect = ASPECT_OF_FIELD[o.key];
+  const aspects = Array.isArray(o.draft.fields.inspire) && (o.draft.fields.inspire as string[]).length ? (o.draft.fields.inspire as string[]) : ['look', 'mind', 'voice'];
+  const lookalike = who && aspect && aspects.includes(aspect) ? ` ${inspiration(who, [aspect as InspireAspect])}` : '';
   return [
     { role: 'system', content: `You revise one field of an entry in a fiction writer's library. Write only the new value of the field "${def.label}" for the ${KIND_NOUN[o.draft.kind].toLowerCase()} "${o.draft.name}": no label, no quotes, no commentary. ${form[def.type] ?? form.text} Stay consistent with the rest of the entry and with the world; follow the instruction if there is one, otherwise make the field more specific, more particular and more useful in a scene.${o.key === 'name' ? ' A name only, distinct from every name already in the world.' : ''}${lookalike}` },
     { role: 'user', content: [o.knowledge, `# The entry\n${draftCard(o.draft)}`, `Current ${def.label}: ${shown || '(empty)'}`, `Instruction: ${o.instruction.trim() || 'none; improve it.'}`].filter(Boolean).join('\n\n') },
@@ -272,6 +325,12 @@ export function parseFieldValue(def: FieldDef, text: string, options: string[] =
     case 'number': {
       const m = /-?\d+(?:\.\d+)?/.exec(s);
       return m ? Number(m[0]) : null;
+    }
+    case 'level': {
+      const byName = def.levels?.find((l) => s.toLowerCase().includes(l.label.toLowerCase()));
+      if (byName) return byName.value;
+      const m = /\d+/.exec(s);
+      return m && def.levels ? levelOf(def.levels, Number(m[0]))?.value ?? null : null;
     }
     case 'bool':
       return /^(yes|true|y)\b/i.test(s) ? true : /^(no|false|n)\b/i.test(s) ? false : null;
@@ -374,6 +433,8 @@ export function parseBible(text: string, only?: keyof ArtBible): Partial<ArtBibl
 export function entryImagePrompt(o: { draft: Draft; world: string }): ChatMessage[] {
   const d = { ...o.draft, fields: { ...o.draft.fields } };
   delete d.fields.lookalike;
+  delete d.fields.inspiredBy;
+  delete d.fields.inspire;
   delete d.fields.image;
   return [
     { role: 'system', content: `You describe ${SUBJECT[d.kind]}, for an image model. Use only what the entry gives, made concrete and visible: shapes, colours, materials, textures. Do not mention art medium, style, lighting, camera, framing or composition: those are fixed separately so every picture of this world matches. Describe people by appearance, never by name. No text or lettering. 40 to 90 words, one paragraph, output only the description.` },

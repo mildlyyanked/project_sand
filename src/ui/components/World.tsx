@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import type { FieldDef } from '@/core/world/schema';
+import { levelOf } from '@/core/world/schema';
 import type { WorldCalendar } from '@/core/world/types';
 import { formatDuration, formatTime, fromParts, parseDuration, toParts } from '@/core/world/calendar';
 import { Chip, Field, FieldLabel, Row, SearchBox, SwitchRow, T, matches } from './index';
@@ -53,6 +54,18 @@ export function FieldEditor({ defs, data, onChange, refs = {}, play = true, onFo
         const v = data[d.key];
         const forge = onForge ? () => onForge(d) : undefined;
         if (d.type === 'ties') return null;
+        if (d.type === 'level' && d.levels) {
+          const cur = levelOf(d.levels, v);
+          return (
+            <View key={d.key} style={{ gap: 6 }}>
+              <FieldLabel label={d.label} onForge={forge} />
+              <Row style={{ flexWrap: 'wrap' }}>
+                {d.levels.map((l) => <Chip key={l.value} small label={l.label} selected={cur?.value === l.value && v != null && v !== ''} onPress={() => onChange({ [d.key]: l.value })} />)}
+              </Row>
+              <T v="faint">{cur && v != null && v !== '' ? cur.hint : 'Not set: play treats it as safe.'}</T>
+            </View>
+          );
+        }
         if (d.type === 'bool') return <SwitchRow key={d.key} label={d.label} hint={d.hint} value={v === true} onChange={(x) => onChange({ [d.key]: x })} />;
         if (d.type === 'select') {
           return (

@@ -1,6 +1,7 @@
 import type { Character, Species, Universe } from '../types';
 import type { WorldEntity } from './types';
 import type { ArtBible } from './schema';
+import { THREAT_LEVELS, levelOf } from './schema';
 import { tiesFromText, type StoredLink, type StoredType } from './links';
 
 /**
@@ -164,4 +165,25 @@ export function upgradeWorld(u: Universe): Upgraded<Universe> {
   if (s(d.portraitStyle) && !s(art.portraits)) art.portraits = s(d.portraitStyle);
   delete data.artStyle; delete data.sigilStyle; delete data.portraitStyle;
   return { row: { ...u, data: { ...(data as unknown as Universe['data']), art } }, links: [], changed: true };
+}
+
+/**
+ * 0.18: a place's danger becomes one of the named threat levels (rounded up,
+ * so nowhere gets safer), and a character's lookalike becomes what inspires
+ * them, shaping only the look, as it did.
+ */
+export function upgradeV3Entity(e: WorldEntity): Upgraded<WorldEntity> {
+  if (e.kind !== 'location' || e.data.danger == null || e.data.danger === '') return { row: e, links: [], changed: false };
+  const n = Number(e.data.danger);
+  const to = Number.isFinite(n) && n > 0 ? levelOf(THREAT_LEVELS, n)?.value ?? 0 : 0;
+  return to === e.data.danger ? { row: e, links: [], changed: false } : { row: { ...e, data: { ...e.data, danger: to } }, links: [], changed: true };
+}
+
+export function upgradeV3Character(c: Character): Upgraded<Character> {
+  const d = c.data as Record<string, unknown>;
+  if (!('lookalike' in d)) return { row: c, links: [], changed: false };
+  const { lookalike, ...rest } = d;
+  const who = s(lookalike);
+  const data = who && !s(rest.inspiredBy) ? { ...rest, inspiredBy: who, inspire: ['look'] } : rest;
+  return { row: { ...c, data: data as Character['data'] }, links: [], changed: true };
 }

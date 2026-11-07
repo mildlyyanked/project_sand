@@ -6,7 +6,7 @@ import type { Universe } from '@/core/types';
 import type { EntityKind, WorldCalendar, WorldInstance } from '@/core/world/types';
 import type { WorkshopMessage } from '@/core/world/agent';
 import { KIND_NOUN, KIND_NOUN_PLURAL, type LibKind } from '@/core/world/drafts';
-import { BIBLE_FIELDS, WORLD_FIELDS, bibleOf } from '@/core/world/schema';
+import { WORLD_FIELDS, bibleOf } from '@/core/world/schema';
 import { connectionsOf } from '@/core/world/links';
 import { formatShort, formatTime } from '@/core/world/calendar';
 import { deleteUniverse, getUniverse, newCharacter, newLore, newSpecies, saveCharacter, saveLore, saveSpecies, saveUniverse } from '@/db/repo/library';
@@ -19,6 +19,7 @@ import { ForgeSheet } from '@/ui/components/Forge';
 import type { ForgeKind } from '@/core/world/forge';
 import { EntityTree } from '@/ui/components/Tree';
 import { StyleBible } from '@/ui/components/StyleBible';
+import { StyleBoard } from '@/ui/components/StyleBoard';
 import { QuestionCard } from '@/ui/components/Question';
 import { InboxList, ProposalSheet } from '@/ui/components/Proposals';
 import { Block, EditActions, EditingBar, Lede, MiniAvatar, SectionsEditor, SectionsView, openEntry, useEditable, useLeaveGuard, workshopRoute } from '@/ui/components/Entry';
@@ -172,7 +173,7 @@ export default function WorldHub() {
             </Block>
           ) : null}
           <Block title="Style bible">
-            {BIBLE_FIELDS.some((f) => bible[f.key]) ? BIBLE_FIELDS.filter((f) => bible[f.key]).map((f) => <View key={f.key} style={{ gap: 2 }}><T v="small" style={{ textTransform: 'uppercase', letterSpacing: 0.6 }}>{f.label}</T><T v="dim">{bible[f.key]}</T></View>) : <T v="faint">No style bible yet: pictures use the app’s. Tap the pencil to write one, or have the helper write it.</T>}
+            <StyleBoard bible={bible} lib={w.lib} />
           </Block>
           <Block title="Calendar"><T v="dim">{cal.kind === 'gregorian' ? 'Real dates' : 'Its own reckoning'} · minute zero is {formatTime(cal, 0)}</T></Block>
         </>

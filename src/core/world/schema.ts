@@ -2,7 +2,7 @@
  * What every world element can carry. The editors and the context renderer
  * both read this, so adding a field here adds it everywhere.
  */
-export type FieldType = 'text' | 'long' | 'select' | 'number' | 'ref' | 'effects' | 'lines' | 'bool' | 'keys' | 'ties';
+export type FieldType = 'text' | 'long' | 'select' | 'number' | 'ref' | 'effects' | 'lines' | 'bool' | 'keys' | 'ties' | 'level';
 
 export interface FieldDef {
   key: string;
@@ -20,6 +20,30 @@ export interface FieldDef {
   forge?: string | false;
   /** The section it belongs to on the entry's page. */
   section?: Section;
+  /** For 'level': the named steps, each with what it does. */
+  levels?: Level[];
+}
+
+export interface Level { value: number; label: string; hint: string }
+
+/**
+ * How much threat a place holds in play, by what it does: how often a walk
+ * across it is interrupted and by what, and whether resting without a bed is
+ * safe. The referee reads the same level. Nothing else uses it, so it lives
+ * with play, not with the place's description.
+ */
+export const THREAT_LEVELS: Level[] = [
+  { value: 0, label: 'Safe', hint: 'A walk is seldom interrupted, and only by someone who wants a word. Rest anywhere.' },
+  { value: 2, label: 'Rough', hint: 'Walks are interrupted three times as often, half the time by trouble.' },
+  { value: 3, label: 'Dangerous', hint: 'Four times as often, half the time trouble, and resting without a bed is not safe.' },
+  { value: 5, label: 'Deadly', hint: 'Six times as often, and nearly always trouble. Do not rest in the open.' },
+];
+
+/** The named level for a stored number: the nearest step at or above it. */
+export function levelOf(levels: Level[], v: unknown): Level | null {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return levels[0]?.value === 0 && v != null && v !== '' ? levels[0]! : null;
+  return levels.find((l) => l.value >= n) ?? levels[levels.length - 1] ?? null;
 }
 
 /**
@@ -43,7 +67,7 @@ export const LOCATION_FIELDS: FieldDef[] = [
   { key: 'description', label: 'Description', type: 'long', hint: 'What it is and what being there is like: sights, sounds, smells, climate and terrain, landmarks, the ways in and out.', forge: '60 to 140 words: look, feel, climate, landmarks, ways in and out', inContext: true, section: 'look' },
   { key: 'life', label: 'Life and trade', type: 'long', hint: 'Who is found here and what it offers: people, work, markets, services, food, water, shelter, salvage.', forge: 'who is found here; trade and services; food, water and shelter to be had', inContext: true, section: 'life' },
   { key: 'dangers', label: 'Dangers', type: 'long', inContext: true, section: 'edge' },
-  { key: 'danger', label: 'Danger level', type: 'number', hint: '0 safe to 5 lethal.', forge: '0-5', inContext: true, section: 'edge' },
+  { key: 'danger', label: 'Threat in play', type: 'level', levels: THREAT_LEVELS, play: true, inContext: true, section: 'play' },
   { key: 'controlledBy', label: 'Controlled by', type: 'ref', ref: 'organization', inContext: true },
   { key: 'secrets', label: 'Secrets', type: 'long', hint: 'Sent to the writer; revealed only when the story earns it.', inContext: true, section: 'hidden' },
 ];
@@ -81,7 +105,7 @@ export const SPECIES_FIELDS: FieldDef[] = [
 
 export const CHARACTER_FIELDS: FieldDef[] = [
   { key: 'occupation', label: 'Occupation', type: 'text', inContext: true, section: 'basics' },
-  { key: 'lookalike', label: 'Looks like', type: 'text', hint: 'A real person or a fictional character whose look inspires this one. Forge writes the appearance from it in its own words; it is never sent to the writer or an image model.', forge: false, section: 'look' },
+  { key: 'inspiredBy', label: 'Inspired by', type: 'text', hint: 'A character from a book, film, show or game, or a real person, who inspires this one. Their look, personality and voice are written from it in this world\'s terms and the app\'s own words; the name itself never reaches the writer or a painter.', forge: false, section: 'look' },
   { key: 'appearance', label: 'Appearance', type: 'long', inContext: true, section: 'look' },
   { key: 'personality', label: 'Personality', type: 'long', hint: 'Temperament, habits, gestures, tics.', inContext: true, section: 'look' },
   { key: 'backstory', label: 'Backstory', type: 'long', forge: '2 to 4 lines', inContext: true, section: 'life' },

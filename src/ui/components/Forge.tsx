@@ -70,7 +70,7 @@ function ForgeBody({ onClose, kind, universeId, anchor, canon, onSaved }: ForgeS
   const under = anchor ? UNDER[anchor.kind] : null;
   const [kindSel, setKindSel] = useState<ForgeKind>(canon?.kind ?? under?.[0]?.kind ?? kind);
   const [wish, setWish] = useState('');
-  const [lookalike, setLookalike] = useState('');
+  const [inspiredBy, setInspiredBy] = useState('');
   const [count, setCount] = useState(canon ? 1 : kind === 'character' ? 2 : 3);
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [uId, setUId] = useState<string | null>(universeId ?? null);
@@ -112,13 +112,13 @@ function ForgeBody({ onClose, kind, universeId, anchor, canon, onSaved }: ForgeS
     const n = kindSel === 'world' ? 1 : count;
     const focus = anchorDraft ?? (canon ? { name: canon.name, kind: canon.kind } : null);
     const extra = [wish, canon?.excerpts.join(' ') ?? ''].join(' ');
-    const messages = forgePrompt(kindSel, { wish, count: n, knowledge: knowledge(pool, focus, extra), anchor: anchorDraft ?? undefined, surprise: surprise ? { hooks: hooks(pool) } : undefined, lookalike: people ? lookalike : undefined, canon: canon ?? undefined });
+    const messages = forgePrompt(kindSel, { wish, count: n, knowledge: knowledge(pool, focus, extra), anchor: anchorDraft ?? undefined, surprise: surprise ? { hooks: hooks(pool) } : undefined, inspiredBy: people ? inspiredBy : undefined, canon: canon ?? undefined });
     // Generous: a cap costs nothing unused, thinking models spend part of it, and a cut-off reply is continued anyway.
     const maxTokens = kindSel === 'world' ? 24000 : kindSel === 'mixed' ? 6000 + 2500 * n : 4000 + 2000 * n;
     const what = canon ? `Canonize ${canon.name}` : anchorDraft ? `${under?.find((u) => u.kind === kindSel)?.label ?? 'Entries'} for ${anchorDraft.name}` : surprise ? `Surprise: ${n} ${forgeNoun(kindSel, n)}` : wish.trim() ? `${n} ${forgeNoun(kindSel, n)}: ${wish.trim()}` : `${n} ${forgeNoun(kindSel, n)}`;
     const j = await useJobs.getState().enqueue(db, 'forge', {
       universeId: kindSel === 'world' ? null : uId, title: what.length > 80 ? `${what.slice(0, 78)}…` : what,
-      input: { kind: kindSel, model, messages, maxTokens, lookalike: people ? lookalike : undefined, anchor: anchorDraft ? { kind: anchorDraft.kind, name: anchorDraft.name } : null, canon: canon?.name ?? null, taken: pool.map((d) => `${d.kind}:${normName(d.name)}`) },
+      input: { kind: kindSel, model, messages, maxTokens, inspiredBy: people ? inspiredBy : undefined, anchor: anchorDraft ? { kind: anchorDraft.kind, name: anchorDraft.name } : null, canon: canon?.name ?? null, taken: pool.map((d) => `${d.kind}:${normName(d.name)}`) },
     });
     setJobId(j.id);
   }
@@ -146,7 +146,7 @@ function ForgeBody({ onClose, kind, universeId, anchor, canon, onSaved }: ForgeS
       ) : null}
       {canon ? <Card style={{ gap: 4 }}><T v="faint">From the story</T>{canon.excerpts.slice(-3).map((x, i) => <T key={i} v="dim" numberOfLines={4}>“{x}”</T>)}</Card> : null}
       <Field value={wish} onChangeText={setWish} placeholder={canon ? `Optional: anything to add about ${canon.name}` : LABEL[kindSel].placeholder} multiline style={{ minHeight: 70 }} />
-      {people ? <Field label="Looks like, optional" hint="A real person or a fictional character whose look inspires theirs. The appearance is written from it in the model's own words; the name never reaches the writer or an image model." value={lookalike} onChangeText={setLookalike} placeholder="e.g. Tilda Swinton, or Aragorn" /> : null}
+      {people ? <Field label="Inspired by, optional" hint="A character from a book, film, show or game, or a real person. Look, personality and voice are written as an original take on them, in this world's terms; the name never reaches the writer or a painter." value={inspiredBy} onChangeText={setInspiredBy} placeholder="e.g. Aragorn, or Lisbeth Salander" /> : null}
       {kindSel !== 'world' && !anchor && !canon ? (
         <View style={{ gap: 6 }}>
           <T v="label">{needsWorld ? 'World' : 'World, optional'}</T>

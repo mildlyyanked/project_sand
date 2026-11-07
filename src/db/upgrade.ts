@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { now } from '@/core/ids';
-import { upgradeCharacter, upgradeEntity, upgradeSpecies, upgradeWorld, type Candidates } from '@/core/world/upgrade';
+import { upgradeCharacter, upgradeEntity, upgradeSpecies, upgradeV3Character, upgradeV3Entity, upgradeWorld, type Candidates } from '@/core/world/upgrade';
 import { listCharacters, listSpecies, listUniverses, saveCharacter, saveSpecies, saveUniverse } from './repo/library';
 import { listEntities, saveEntity } from './repo/world';
 import { addLinks, metaGet, metaSet } from './repo/links';
@@ -14,6 +14,22 @@ const KEY = 'library_v2';
  * on the next start.
  */
 export async function upgradeLibrary(db: SQLiteDatabase): Promise<void> {
+  await upgradeV2(db);
+  await upgradeV3(db);
+}
+
+/** 0.18: threat levels and inspirations. */
+async function upgradeV3(db: SQLiteDatabase): Promise<void> {
+  if (await metaGet(db, 'library_v3')) return;
+  const [worlds, people] = await Promise.all([listUniverses(db), listCharacters(db)]);
+  await db.withTransactionAsync(async () => {
+    for (const u of worlds) for (const e of await listEntities(db, u.id)) { const r = upgradeV3Entity(e); if (r.changed) await saveEntity(db, r.row); }
+    for (const c of people) { const r = upgradeV3Character(c); if (r.changed) await saveCharacter(db, r.row); }
+  });
+  await metaSet(db, 'library_v3', String(now()));
+}
+
+async function upgradeV2(db: SQLiteDatabase): Promise<void> {
   if (await metaGet(db, KEY)) return;
   const t = now();
   let failed = false;

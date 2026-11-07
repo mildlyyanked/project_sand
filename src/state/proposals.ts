@@ -1,9 +1,10 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Universe } from '@/core/types';
 import type { BibleOutput, ForgeOutput, Job, ReforgeInput, ReforgeOutput, WorkshopOutput } from '@/core/jobs';
-import { changedFields } from '@/core/world/agent';
+import { changedFields, removing } from '@/core/world/agent';
 import { DRAFT_FIELDS, type Draft, type Plan } from '@/core/world/drafts';
-import { getUniverse, saveUniverse } from '@/db/repo/library';
+import { deleteCharacter, deleteLore, deleteSpecies, getUniverse, saveUniverse } from '@/db/repo/library';
+import { deleteEntity, renameInEvents } from '@/db/repo/world';
 import { useJobs } from './jobs';
 import { loadLibrary, rowDraft, saveDrafts, type LibraryRow } from './library';
 
@@ -15,7 +16,7 @@ import { loadLibrary, rowDraft, saveDrafts, type LibraryRow } from './library';
  */
 export function draftsOf(j: Job): Draft[] {
   if (!j.output) return [];
-  if (j.kind === 'forge') return (j.output as ForgeOutput).drafts;
+  if (j.kind === 'forge' || j.kind === 'inspire') return (j.output as ForgeOutput).drafts;
   if (j.kind === 'workshop') return (j.output as WorkshopOutput).drafts;
   return [];
 }
@@ -68,11 +69,15 @@ export async function acceptDrafts(db: SQLiteDatabase, j: Job, ids: string[], ed
   let plan: Plan | null = null;
   if (fresh.length) plan = await saveDrafts(db, [...fresh, ...before], j.kind === 'forge' && draftsOf(j).some((d) => d.kind === 'world') ? null : j.universeId);
   for (const c of changes) {
-    const keys = changedFields(c).length ? changedFields(c) : Object.keys(c.fields);
+    if (removing(c)) { await removeEntry(db, c); continue; }
+    const keys = changedFields(c).length ? changedFields(c) : Object.keys(c.fields).filter((k) => !k.startsWith('_'));
     const r = await rebase(db, c, j.universeId, keys);
     if (r) {
       const p = await saveDrafts(db, [r], j.universeId);
       plan = plan ? { ...plan, notes: [...plan.notes, ...p.notes] } : p;
+      // A new name reaches the timelines too, as Retcon does.
+      const was = typeof c.fields._was === 'string' ? c.fields._was : '';
+      if (keys.includes('name') && was && j.universeId && was !== c.name) await renameInEvents(db, j.universeId, was, c.name);
     }
   }
   for (const d of pick) await useJobs.getState().decide(db, j.id, d.id, 'accepted');
@@ -81,6 +86,14 @@ export async function acceptDrafts(db: SQLiteDatabase, j: Job, ids: string[], ed
 
 export async function dismissDrafts(db: SQLiteDatabase, j: Job, ids: string[]): Promise<void> {
   for (const id of ids) if (!j.decisions[id]) await useJobs.getState().decide(db, j.id, id, 'dismissed');
+}
+
+/** Take an entry out of the world; its ties go with it. */
+async function removeEntry(db: SQLiteDatabase, d: Draft): Promise<void> {
+  if (d.kind === 'character') await deleteCharacter(db, d.id);
+  else if (d.kind === 'species') await deleteSpecies(db, d.id);
+  else if (d.kind === 'lore') await deleteLore(db, d.id);
+  else if (d.kind === 'location' || d.kind === 'organization' || d.kind === 'item') await deleteEntity(db, d.id);
 }
 
 /** Accept a reforged field: onto the entry as it is now. */

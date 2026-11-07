@@ -94,11 +94,16 @@ describe('forge prompts', () => {
     expect(m[0]!.content).toContain('Exactly 2 characters.');
     expect(anchorLink({ kind: 'location', name: 'Baker City' }, 'location')).toContain('"within" to "Baker City"');
   });
-  it('writes a look from a lookalike without naming them, and never shows them to the painter', () => {
-    const m = forgePrompt('character', { wish: 'a smuggler', count: 1, knowledge: '', lookalike: 'Buster Keaton' });
-    expect(m[0]!.content).toContain('inspired by Buster Keaton');
-    const d = parseForgeDrafts('character', '{"name":"Ora","appearance":"Flat hat, stone face."}', { lookalike: 'Buster Keaton' })!;
-    expect(d[0]!.fields.lookalike).toBe('Buster Keaton');
+  it('writes an original take on an inspiration without naming them, and never shows them to the painter', () => {
+    const m = forgePrompt('character', { wish: 'a smuggler', count: 1, knowledge: '', inspiredBy: 'Buster Keaton' });
+    expect(m[0]!.content).toContain('an original take inspired by Buster Keaton');
+    expect(m[0]!.content).toContain('their temperament');
+    expect(m[0]!.content).toContain('never quote their lines');
+    const d = parseForgeDrafts('character', '{"name":"Ora","appearance":"Flat hat, stone face."}', { inspiredBy: 'Buster Keaton' })!;
+    expect(d[0]!.fields.inspiredBy).toBe('Buster Keaton');
+    const only = fieldForgePrompt({ draft: { ...d[0]!, fields: { ...d[0]!.fields, inspire: ['look'] } }, key: 'personality', instruction: '', knowledge: '' });
+    expect(only[0]!.content).not.toContain('Keaton');
+    expect(fieldForgePrompt({ draft: d[0]!, key: 'voice', instruction: '', knowledge: '' })[0]!.content).toContain('how they talk and think');
     expect(entryImagePrompt({ draft: d[0]!, world: 'Vell' })[1]!.content).not.toContain('Keaton');
   });
   it('surprise grows from hooks; canon keeps what the story said', () => {

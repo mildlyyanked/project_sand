@@ -1,4 +1,5 @@
 import { STORED, parseTies } from './links';
+import { THREAT_LEVELS, levelOf } from './schema';
 import { DRAFT_FIELDS, KIND_NOUN, normName, type Draft } from './drafts';
 import type { PovState } from './types';
 
@@ -93,7 +94,7 @@ export function entryTip(d: Draft, o: { pov?: PovState | null; currency?: string
     case 'location':
       kind = [...kind, str(f.type)];
       text = str(f.summary) || str(f.description);
-      facts = [...fact('within'), ...fact('seatOf'), ...fact('controlledBy'), ...(Number(f.danger) ? fact('danger', `${Number(f.danger)} of 5`) : [])];
+      facts = [...fact('within'), ...fact('seatOf'), ...fact('controlledBy'), ...(Number(f.danger) > 0 ? fact('danger', levelOf(THREAT_LEVELS, f.danger)?.label ?? '') : [])];
       break;
     case 'organization':
       kind = [...kind, str(f.type)];

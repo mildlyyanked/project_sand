@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { newId, now } from '@/core/ids';
-import { awaiting, finishBible, finishForge, finishReforge, type BibleInput, type ForgeInput, type Job, type JobIO, type JobKind, type QuestionInput, type ReforgeInput, type WorkshopInput, type WorkshopOutput } from '@/core/jobs';
-import { changeDrafts, parseAgentReply, parseQuestion } from '@/core/world/agent';
-import { libraryDrafts, normName } from '@/core/world/drafts';
+import { awaiting, finishBible, finishForge, finishInspire, finishReforge, type BibleInput, type InspireInput, type ForgeInput, type Job, type JobIO, type JobKind, type QuestionInput, type ReforgeInput, type WorkshopInput, type WorkshopOutput } from '@/core/jobs';
+import { changeDrafts, parseAgentReply, parseQuestion, removing, retconChanges, type AgentRemove, type AgentRevise } from '@/core/world/agent';
+import { affected, mergeEdits, parseRetcon, renameEdits, retconPrompt } from '@/core/world/retcon';
+import { knowledge, libraryDrafts, normName, type Draft } from '@/core/world/drafts';
 import { getJob, listJobs, requeueInterrupted, saveJob } from '@/db/repo/jobs';
 import { getWorkshopMessage, patchAgent, saveWorkshop } from '@/db/repo/agent';
 import { complete } from './paint';
@@ -19,7 +20,7 @@ import { loadLibrary } from './library';
  * background. Results wait, undecided, until someone accepts or dismisses them.
  */
 const CONCURRENCY = 2;
-const TEMPERATURE: Record<JobKind, number> = { forge: 0.9, reforge: 0.85, bible: 0.6, workshop: 0.8, question: 0.95 };
+const TEMPERATURE: Record<JobKind, number> = { forge: 0.9, reforge: 0.85, bible: 0.6, workshop: 0.8, question: 0.95, inspire: 0.85 };
 
 interface JobsState {
   jobs: Job[];
@@ -131,7 +132,7 @@ export const useJobs = create<JobsState>((set, get) => {
     async dismissAll(db, id) {
       const j = get().jobs.find((x) => x.id === id) ?? (await getJob(db, id));
       if (!j?.output) return;
-      const keys = j.kind === 'forge' || j.kind === 'workshop' ? (j.output as { drafts: { id: string }[] }).drafts.map((d) => d.id) : ['all'];
+      const keys = j.kind === 'forge' || j.kind === 'workshop' || j.kind === 'inspire' ? (j.output as { drafts: { id: string }[] }).drafts.map((d) => d.id) : ['all'];
       const decisions = { ...j.decisions };
       for (const k of keys) if (!decisions[k]) decisions[k] = 'dismissed';
       await write(db, { ...j, decisions, updatedAt: now() });
@@ -145,6 +146,7 @@ async function finishJob(db: SQLiteDatabase, j: Job, text: string, finish?: stri
     case 'forge': return finishForge(j.input as ForgeInput, text, finish);
     case 'reforge': return finishReforge(j.input as ReforgeInput, text);
     case 'bible': return finishBible(j.input as BibleInput, text);
+    case 'inspire': return finishInspire(j.input as InspireInput, text);
     case 'question': {
       const q = parseQuestion(text);
       if (!q) throw new Error('The agent did not come up with a question. Try again.');
@@ -155,11 +157,13 @@ async function finishJob(db: SQLiteDatabase, j: Job, text: string, finish?: stri
     case 'workshop': {
       const input = j.input as WorkshopInput;
       const r = parseAgentReply(text);
-      if (!r.reply && !r.drafts.length && !r.changes.length) throw new Error('The agent said nothing. Try again, or another model.');
+      if (!r.reply && !r.drafts.length && !r.changes.length && !r.revise.length && !r.remove.length) throw new Error('The agent said nothing. Try again, or another model.');
       const lib = await loadLibrary(db, j.universeId);
       const pool = libraryDrafts(lib);
       const taken = new Set(pool.map((d) => `${d.kind}:${normName(d.name)}`));
-      const drafts = [...r.drafts.filter((d) => !taken.has(`${d.kind}:${normName(d.name)}`)), ...changeDrafts(pool, r.changes)];
+      const reworked = await reworkDrafts(db, input.model, pool, r.revise, r.remove);
+      const reworkedIds = new Set(reworked.map((d) => d.id));
+      const drafts = [...r.drafts.filter((d) => !taken.has(`${d.kind}:${normName(d.name)}`)), ...changeDrafts(pool, r.changes).filter((d) => !reworkedIds.has(d.id)), ...reworked];
       if (r.brief && j.universeId) await patchAgent(db, j.universeId, (a) => ({ ...a, brief: r.brief! }));
       const m = await getWorkshopMessage(db, input.replyTo);
       if (m) await saveWorkshop(db, { ...m, text: r.reply, data: { ...m.data, drafts, briefChanged: !!r.brief, error: undefined } });
@@ -167,6 +171,40 @@ async function finishJob(db: SQLiteDatabase, j: Job, text: string, finish?: stri
       return out;
     }
   }
+}
+
+const findEntry = (pool: Draft[], name: string) => pool.find((d) => d.kind !== 'world' && normName(d.name) === normName(name));
+
+/**
+ * What the agent wants reworked or removed, carried through the world the
+ * way Retcon does: a rename rewrites every mention by rule, and the writer
+ * model rewrites whatever else the change makes untrue. Removing an entry
+ * proposes its removal, and rewrites every entry that mentions it so it no
+ * longer exists there. Each touched entry becomes one change to accept.
+ */
+async function reworkDrafts(db: SQLiteDatabase, model: string, pool: Draft[], revise: AgentRevise[], remove: AgentRemove[]): Promise<Draft[]> {
+  let out: Draft[] = [];
+  const retcon = async (target: Draft, change: string, renameTo?: string, gone = false) => {
+    const mech = renameTo ? renameEdits(pool, target, renameTo) : [];
+    const others = pool.filter((d) => d.id !== target.id && d.kind !== 'world');
+    const messages = retconPrompt({ target, change, renameTo, affected: affected(others, target, change), knowledge: knowledge(others, target, change, 5000) });
+    const { text } = await complete({ model, messages, maxTokens: 12000, temperature: 0.4, spend: { db, note: `${gone ? 'remove' : 'rework'} ${target.name}` } });
+    const edits = mergeEdits(mech, parseRetcon(text, pool)).filter((e) => !gone || e.id !== target.id);
+    out = retconChanges(pool, edits, gone ? `Because ${target.name} is gone` : `Because ${target.name} was reworked`, out);
+  };
+  for (const x of remove) {
+    const target = findEntry(pool, x.entry);
+    if (!target) continue;
+    out = [...out.filter((d) => d.id !== target.id), { ...target, existing: true, fields: { ...target.fields, _remove: true, _why: x.why } }];
+    await retcon(target, `${target.name} is removed from the world${x.why ? ` (${x.why})` : ''}. Rewrite every other entry that mentions it or points at it so that it no longer exists there: drop it, or put something that fits in its place. Clear reference fields that point at it. Do not edit ${target.name} itself.`, undefined, true);
+  }
+  for (const x of revise) {
+    const target = findEntry(pool, x.entry);
+    if (!target || out.some((d) => d.id === target.id && removing(d))) continue;
+    const to = x.rename && normName(x.rename) !== normName(target.name) ? x.rename : undefined;
+    await retcon(target, x.change || `${target.name} is renamed to ${to}.`, to);
+  }
+  return out;
 }
 
 async function failJob(db: SQLiteDatabase, j: Job): Promise<void> {

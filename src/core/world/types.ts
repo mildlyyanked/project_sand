@@ -64,12 +64,18 @@ export interface Membership {
   role: string;
 }
 
+export type InspireAspect = 'look' | 'mind' | 'voice';
+
 export interface CharacterData {
   appearance?: string;
   personality?: string;
   backstory?: string;
   /** What they want and what they fear. */
   drives?: string;
+  /** A character from other media (or a real person) this one is an original take on. Never sent to the writer or a painter. */
+  inspiredBy?: string;
+  /** What the inspiration shapes: look (appearance), mind (personality and wants), voice. All three when unset. */
+  inspire?: InspireAspect[];
   secrets?: string;
   skills?: string;
   occupation?: string;
