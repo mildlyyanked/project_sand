@@ -3,8 +3,10 @@ import { View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import type { Character, Style, Universe } from '@/core/types';
+import { VoiceGallery } from '@/ui/components/VoiceGallery';
+import { voiceOf } from '@/core/voice';
 import { listCharacters, listStyles, listUniverses, newCharacter, newStyle, newUniverse, saveCharacter, saveStyle, saveUniverse } from '@/db/repo/library';
-import { Badge, Button, Empty, ListItem, Row, SearchBox, Segmented, Screen, matches } from '@/ui/components';
+import { Badge, Button, Empty, ListItem, Row, SearchBox, Segmented, Screen, T, matches } from '@/ui/components';
 import { ForgeSheet } from '@/ui/components/Forge';
 import { Avatar } from '@/ui/components/EntryImage';
 import type { ForgeKind } from '@/core/world/forge';
@@ -34,7 +36,7 @@ export default function Library() {
     if (tab === 'worlds') { const u = newUniverse(); await saveUniverse(db, u); router.push(`/library/universe/${u.id}`); }
   }
 
-  const empty = { characters: 'Characters carry voice, tells, limits and preferences into any story.', styles: 'A voice is how the writer is driven: its system prompt and persistence chain, plus the card that fixes point of view, tense, register and banned phrases.', worlds: 'Worlds hold places, factions, characters, peoples, things and lore shared across stories.' }[tab];
+  const empty = { characters: 'Characters carry voice, tells, limits and preferences into any story.', styles: 'A voice is how the prose reads: who it writes like, its rules, samples and form. Start from one in the gallery below, or build your own.', worlds: 'Worlds hold places, factions, characters, peoples, things and lore shared across stories.' }[tab];
 
   return (
     <Screen scroll>
@@ -42,7 +44,13 @@ export default function Library() {
       <View style={{ marginTop: space.md, gap: space.sm }}>
         {(tab === 'characters' ? chars.length : tab === 'styles' ? styles.length : worlds.length) > 5 ? <SearchBox value={q} onChange={setQ} placeholder={`Search ${tab === 'styles' ? 'voices' : tab}`} /> : null}
         {tab === 'characters' && (chars.length ? chars.filter((c) => matches(q, c.name, c.summary, c.lifeStage, c.data.occupation, worlds.find((w) => w.id === c.universeId)?.name)).map((c) => <ListItem key={c.id} left={<Avatar data={c.data as Record<string, unknown>} name={c.name} />} title={c.name} subtitle={[worlds.find((w) => w.id === c.universeId && !w.isDefault)?.name, c.summary || c.lifeStage].filter(Boolean).join(' · ')} right={!c.adult ? <Badge label="not adult" tone="warn" /> : undefined} onPress={() => router.push(`/library/character/${c.id}`)} />) : <Empty icon="people-outline" title="No characters" hint={empty} />)}
-        {tab === 'styles' && (styles.length ? styles.filter((x) => matches(q, x.name, x.influences, x.register)).map((s) => <ListItem key={s.id} title={s.name} subtitle={[[s.pointOfView, s.tense].filter(Boolean).join(', '), s.system ? 'own writer prompt' : 'default writer prompt', s.refusalChain.length ? `${s.refusalChain.length} persistence step${s.refusalChain.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')} onPress={() => router.push(`/library/style/${s.id}`)} />) : <Empty icon="text-outline" title="No voices" hint={empty} />)}
+        {tab === 'styles' && (styles.length ? styles.filter((x) => matches(q, x.name, x.influences, x.register, voiceOf(x).authors.join(' '))).map((s) => <ListItem key={s.id} title={s.name} subtitle={[voiceOf(s).authors.length ? `writes like ${voiceOf(s).authors.join(' and ')}` : '', [s.pointOfView, s.tense].filter(Boolean).join(', '), s.system ? 'own writer prompt' : '', s.refusalChain.length ? `${s.refusalChain.length} persistence step${s.refusalChain.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')} onPress={() => router.push(`/library/style/${s.id}`)} />) : <Empty icon="text-outline" title="No voices" hint={empty} />)}
+        {tab === 'styles' && !q.trim() ? (
+          <View style={{ gap: space.sm, marginTop: space.lg }}>
+            <T v="label">Gallery</T>
+            <VoiceGallery added={new Set(styles.map((x) => x.id))} onOpen={(id) => { load(); router.push(`/library/style/${id}`); }} />
+          </View>
+        ) : null}
         {tab === 'worlds' && (worlds.length ? worlds.filter((w) => matches(q, w.name, w.description, w.data.genre)).map((u) => <ListItem key={u.id} title={u.name} subtitle={u.description} onPress={() => router.push(`/library/universe/${u.id}`)} />) : <Empty icon="planet-outline" title="No worlds" hint={empty} />)}
       </View>
       <Row style={{ marginTop: space.xl }}>

@@ -10,6 +10,8 @@ import { refOptions } from '@/ui/worldRefs';
 import { HEAT_LABELS } from '@/core/types';
 import { useSession } from '@/state/session';
 import { listCharacters, listStyles, listUniverses } from '@/db/repo/library';
+import { GALLERY, galleryId } from '@/core/voiceGallery';
+import { addGalleryVoice } from '@/ui/components/VoiceGallery';
 import { copySession, deleteSession, listBeats } from '@/db/repo/sessions';
 import { manuscriptText, pathTo, indexBeats } from '@/core/beatTree';
 import { Banner, Button, Card, Chip, Field, ListItem, MenuItem, Row, Screen, Section, Sheet, Stepper, SwitchRow, T } from '@/ui/components';
@@ -133,6 +135,14 @@ export default function SessionSettings() {
           <Chip label="None" selected={!session.styleId} onPress={() => s.patch({ styleId: null })} />
           {styles.map((p) => <Chip key={p.id} label={p.name} selected={session.styleId === p.id} onPress={() => s.patch({ styleId: p.id })} />)}
         </Row>
+        {GALLERY.some((g) => !styles.some((x) => x.id === galleryId(g.key))) ? (
+          <View style={{ gap: 6 }}>
+            <T v="small">From the gallery</T>
+            <Row style={{ flexWrap: 'wrap' }}>
+              {GALLERY.filter((g) => !styles.some((x) => x.id === galleryId(g.key))).map((g) => <Chip key={g.key} small label={`${g.name} · ${g.authors[0]}`} onPress={async () => { const sid = await addGalleryVoice(db, g); setStyles(await listStyles(db)); await s.patch({ styleId: sid }); }} />)}
+            </Row>
+          </View>
+        ) : null}
         {session.styleId ? <Button small kind="ghost" title="Edit voice" onPress={() => router.push(`/library/style/${session.styleId}`)} /> : null}
       </Section>
 
