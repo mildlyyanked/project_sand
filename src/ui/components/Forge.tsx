@@ -146,7 +146,7 @@ function ForgeBody({ onClose, kind, universeId, anchor, canon, onSaved }: ForgeS
       ) : null}
       {canon ? <Card style={{ gap: 4 }}><T v="faint">From the story</T>{canon.excerpts.slice(-3).map((x, i) => <T key={i} v="dim" numberOfLines={4}>“{x}”</T>)}</Card> : null}
       <Field value={wish} onChangeText={setWish} placeholder={canon ? `Optional: anything to add about ${canon.name}` : LABEL[kindSel].placeholder} multiline style={{ minHeight: 70 }} />
-      {people ? <Field label="Inspired by, optional" hint="A character from a book, film, show or game, or a real person. Look, personality and voice are written as an original take on them, in this world's terms; the name never reaches the writer or a painter." value={inspiredBy} onChangeText={setInspiredBy} placeholder="e.g. Aragorn, or Lisbeth Salander" /> : null}
+      {people ? <Field label={canon ? `Plays like, optional` : 'Inspired by, optional'} hint={canon ? `Who ${canon.name} should sound and act like from here on: a character from a film, show, book or game, or a real person. Their voice, personality and lines are written from it, and the writer plays them like that in every scene (switchable on their card).` : "A character from a book, film, show or game, or a real person. Look, personality and voice are written as an original take on them, in this world's terms, and the writer plays them like that (switchable on their card). Painters never see the name."} value={inspiredBy} onChangeText={setInspiredBy} placeholder={canon ? 'e.g. Adam Sandler in Uncut Gems' : 'e.g. Aragorn, or Lisbeth Salander'} /> : null}
       {kindSel !== 'world' && !anchor && !canon ? (
         <View style={{ gap: 6 }}>
           <T v="label">{needsWorld ? 'World' : 'World, optional'}</T>

@@ -175,7 +175,7 @@ export function forgePrompt(kind: ForgeKind, o: ForgeRequest): ChatMessage[] {
     kind === 'location' ? 'Places nest: use "within" to put a district in a city or a room in a building, naming an existing place or one you are creating now.' : '',
     kind === 'mixed' ? 'Choose the kinds yourself: whatever would most enrich the world as it stands. Link the new entries to each other and to what exists.' : '',
     o.inspiredBy?.trim() && (kind === 'character' || kind === 'mixed') ? inspiration(o.inspiredBy.trim(), ['look', 'mind', 'voice']) : '',
-    o.canon ? `This entry already exists in a story. Everything the story passages state about ${o.canon.name} is fact: keep their name, what they did, said and looked like, where they were and with whom. Fill everything else so it fits those facts and the world.` : '',
+    o.canon ? `This entry already exists in a story. Everything the story passages state about ${o.canon.name} is fact: keep their name, what they did, said and looked like, where they were and with whom. Fill everything else so it fits those facts and the world.${kind === 'character' ? ' Their voice and the lines they might say follow how they speak in the passages, sharpened so they sound like no one else.' : ''}` : '',
     `Output only JSON of this shape: ${forgeShape(kind)}. Inside string values quote with single quotes, never bare double quotes. ${kind === 'world' ? 'Exactly one world.' : `Exactly ${n} ${kind === 'mixed' ? 'entries in total' : forgeNoun(kind, n)}.`}`,
   ].filter(Boolean).join('\n\n');
   const wish = o.wish.trim();
