@@ -28,6 +28,8 @@ export type SeaSide = 'none' | 'north' | 'south' | 'east' | 'west' | 'around';
 export interface MapPlan {
   /** The kind of map the model judged right from the description, when it judged. */
   kind?: MapKind | null;
+  /** How built up a town is, 1 to 5. */
+  density?: 1 | 2 | 3 | 4 | 5 | null;
   title: string;
   theme: ThemeKey | null;
   /** How far the map reaches from west edge to east edge, in its unit. */
@@ -99,6 +101,7 @@ export function mapPlanPrompt(i: PlanInput): ChatMessage[] {
     '{',
     '  "kind": "globe" | "region" | "city" | "site" | "floor",',
     '  "title": "the name on the map\'s cartouche",',
+    '  "density": 1 | 2 | 3 | 4 | 5, // towns: how built up, from what the entry says. 1 farms and cottages with fields between, 2 a market town, 3 a city, 4 a crowded city packed street to street, 5 a megacity of towers with no gap anywhere',
     `  "across": number, // how far the map reaches west to east: a globe, ${SIZE_HINT.globe}; a region, ${SIZE_HINT.region}; a city, ${SIZE_HINT.city}; a site, ${SIZE_HINT.site}; a floor, ${SIZE_HINT.floor}. The place should fill most of the map.`,
     '  "sea": "none" | "north" | "south" | "east" | "west" | "around", // where open water is (globe, region and city maps); "around" for an island',
     '  "features": [',
@@ -162,8 +165,10 @@ export function parseMapPlan(text: string): MapPlan | null {
   if (!features.length && !places.length) return null;
   const sea = typeof raw.sea === 'string' && ['none', 'north', 'south', 'east', 'west', 'around'].includes(raw.sea) ? (raw.sea as SeaSide) : 'none';
   const theme = typeof raw.theme === 'string' && raw.theme in THEMES ? (raw.theme as ThemeKey) : null;
+  const dn = num(raw.density);
+  const density = dn === null ? null : (Math.max(1, Math.min(5, Math.round(dn))) as 1 | 2 | 3 | 4 | 5);
   const kind = typeof raw.kind === 'string' && raw.kind.toLowerCase() in KIND_INFO ? (raw.kind.toLowerCase() as MapKind) : null;
-  return { kind, title: typeof raw.title === 'string' ? raw.title.trim() : '', theme, across: num(raw.across), unit: null, sea, features, places, labels };
+  return { kind, density, title: typeof raw.title === 'string' ? raw.title.trim() : '', theme, across: num(raw.across), unit: null, sea, features, places, labels };
 }
 
 /** Is a planned place the same as a recorded one? */

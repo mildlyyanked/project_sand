@@ -109,7 +109,9 @@ describe('building maps', () => {
   it('cuts a city into districts and blocks', () => {
     const doc = buildMap(emptyPlan('Vel Harrow'), ctx('city', [{ id: 'g', name: 'Copper Gate', type: 'landmark' }], 'modern'));
     expect(doc.areas.filter((a) => a.kind === 'district').length).toBeGreaterThanOrEqual(4);
-    expect(doc.areas.filter((a) => a.kind === 'block').length).toBeGreaterThan(40);
+    // Buildings are grown from the streets as you look; the map keeps the streets and how dense the town is.
+    expect(doc.town).toBeTruthy();
+    expect(doc.lines.filter((l) => l.kind === 'street').length).toBeGreaterThan(20);
     expect(doc.lines.some((l) => l.kind === 'avenue')).toBe(true);
     expect(doc.pins).toHaveLength(1);
   });

@@ -5,6 +5,8 @@ import { area as polyArea } from '@/core/map/geom';
 import { areaFill, areaPath, areaRank, doorSwing, graticule, gridPath, linePath, lineStrokes, marksPath, multiPath, pinShape, rosePath } from '@/core/map/draw';
 import { THEMES, scaleBar, type MapTheme } from '@/core/map/style';
 import { placeLabels } from '@/core/map/labels';
+import { metresPer, roadHalf, townDetail } from '@/core/map/town';
+import { useTownFill } from './useTownFill';
 import type { MapArea, MapDoc, MapPin, Pt } from '@/core/map/types';
 import { mono, serif } from '../theme';
 
@@ -23,10 +25,19 @@ function Halo({ x, y, text, size, color, halo, font, italic, weight, spacing, an
 }
 
 /** Ground, terrain, buildings, lines and the map's furniture: everything that does not change while you look. */
-export const MapBase = memo(function MapBase({ doc, decor = true, zoom = 1 }: { doc: MapDoc; decor?: boolean; /** How far in from the whole map: lines thicken more slowly than the map grows. */ zoom?: number }) {
+export const MapBase = memo(function MapBase({ doc, decor = true, zoom = 1, px, view }: { doc: MapDoc; decor?: boolean; /** How far in from the whole map: lines thicken more slowly than the map grows. */ zoom?: number; /** Screen pixels per map unit. */ px?: number; /** The part of the map being drawn. */ view?: { x: number; y: number; w: number; h: number } | null }) {
   const lw = 1 / Math.sqrt(Math.max(1, zoom));
+  // A town at its real size: roads as wide as they are (never thinner than a hairline), lanes and buildings grown for what is on screen.
+  const town = doc.town ? { m: metresPer(doc.scale), ppu: px ?? 1 } : null;
+  const detail = town ? townDetail(town.ppu / town.m, doc.town?.grid) : { lanes: false, buildings: false };
+  const fill = useTownFill(doc, view, detail);
+  const roadW = (k: 'avenue' | 'street' | 'lane') => (town ? Math.max((roadHalf(k, !!doc.town?.grid) * 2) / town.m, ({ avenue: 2.2, street: 0.9, lane: 0.6 })[k] / town.ppu) : 0);
+  const caseW = (k: 'avenue' | 'street' | 'lane') => roadW(k) + (town ? Math.max(2.4 / town.m, 1.1 / town.ppu) : 0);
   const t = THEMES[doc.theme] ?? THEMES.fantasy;
   const font = fontOf(t);
+  // Old maps draw streets as pale paper edged in ink; the others in their road colours.
+  const roadTop = t.drawn ? t.paper : t.road;
+  const roadEdge = t.drawn ? t.ink : t.roadCase;
   const layers = useMemo(() => {
     const ground = doc.areas.filter((a) => a.kind === 'land' || a.kind === 'water').sort((a, b) => polyArea(b.points) - polyArea(a.points));
     const rest = doc.areas.filter((a) => a.kind !== 'land' && a.kind !== 'water' && a.kind !== 'block').sort((a, b) => areaRank(a.kind) - areaRank(b.kind));
@@ -98,11 +109,28 @@ export const MapBase = memo(function MapBase({ doc, decor = true, zoom = 1 }: { 
 
       {layers.built.map((a) => <Path key={a.id} d={areaPath(a)} fill={areaFill(t, a.kind)} fillOpacity={a.kind === 'district' ? 0.55 : 0.95} stroke={a.kind === 'district' ? t.blockLine : t.ink} strokeOpacity={a.kind === 'district' ? 0.35 : 0.25} strokeWidth={a.kind === 'district' ? 1.2 : 0.8} strokeDasharray={a.kind === 'district' ? '6 4' : undefined} />)}
       {layers.blocks ? <Path d={layers.blocks} fill={t.block} stroke={t.blockLine} strokeWidth={0.6} strokeOpacity={t.glow ? 0.8 : 0.7} /> : null}
+      {/* Too far out to see buildings: the town reads as built-up ground. */}
+      {town && !detail.buildings ? <Path d={multiPath(layers.built.filter((a) => a.kind === 'district'))} fill={t.block} fillOpacity={t.glow ? 0.55 : 0.5} /> : null}
+      {fill?.buildings.length ? <Path d={multiPath(fill.buildings.map((q) => ({ points: q })))} fill={t.block} stroke={t.blockLine} strokeWidth={0.7 / (town?.ppu ?? 1)} strokeOpacity={t.glow ? 0.9 : 0.6} /> : null}
       {layers.namedBlocks.map((a) => <Path key={a.id} d={areaPath(a)} fill={t.block} stroke={t.blockLine} strokeWidth={1.4} />)}
 
       {/* Roads, walls, borders. */}
-      {lines.roads.map((x) => lineStrokes(t, x.kind, doc.kind).slice(0, -1).map((st, i) => <Path key={`${x.kind}-u${i}`} d={x.d} fill="none" stroke={st.color} strokeWidth={st.width * lw} strokeOpacity={st.opacity ?? 1} strokeLinecap="round" strokeLinejoin="round" />))}
-      {lines.roads.map((x) => { const st = lineStrokes(t, x.kind, doc.kind).slice(-1)[0]!; return <Path key={`${x.kind}-top`} d={x.d} fill="none" stroke={st.color} strokeWidth={st.width * lw} strokeOpacity={st.opacity ?? 1} strokeLinecap="round" strokeLinejoin="round" />; })}
+      {town ? (() => {
+        const ls = fill?.lanes.length ? [{ kind: 'lane' as const, d: fill.lanes.map((p) => linePath('lane', p)).join('') }] : [];
+        const all = [...ls, ...lines.roads.filter((x) => x.kind !== 'lane')] as { kind: 'avenue' | 'street' | 'lane'; d: string }[];
+        return (
+          <G>
+            {t.glow ? all.filter((x) => x.kind === 'avenue').map((x) => <Path key={`${x.kind}-g`} d={x.d} fill="none" stroke={t.road} strokeWidth={caseW(x.kind) * 3} strokeOpacity={0.14} strokeLinecap="round" strokeLinejoin="round" />) : null}
+            {all.map((x) => <Path key={`${x.kind}-c`} d={x.d} fill="none" stroke={roadEdge} strokeWidth={caseW(x.kind)} strokeOpacity={t.drawn ? (detail.buildings ? 0.55 : 0.35) : detail.buildings ? 1 : 0.6} strokeLinecap="round" strokeLinejoin="round" />)}
+            {all.map((x) => <Path key={`${x.kind}-t`} d={x.d} fill="none" stroke={roadTop} strokeWidth={roadW(x.kind)} strokeOpacity={x.kind === 'street' && !detail.buildings ? (t.glow ? 0.38 : 0.6) : 1} strokeLinecap="round" strokeLinejoin="round" />)}
+          </G>
+        );
+      })() : (
+        <G>
+          {lines.roads.map((x) => lineStrokes(t, x.kind, doc.kind).slice(0, -1).map((st, i) => <Path key={`${x.kind}-u${i}`} d={x.d} fill="none" stroke={st.color} strokeWidth={st.width * lw} strokeOpacity={st.opacity ?? 1} strokeLinecap="round" strokeLinejoin="round" />))}
+          {lines.roads.map((x) => { const st = lineStrokes(t, x.kind, doc.kind).slice(-1)[0]!; return <Path key={`${x.kind}-top`} d={x.d} fill="none" stroke={st.color} strokeWidth={st.width * lw} strokeOpacity={st.opacity ?? 1} strokeLinecap="round" strokeLinejoin="round" />; })}
+        </G>
+      )}
       {lines.over.map((l) => lineStrokes(t, l.kind, doc.kind).map((s, i) => <Path key={`${l.id}-${i}`} d={linePath(l.kind, l.points)} fill="none" stroke={s.color} strokeWidth={s.width * lw} strokeDasharray={s.dash?.split(' ').map((v) => Number(v) * lw).join(' ')} strokeOpacity={s.opacity ?? 1} strokeLinecap={s.cap ?? 'round'} strokeLinejoin="round" />))}
 
       {/* Rooms: walls are their outlines; doors cut them. */}
@@ -160,7 +188,7 @@ export const MapBase = memo(function MapBase({ doc, decor = true, zoom = 1 }: { 
       ) : null}
     </G>
   );
-}, (a, b) => a.decor === b.decor && a.zoom === b.zoom && a.doc.areas === b.doc.areas && a.doc.lines === b.doc.lines && a.doc.theme === b.doc.theme && a.doc.title === b.doc.title && a.doc.kind === b.doc.kind && a.doc.scale === b.doc.scale && a.doc.ground === b.doc.ground);
+}, (a, b) => a.decor === b.decor && a.zoom === b.zoom && a.px === b.px && a.view === b.view && a.doc.town === b.doc.town && a.doc.areas === b.doc.areas && a.doc.lines === b.doc.lines && a.doc.theme === b.doc.theme && a.doc.title === b.doc.title && a.doc.kind === b.doc.kind && a.doc.scale === b.doc.scale && a.doc.ground === b.doc.ground);
 
 function Cartouche({ doc, t, font }: { doc: MapDoc; t: MapTheme; font: string }) {
   const size = doc.title.length > 24 ? 18 : 22;
@@ -293,7 +321,7 @@ export function MapPicture({ doc, width, typeOf, decor = true, focus }: { doc: M
   const height = (width * doc.h) / doc.w;
   return (
     <Svg width={width} height={height} viewBox={`0 0 ${doc.w} ${doc.h}`}>
-      <MapBase doc={doc} decor={decor} />
+      <MapBase doc={doc} decor={decor} px={width / doc.w} />
       <MapMarks doc={doc} typeOf={typeOf} scale={width / doc.w} overlay={{ focus }} />
     </Svg>
   );

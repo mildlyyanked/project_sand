@@ -38,6 +38,8 @@ export interface MapDoc {
   labels: MapLabel[];
   pins: MapPin[];
   seed: number;
+  /** A town at its real size: lanes and buildings are grown from its streets as you look. */
+  town?: import('./town').TownSpec;
   updatedAt: number;
 }
 

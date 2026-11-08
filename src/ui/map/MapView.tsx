@@ -198,7 +198,7 @@ export const MapView = forwardRef<MapViewHandle, {
         {box.w ? (
           <Animated.View style={[{ position: 'absolute', left: L, top: Tp, width: RW, height: RH, transformOrigin: 'left top' }, style]}>
             <Svg width={RW} height={RH} viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}>
-              <MapBase doc={base} decor={false} zoom={c.k} />
+              <MapBase doc={base} decor={false} zoom={c.k} px={px} view={view} />
               <MapMarks doc={doc} typeOf={typeOf} scale={px} overlay={overlay} view={screen} />
             </Svg>
           </Animated.View>
