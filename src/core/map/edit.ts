@@ -1,5 +1,6 @@
 import { marksFor } from './build';
 import { dist, inside, toPolyline, toSegment } from './geom';
+import { labelSize } from './labels';
 import type { AreaKind, LineKind, MapArea, MapDoc, MapLabel, MapLine, MapPin, Pt } from './types';
 
 /**
@@ -11,10 +12,9 @@ export type SelType = 'pin' | 'area' | 'line' | 'label';
 export interface Sel { type: SelType; id: string }
 export interface Hit extends Sel { vertex?: number; mid?: number }
 
-const LABEL_SIZE = { s: 13, m: 18, l: 26 } as const;
 
 /** What is under a point, nearest first in importance: handles of the selection, pins, labels, lines, areas (smallest first). */
-export function hitTest(doc: MapDoc, p: Pt, tol: number, selected?: Sel | null, o: { areas?: boolean } = {}): Hit | null {
+export function hitTest(doc: MapDoc, p: Pt, tol: number, selected?: Sel | null, o: { areas?: boolean; /** Screen pixels per map unit: labels are sized on screen. */ scale?: number } = {}): Hit | null {
   if (selected && (selected.type === 'area' || selected.type === 'line')) {
     const pts = selected.type === 'area' ? doc.areas.find((a) => a.id === selected.id)?.points : doc.lines.find((l) => l.id === selected.id)?.points;
     if (pts) {
@@ -32,7 +32,7 @@ export function hitTest(doc: MapDoc, p: Pt, tol: number, selected?: Sel | null, 
   for (const x of doc.pins) { const d = dist(p, [x.x, x.y]); if (d < pd) { pd = d; pin = x; } }
   if (pin) return { type: 'pin', id: pin.id };
   for (const l of doc.labels) {
-    const s = LABEL_SIZE[l.size];
+    const s = labelSize(l.size, o.scale ?? 1);
     const w = l.text.length * s * 0.33 + tol * 0.5;
     if (Math.abs(p[0] - l.x) < w && p[1] < l.y + tol * 0.5 && p[1] > l.y - s - tol * 0.5) return { type: 'label', id: l.id };
   }

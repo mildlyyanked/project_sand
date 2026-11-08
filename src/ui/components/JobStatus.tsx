@@ -14,10 +14,11 @@ export function JobStatusLine({ job, live, compact }: { job: Job; live?: number;
   const db = useSQLiteContext();
   const jobs = useJobs.getState();
   const n = proposalCount(job);
+  const thought = useJobs((s) => s.thinking[job.id]);
   const line = (() => {
     switch (job.status) {
       case 'queued': return 'Waiting its turn…';
-      case 'running': return live ? `Writing… ${Math.round(live / 4)} tokens` : 'Writing…';
+      case 'running': return live ? `Writing… ${Math.round(live / 4)} tokens` : thought ? `Thinking… ${Math.round(thought / 4)} tokens` : 'Waiting for the model…';
       case 'failed': return 'Failed';
       case 'cancelled': return 'Stopped';
       default: return n ? `${n} to decide on` : 'Decided';
@@ -28,7 +29,7 @@ export function JobStatusLine({ job, live, compact }: { job: Job; live?: number;
     <Row between>
       <Row gap={6} style={{ flex: 1 }}>
         {icon ? <Ionicons name={icon} size={15} color={job.status === 'failed' ? t.danger : n ? t.accent : t.dim} /> : <ActivityIndicator size="small" color={t.accent} />}
-        <T v="small" numberOfLines={1} style={{ flexShrink: 1 }}>{line}{compact ? '' : ` · ${relTime(job.updatedAt)}`}</T>
+        <T v="small" numberOfLines={1} style={{ flexShrink: 1 }}>{line}{compact ? '' : ` · ${job.status === 'running' ? 'started ' : ''}${relTime(job.updatedAt)}`}</T>
       </Row>
       <View style={{ flexDirection: 'row', gap: 4 }}>
         {job.status === 'queued' || job.status === 'running' ? <Button small kind="ghost" title="Stop" onPress={() => void jobs.cancel(db, job.id)} /> : null}

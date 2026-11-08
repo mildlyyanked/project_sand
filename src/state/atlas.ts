@@ -9,9 +9,9 @@ import type { Library } from '@/core/world/drafts';
 import type { WorldEntity } from '@/core/world/types';
 import { getMap, listMaps, saveMap } from '@/db/repo/atlas';
 import { getEntity } from '@/db/repo/world';
-import { agentModel } from './agent';
 import { useJobs } from './jobs';
 import { loadLibrary } from './library';
+import { useSettings } from './settings';
 
 /**
  * Drawing a place's map. The model sketches a plan from the entries (what
@@ -82,7 +82,7 @@ export async function drawMap(db: SQLiteDatabase, locationId: string, o: DrawOpt
   const j = await useJobs.getState().enqueue(db, 'map', {
     universeId: place.universeId,
     title: `Map of ${place.name}`,
-    input: { model: agentModel(), messages, maxTokens: 6000, locationId, mapKind: kind, theme, title: place.name, children: buildChildren(lib, place.id), seed: hashOf(locationId, now()), keepPins: o.keepPins },
+    input: { model: useSettings.getState().defaults.models.helper, messages, maxTokens: 5000, kindFixed: !!o.kind, locationId, mapKind: kind, theme, title: place.name, children: buildChildren(lib, place.id), seed: hashOf(locationId, now()), keepPins: o.keepPins },
   });
   return j.id;
 }

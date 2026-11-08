@@ -1,13 +1,14 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Id } from '@/core/types';
 import type { MapDoc } from '@/core/map/types';
+import { dropEchoLabels } from '@/core/map/labels';
 import { j, pj } from './map';
 
 /** The world's maps, one per place. */
 interface MRow { location_id: string; universe_id: string; data_json: string; updated_at: number }
 const mFrom = (r: MRow): MapDoc | null => {
   const d = pj<MapDoc | null>(r.data_json, null);
-  return d ? { ...d, locationId: r.location_id, universeId: r.universe_id, ground: d.ground ?? 'land', updatedAt: r.updated_at } : null;
+  return d ? dropEchoLabels({ ...d, locationId: r.location_id, universeId: r.universe_id, ground: d.ground ?? 'land', updatedAt: r.updated_at }) : null;
 };
 
 export async function getMap(db: SQLiteDatabase, locationId: Id): Promise<MapDoc | null> {

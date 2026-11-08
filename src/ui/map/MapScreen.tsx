@@ -137,7 +137,7 @@ export function MapScreen({ locationId, focus }: { locationId: string; focus?: s
 
   function onDragStart(p: Pt, tol: number): boolean {
     if (!doc || !editing || (tool !== 'select' && tool !== 'pin' && tool !== 'label')) return false;
-    const h = hitTest(doc, p, tol, sel, { areas: true });
+    const h = hitTest(doc, p, tol, sel, { areas: true, scale: 22 / tol });
     if (!h) return false;
     if (h.vertex !== undefined) { drag.current = { base: doc, mode: 'vertex', index: h.vertex }; setSel(h); return true; }
     if (h.mid !== undefined) { const r = insertVertex(doc, h, h.mid); drag.current = { base: r.doc, mode: 'vertex', index: r.index }; setSel({ type: h.type, id: h.id, vertex: r.index }); setLive(r.doc); return true; }
@@ -166,19 +166,21 @@ export function MapScreen({ locationId, focus }: { locationId: string; focus?: s
     if (!doc) return;
     if (measuring) { setMeasure((m) => (!m || m.b ? { a: p, b: null } : { ...m, b: p })); return; }
     if (!editing) {
-      const h = hitTest(doc, p, tol, null);
-      setSel(h && (h.type === 'pin' || h.type === 'area' || h.type === 'label' || h.type === 'line') ? { type: h.type, id: h.id } : null);
+      const h = hitTest(doc, p, tol, null, { scale: 22 / tol });
+      // Looking, only what has a name is worth a card: a pin, a named area or line, a label.
+      const named = h && (h.type === 'pin' || h.type === 'label' || (h.type === 'area' && doc.areas.find((a) => a.id === h.id)?.name) || (h.type === 'line' && doc.lines.find((l) => l.id === h.id)?.name));
+      setSel(h && named ? { type: h.type, id: h.id } : null);
       return;
     }
     switch (tool) {
       case 'select': {
-        const h = hitTest(doc, p, tol, sel);
+        const h = hitTest(doc, p, tol, sel, { scale: 22 / tol });
         if (h && sel && h.id === sel.id && h.mid !== undefined) { const r = insertVertex(doc, h, h.mid); commit(r.doc); setSel({ ...sel, vertex: r.index, mid: undefined }); return; }
         setSel(h ? { type: h.type, id: h.id, vertex: h.vertex } : null);
         return;
       }
       case 'erase': {
-        const h = hitTest(doc, p, tol, null);
+        const h = hitTest(doc, p, tol, null, { scale: 22 / tol });
         if (h) { commit(remove(doc, h)); setSel(null); }
         return;
       }
@@ -285,6 +287,7 @@ export function MapScreen({ locationId, focus }: { locationId: string; focus?: s
         onDragStart={onDragStart}
         onDrag={onDrag}
         onDragEnd={onDragEnd}
+        barTop={10 + 50 * ((parent ? 1 : 0) + (!editing ? 1 : 0))}
       />
 
       {/* Top: the way up, and zoom */}

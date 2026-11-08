@@ -5,6 +5,7 @@ import { mapPlanPrompt, parseMapPlan } from '../map/plan';
 import { compass, formatDistance, mapKindOf, scaleBar, themeFor } from '../map/style';
 import { bearing, latLon, mercY, metresBetween, onFoot, whereLines } from '../map/geo';
 import type { MapDoc } from '../map/types';
+import { dropEchoLabels, placeLabels } from '../map/labels';
 import { addArea, deleteVertex, hitTest, insertVertex, moveBy, moveVertex, pushHistory, redo, remove, rename, undo } from '../map/edit';
 
 const ctx = (kind: MapDoc['kind'], children: { id: string; name: string; type?: string }[] = [], theme: MapDoc['theme'] = 'fantasy') => ({ locationId: 'L', universeId: 'U', kind, theme, title: 'Here', children, seed: 42, now: 1 });
@@ -87,7 +88,9 @@ describe('building maps', () => {
     expect(doc.pins.find((p) => p.entityId === 'c1')!.name).toBe('Ost');
     expect(doc.areas.some((a) => a.kind === 'water')).toBe(true);
     expect(doc.areas.find((a) => a.name === 'Greywood')!.marks!.length).toBeGreaterThan(5);
-    expect(doc.labels.some((l) => l.text === 'Greywood')).toBe(true);
+    // The forest carries its own name; nothing stores it twice.
+    expect(doc.labels.some((l) => l.text === 'Greywood')).toBe(false);
+    expect(placeLabels(doc, { scale: 0.4 }).some((l) => l.text === 'Greywood' && l.role === 'area')).toBe(true);
     for (const p of doc.pins) expect(onLand([p.x, p.y], doc.ground, doc.areas)).toBe(true);
     expect(doc.lines.some((l) => l.kind === 'road' || l.kind === 'track')).toBe(true);
   });
@@ -206,5 +209,52 @@ describe('editing maps', () => {
     const r = redo(u.h, u.doc)!;
     expect(r.doc).toBe(next);
     expect(undo({ past: [], future: [] }, doc)).toBeNull();
+  });
+});
+
+describe('placing labels', () => {
+  const base: MapDoc = { ...buildMap(emptyPlan('L'), ctx('region')), areas: [], lines: [], labels: [], pins: [] };
+  const doc: MapDoc = {
+    ...base,
+    areas: [{ id: 'f', kind: 'forest', name: 'Greywood', points: [[100, 100], [500, 100], [500, 400], [100, 400]] }, { id: 'tiny', kind: 'water', name: 'The Very Long Name of a Pond', points: [[700, 600], [710, 600], [710, 610], [700, 610]] }],
+    lines: [{ id: 'r', kind: 'river', name: 'Sable', points: [[0, 500], [300, 520], [600, 500], [1000, 520]] }],
+    pins: [{ id: 'a', entityId: null, name: 'Ost', x: 300, y: 250 }, { id: 'b', entityId: null, name: 'Fen', x: 306, y: 252 }, { id: 'c', entityId: null, name: 'Edge', x: 990, y: 300 }],
+    labels: [{ id: 't', text: 'The Grey Sea', x: 2, y: 60, size: 'l' }],
+  };
+  it('sizes text for the screen at every zoom', () => {
+    const near = placeLabels(doc, { scale: 4 }).find((l) => l.text === 'Ost')!;
+    const far = placeLabels(doc, { scale: 0.4 }).find((l) => l.text === 'Ost')!;
+    expect(near.size * 4).toBeCloseTo(far.size * 0.4);
+  });
+  it('lets the important name win a collision and shows the others closer in', () => {
+    const crowd: MapDoc = { ...doc, areas: [], lines: [], labels: [], pins: [{ id: 'a', entityId: null, name: 'Ost', x: 300, y: 250 }, ...[1, 2, 3, 4, 5, 6].map((i) => ({ id: `n${i}`, entityId: null, name: `Hamlet ${i}`, x: 300 + (i % 3) * 4, y: 250 + Math.floor(i / 3) * 4 }))] };
+    const shapeOf = (p: { id: string }) => (p.id === 'a' ? 'city' as const : 'mark' as const);
+    const far = placeLabels(crowd, { scale: 0.4, shapeOf });
+    expect(far.some((l) => l.text === 'Ost')).toBe(true);
+    expect(far.filter((l) => l.role === 'pin').length).toBeLessThan(7);
+    expect(placeLabels(crowd, { scale: 20, shapeOf }).filter((l) => l.role === 'pin')).toHaveLength(7);
+    // Never two names over each other.
+    const boxes = far.map((l) => ({ x0: l.anchor === 'start' ? l.x : l.anchor === 'end' ? l.x - l.text.length * l.size * 0.6 : l.x - l.text.length * l.size * 0.3, y0: l.y - l.size }));
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) expect(Math.abs(boxes[i]!.x0 - boxes[j]!.x0) + Math.abs(boxes[i]!.y0 - boxes[j]!.y0)).toBeGreaterThan(1);
+  });
+  it('keeps names on the canvas and in what they name', () => {
+    const ls = placeLabels(doc, { scale: 0.4 });
+    const edge = ls.find((l) => l.text === 'Edge')!;
+    expect(edge.anchor).toBe('end');
+    const sea = ls.find((l) => l.text === 'The Grey Sea')!;
+    expect(sea.x).toBeGreaterThan(30);
+    expect(ls.some((l) => l.text.startsWith('The Very Long'))).toBe(false);
+    const moved = { ...doc, areas: [{ ...doc.areas[0]!, points: doc.areas[0]!.points.map(([x, y]) => [x + 300, y] as [number, number]) }] };
+    expect(placeLabels(moved, { scale: 1 }).find((l) => l.text === 'Greywood')!.x).toBeCloseTo(600, 0);
+  });
+  it('always shows the selected thing', () => {
+    expect(placeLabels(doc, { scale: 0.4, selected: { type: 'area', id: 'tiny' } }).some((l) => l.id === 'tiny')).toBe(true);
+  });
+  it('drops stored labels that only repeat a name', () => {
+    expect(dropEchoLabels({ ...doc, labels: [...doc.labels, { id: 'x', text: 'greywood', x: 0, y: 0, size: 'm' }] }).labels).toHaveLength(1);
+  });
+  it('reads the kind the model judged from the plan', () => {
+    expect(parseMapPlan('{"kind":"city","title":"Spirehold","across":12000,"features":[{"kind":"district","x":50,"y":35,"w":30,"h":20}]}')!.kind).toBe('city');
+    expect(scaleOf('city', 12000).per).toBeCloseTo(12);
   });
 });

@@ -27,6 +27,8 @@ interface JobsState {
   jobs: Job[];
   /** Characters received, per running job; kept out of the database. */
   live: Record<string, number>;
+  /** Characters of thinking, per running job: a model can think for minutes before it writes. */
+  thinking: Record<string, number>;
   started: boolean;
   start(db: SQLiteDatabase): Promise<void>;
   refresh(db: SQLiteDatabase): Promise<void>;
@@ -52,11 +54,13 @@ export const useJobs = create<JobsState>((set, get) => {
     let j: Job = { ...job, status: 'running', error: null, updatedAt: now() };
     await write(db, j);
     let last = 0;
+    let lastThought = 0;
     try {
       const input = j.input as { model: string; messages: Parameters<typeof complete>[0]['messages']; maxTokens?: number };
       const { text, finish, thoughtOnly } = await runInForeground(j.title, () => complete({
         model: input.model, messages: input.messages, maxTokens: input.maxTokens ?? 4000, temperature: TEMPERATURE[j.kind], signal: ac.signal,
         onText: (n) => { if (n - last > 200) { last = n; set((s) => ({ live: { ...s.live, [job.id]: n } })); } },
+        onThinking: (n) => { if (n - lastThought > 400) { lastThought = n; set((s) => ({ thinking: { ...s.thinking, [job.id]: n } })); } },
         spend: { db, note: `${j.kind}: ${j.title}` },
       }));
       if (ac.signal.aborted) return;
@@ -77,7 +81,7 @@ export const useJobs = create<JobsState>((set, get) => {
       if (!cancelled) await failJob(db, j);
     } finally {
       controllers.delete(job.id);
-      set((s) => { const live = { ...s.live }; delete live[job.id]; return { live }; });
+      set((s) => { const live = { ...s.live }; delete live[job.id]; const thinking = { ...s.thinking }; delete thinking[job.id]; return { live, thinking }; });
     }
   }
 
@@ -94,6 +98,7 @@ export const useJobs = create<JobsState>((set, get) => {
   return {
     jobs: [],
     live: {},
+    thinking: {},
     started: false,
     async start(db) {
       if (get().started) return;

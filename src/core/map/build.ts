@@ -33,9 +33,9 @@ export const isAreaKind = (k: string): k is AreaKind => AREA_KINDS.has(k);
 const SPAN: Record<MapKind, { unit: 'm' | 'km'; min: number; max: number; def: number }> = {
   globe: { unit: 'km', min: 2000, max: 400000, def: 40000 },
   region: { unit: 'km', min: 2, max: 6000, def: 120 },
-  city: { unit: 'm', min: 200, max: 40000, def: 2500 },
-  site: { unit: 'm', min: 20, max: 3000, def: 300 },
-  floor: { unit: 'm', min: 4, max: 400, def: 30 },
+  city: { unit: 'm', min: 200, max: 80000, def: 3000 },
+  site: { unit: 'm', min: 20, max: 6000, def: 400 },
+  floor: { unit: 'm', min: 4, max: 1000, def: 30 },
 };
 
 export function scaleOf(kind: MapKind, across: number | null): MapScale {
@@ -208,30 +208,6 @@ export function fitLabel(l: MapLabel): MapLabel {
   if (!l.angle) l.x = clamp(l.x, Math.min(MAP_W / 2, half), Math.max(MAP_W / 2, MAP_W - half));
   l.y = clamp(l.y, size + 16, MAP_H - 16);
   return l;
-}
-
-/** A label for every named area and line that does not already have one. */
-function labelsFor(areas: MapArea[], lines: MapLine[], have: MapLabel[], pinNames: Set<string>, ids: Ids, kind: MapKind): MapLabel[] {
-  const out: MapLabel[] = [];
-  const seen = new Set([...have.map((l) => normName(l.text)), ...pinNames]);
-  for (const a of areas) {
-    if (!a.name || seen.has(normName(a.name))) continue;
-    seen.add(normName(a.name));
-    const [x, y] = centroid(a.points);
-    const s = area(a.points);
-    out.push({ id: ids.next('t'), text: a.name, x, y, size: kind === 'floor' ? (s > 30000 ? 'm' : 's') : kind === 'city' && a.kind === 'district' ? 'm' : s > 60000 ? 'l' : s > 12000 ? 'm' : 's', water: a.kind === 'water' || undefined });
-  }
-  for (const l of lines) {
-    if (!l.name || l.kind === 'door' || seen.has(normName(l.name)) || l.points.length < 2) continue;
-    seen.add(normName(l.name));
-    const i = Math.max(0, Math.floor(l.points.length / 2) - 1);
-    const a = l.points[i]!; const b = l.points[Math.min(l.points.length - 1, i + 1)]!;
-    let angle = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
-    if (angle > 90) angle -= 180;
-    if (angle < -90) angle += 180;
-    out.push({ id: ids.next('t'), text: l.name, x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2 - 8, size: 's', angle: Math.round(angle), water: l.kind === 'river' || l.kind === 'canal' || undefined });
-  }
-  return out;
 }
 
 export function buildMap(plan: MapPlan, ctx: BuildCtx): MapDoc {
@@ -504,8 +480,11 @@ export function buildMap(plan: MapPlan, ctx: BuildCtx): MapDoc {
 
   // ---- Labels ------------------------------------------------------------
   const labels: MapLabel[] = plan.labels.map((l) => ({ id: ids.next('t'), text: l.text, x: l.x * S, y: l.y * S, size: l.size ?? 'm' }));
-  labels.push(...labelsFor(areas.filter((a) => a.kind !== 'block' && !(kind === 'floor' && pins.some((p) => a.name && normName(p.name) === normName(a.name)))), lines, labels, new Set(pins.map((p) => normName(p.name))), ids, kind));
-  for (const l of labels) fitLabel(l);
+  // Areas, lines and pins carry their own names; a plan label that only repeats one is dropped.
+  const named = new Set([...areas, ...lines].map((x) => (x.name ? normName(x.name) : '')).concat(pins.map((p) => normName(p.name)), [normName(ctx.title)]));
+  const free = labels.filter((l) => !named.has(normName(l.text)));
+  labels.length = 0;
+  labels.push(...free.slice(0, 6));
 
   return {
     locationId: ctx.locationId,

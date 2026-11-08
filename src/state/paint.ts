@@ -44,7 +44,7 @@ export function replyBudget(model: string, wanted: number): number {
  * from where it stopped, up to three times, so long JSON arrives whole. Falls
  * back to the reasoning channel when the content is empty.
  */
-export async function complete(o: { model: string; messages: Parameters<typeof client.stream>[0]['messages']; maxTokens: number; temperature?: number; signal?: AbortSignal; onText?: (chars: number) => void; spend?: SpendContext; continuations?: number }): Promise<{ text: string; finish?: string; /** No answer came, only thinking: the text is the model's reasoning. */ thoughtOnly?: boolean }> {
+export async function complete(o: { model: string; messages: Parameters<typeof client.stream>[0]['messages']; maxTokens: number; temperature?: number; signal?: AbortSignal; onText?: (chars: number) => void; /** Characters of thinking so far, for models that think before they answer. */ onThinking?: (chars: number) => void; spend?: SpendContext; continuations?: number; /** Give up when the model sends nothing at all for this long (ms). */ stallMs?: number }): Promise<{ text: string; finish?: string; /** No answer came, only thinking: the text is the model's reasoning. */ thoughtOnly?: boolean }> {
   const { apiKey, defaults } = useSettings.getState();
   if (!apiKey) throw new Error('Add your OpenRouter key in Settings first.');
   const maxTokens = replyBudget(o.model, o.maxTokens);
@@ -52,12 +52,23 @@ export async function complete(o: { model: string; messages: Parameters<typeof c
   let reasoning = '';
   let finish: string | undefined;
   const spent = { cost: 0 as number | null, prompt: 0, completion: 0 };
+  // A stream that goes silent is cut off rather than left spinning: the caller's signal, or our own when nothing arrives for too long.
+  const stall = o.stallMs ?? 150000;
   const run = async (messages: typeof o.messages, budget = maxTokens) => {
     let part = '';
     let fin: string | undefined;
-    for await (const ev of client.stream({ apiKey, model: o.model, messages, params: { temperature: o.temperature ?? 0.9, topP: 0.95, maxTokens: budget, reasoning: false }, zdr: defaults.zdr, signal: o.signal })) {
+    const ac = new AbortController();
+    const onAbort = () => ac.abort();
+    o.signal?.addEventListener('abort', onAbort);
+    let stalled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => { if (timer) clearTimeout(timer); timer = setTimeout(() => { stalled = true; ac.abort(); }, stall); };
+    arm();
+    try {
+    for await (const ev of client.stream({ apiKey, model: o.model, messages, params: { temperature: o.temperature ?? 0.9, topP: 0.95, maxTokens: budget, reasoning: false }, zdr: defaults.zdr, signal: ac.signal })) {
+      arm();
       if (ev.type === 'text') { part += ev.text ?? ''; o.onText?.(text.length + part.length); }
-      if (ev.type === 'reasoning') reasoning += ev.text ?? '';
+      if (ev.type === 'reasoning') { reasoning += ev.text ?? ''; o.onThinking?.(reasoning.length); }
       if (ev.type === 'done') fin = ev.finishReason;
       if (ev.type === 'usage' && ev.usage) {
         spent.cost = spent.cost == null || ev.usage.costUsd == null ? null : spent.cost + ev.usage.costUsd;
@@ -66,6 +77,14 @@ export async function complete(o: { model: string; messages: Parameters<typeof c
       }
       if (ev.type === 'error') throw new Error(ev.error);
     }
+    } catch (e) {
+      if (stalled) throw new Error(`${o.model} sent nothing for ${Math.round(stall / 60000)} minutes, so it was stopped. Try again, or pick a faster model for the helper (Settings → Models).`);
+      throw e;
+    } finally {
+      if (timer) clearTimeout(timer);
+      o.signal?.removeEventListener('abort', onAbort);
+    }
+    if (stalled) throw new Error(`${o.model} sent nothing for ${Math.round(stall / 60000)} minutes, so it was stopped.`);
     return { part, fin };
   };
   try {

@@ -1,10 +1,11 @@
-import React, { memo, useMemo } from 'react';
+import React, { memo, useCallback, useMemo } from 'react';
 import { Platform } from 'react-native';
 import Svg, { Circle, ClipPath, Defs, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import { area as polyArea } from '@/core/map/geom';
 import { areaFill, areaPath, areaRank, doorSwing, graticule, gridPath, linePath, lineStrokes, marksPath, multiPath, pinShape, rosePath } from '@/core/map/draw';
 import { THEMES, scaleBar, type MapTheme } from '@/core/map/style';
-import type { MapArea, MapDoc, MapLabel, MapPin, Pt } from '@/core/map/types';
+import { placeLabels } from '@/core/map/labels';
+import type { MapArea, MapDoc, MapPin, Pt } from '@/core/map/types';
 import { mono, serif } from '../theme';
 
 const sans = Platform.select({ ios: 'Helvetica Neue', android: 'sans-serif', default: 'system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif' });
@@ -22,7 +23,8 @@ function Halo({ x, y, text, size, color, halo, font, italic, weight, spacing, an
 }
 
 /** Ground, terrain, buildings, lines and the map's furniture: everything that does not change while you look. */
-export const MapBase = memo(function MapBase({ doc, decor = true }: { doc: MapDoc; decor?: boolean }) {
+export const MapBase = memo(function MapBase({ doc, decor = true, zoom = 1 }: { doc: MapDoc; decor?: boolean; /** How far in from the whole map: lines thicken more slowly than the map grows. */ zoom?: number }) {
+  const lw = 1 / Math.sqrt(Math.max(1, zoom));
   const t = THEMES[doc.theme] ?? THEMES.fantasy;
   const font = fontOf(t);
   const layers = useMemo(() => {
@@ -89,14 +91,14 @@ export const MapBase = memo(function MapBase({ doc, decor = true }: { doc: MapDo
       ))}
 
       {/* Rivers and corridors run under what is built. */}
-      {lines.under.map((l) => lineStrokes(t, l.kind, doc.kind).map((s, i) => <Path key={`${l.id}-${i}`} d={linePath(l.kind, l.points)} fill="none" stroke={s.color} strokeWidth={s.width} strokeDasharray={s.dash} strokeOpacity={s.opacity ?? 1} strokeLinecap={s.cap ?? 'round'} strokeLinejoin="round" />))}
+      {lines.under.map((l) => lineStrokes(t, l.kind, doc.kind).map((s, i) => <Path key={`${l.id}-${i}`} d={linePath(l.kind, l.points)} fill="none" stroke={s.color} strokeWidth={s.width * lw} strokeDasharray={s.dash?.split(' ').map((v) => Number(v) * lw).join(' ')} strokeOpacity={s.opacity ?? 1} strokeLinecap={s.cap ?? 'round'} strokeLinejoin="round" />))}
 
       {layers.built.map((a) => <Path key={a.id} d={areaPath(a)} fill={areaFill(t, a.kind)} fillOpacity={a.kind === 'district' ? 0.55 : 0.95} stroke={a.kind === 'district' ? t.blockLine : t.ink} strokeOpacity={a.kind === 'district' ? 0.35 : 0.25} strokeWidth={a.kind === 'district' ? 1.2 : 0.8} strokeDasharray={a.kind === 'district' ? '6 4' : undefined} />)}
       {layers.blocks ? <Path d={layers.blocks} fill={t.block} stroke={t.blockLine} strokeWidth={0.6} strokeOpacity={t.glow ? 0.8 : 0.7} /> : null}
       {layers.namedBlocks.map((a) => <Path key={a.id} d={areaPath(a)} fill={t.block} stroke={t.blockLine} strokeWidth={1.4} />)}
 
       {/* Roads, walls, borders. */}
-      {lines.over.map((l) => lineStrokes(t, l.kind, doc.kind).map((s, i) => <Path key={`${l.id}-${i}`} d={linePath(l.kind, l.points)} fill="none" stroke={s.color} strokeWidth={s.width} strokeDasharray={s.dash} strokeOpacity={s.opacity ?? 1} strokeLinecap={s.cap ?? 'round'} strokeLinejoin="round" />))}
+      {lines.over.map((l) => lineStrokes(t, l.kind, doc.kind).map((s, i) => <Path key={`${l.id}-${i}`} d={linePath(l.kind, l.points)} fill="none" stroke={s.color} strokeWidth={s.width * lw} strokeDasharray={s.dash?.split(' ').map((v) => Number(v) * lw).join(' ')} strokeOpacity={s.opacity ?? 1} strokeLinecap={s.cap ?? 'round'} strokeLinejoin="round" />))}
 
       {/* Rooms: walls are their outlines; doors cut them. */}
       {layers.rooms.length ? (
@@ -113,17 +115,17 @@ export const MapBase = memo(function MapBase({ doc, decor = true }: { doc: MapDo
         </G>
       ))}
 
+      {/* Frame: the edge of the map, at every zoom. */}
+      {t.drawn ? (
+        <G>
+          <Rect x={6} y={6} width={doc.w - 12} height={doc.h - 12} fill="none" stroke={t.ink} strokeWidth={3} />
+          <Rect x={13} y={13} width={doc.w - 26} height={doc.h - 26} fill="none" stroke={t.ink} strokeWidth={0.8} />
+        </G>
+      ) : (
+        <Rect x={4} y={4} width={doc.w - 8} height={doc.h - 8} fill="none" stroke={t.glow ? t.coast : t.ink} strokeOpacity={t.glow ? 0.6 : 0.35} strokeWidth={1.5} />
+      )}
       {decor ? (
         <G>
-          {/* Frame */}
-          {t.drawn ? (
-            <G>
-              <Rect x={6} y={6} width={doc.w - 12} height={doc.h - 12} fill="none" stroke={t.ink} strokeWidth={3} />
-              <Rect x={13} y={13} width={doc.w - 26} height={doc.h - 26} fill="none" stroke={t.ink} strokeWidth={0.8} />
-            </G>
-          ) : (
-            <Rect x={4} y={4} width={doc.w - 8} height={doc.h - 8} fill="none" stroke={t.glow ? t.coast : t.ink} strokeOpacity={t.glow ? 0.6 : 0.35} strokeWidth={1.5} />
-          )}
           {/* Compass */}
           {t.drawn ? (
             <G opacity={0.85}>
@@ -153,7 +155,7 @@ export const MapBase = memo(function MapBase({ doc, decor = true }: { doc: MapDo
       ) : null}
     </G>
   );
-}, (a, b) => a.decor === b.decor && a.doc.areas === b.doc.areas && a.doc.lines === b.doc.lines && a.doc.theme === b.doc.theme && a.doc.title === b.doc.title && a.doc.kind === b.doc.kind && a.doc.scale === b.doc.scale && a.doc.ground === b.doc.ground);
+}, (a, b) => a.decor === b.decor && a.zoom === b.zoom && a.doc.areas === b.doc.areas && a.doc.lines === b.doc.lines && a.doc.theme === b.doc.theme && a.doc.title === b.doc.title && a.doc.kind === b.doc.kind && a.doc.scale === b.doc.scale && a.doc.ground === b.doc.ground);
 
 function Cartouche({ doc, t, font }: { doc: MapDoc; t: MapTheme; font: string }) {
   const size = doc.title.length > 24 ? 18 : 22;
@@ -176,8 +178,6 @@ function Cartouche({ doc, t, font }: { doc: MapDoc; t: MapTheme; font: string })
     </G>
   );
 }
-
-const LABEL_SIZE = { s: 13, m: 18, l: 26 } as const;
 
 /** One pin, shaped by what kind of place it is. */
 function PinMark({ p, t, shape, k, selected, dim }: { p: MapPin; t: MapTheme; shape: ReturnType<typeof pinShape>; k: number; selected?: boolean; dim?: boolean }) {
@@ -220,44 +220,37 @@ export interface Overlay {
 }
 
 /**
- * Labels and pins: drawn over the base, sized for the screen. `scale` is
- * screen pixels per map unit; text grows a little as you zoom in, never as
- * much as the map, so it stays readable from the whole map down to a street.
+ * Labels and pins over the base. `scale` is screen pixels per map unit:
+ * markers and text keep their size on screen at every zoom, and names that
+ * would collide give way to the more important ones (see core/map/labels).
  */
-export function MapMarks({ doc, typeOf, scale = 1, overlay }: { doc: MapDoc; typeOf?: (entityId: string) => string | undefined; scale?: number; overlay?: Overlay }) {
+export function MapMarks({ doc, typeOf, scale = 1, overlay, view }: { doc: MapDoc; typeOf?: (entityId: string) => string | undefined; scale?: number; overlay?: Overlay; view?: { x: number; y: number; w: number; h: number } | null }) {
   const t = THEMES[doc.theme] ?? THEMES.fantasy;
   const font = fontOf(t);
-  const k = Math.min(3, Math.max(0.25, Math.pow(Math.max(0.01, scale), -0.75)));
+  const k = 1 / Math.max(0.01, scale);
   const sel = overlay?.selected;
   const selArea = sel?.type === 'area' ? doc.areas.find((a) => a.id === sel.id) : undefined;
   const selLine = sel?.type === 'line' ? doc.lines.find((l) => l.id === sel.id) : undefined;
   const handlesOf = selArea?.points ?? selLine?.points ?? null;
   const closed = !!selArea;
+  const shapeOf = useCallback((p: MapPin) => pinShape(p.entityId ? typeOf?.(p.entityId) : undefined, doc.kind), [typeOf, doc.kind]);
+  const placed = useMemo(() => placeLabels(doc, { scale, glyph: t.font === 'mono' ? 0.62 : t.font === 'serif' ? 0.52 : 0.56, grand: t.font !== 'sans', shapeOf, selected: sel ?? null, view }), [doc, scale, t.font, shapeOf, sel, view]);
   return (
     <G>
-      {doc.labels.map((l: MapLabel) => (
-        <G key={l.id}>
-          {sel?.type === 'label' && sel.id === l.id ? <Rect x={l.x - (l.text.length * LABEL_SIZE[l.size] * 0.3 + 8) * k} y={l.y - LABEL_SIZE[l.size] * k} width={(l.text.length * LABEL_SIZE[l.size] * 0.6 + 16) * k} height={LABEL_SIZE[l.size] * 1.4 * k} fill="none" stroke={t.pin} strokeWidth={1.5 * k} strokeDasharray="4 3" /> : null}
-          <Halo x={l.x} y={l.y} text={l.size === 'l' && t.font !== 'sans' ? l.text.toUpperCase() : l.text} size={LABEL_SIZE[l.size] * k} color={l.water ? t.river : t.labelInk} halo={t.halo} font={font} italic={l.water || (t.drawn && l.size !== 's')} spacing={l.size === 'l' ? 4 * k : l.size === 'm' ? 1 * k : 0} angle={l.angle} weight={l.size === 's' ? '400' : '600'} />
-        </G>
-      ))}
       {selArea ? <Path d={areaPath(selArea)} fill={t.pin} fillOpacity={0.12} stroke={t.pin} strokeWidth={2.2 * k} strokeDasharray={`${8 * k} ${5 * k}`} /> : null}
       {selLine ? <Path d={linePath(selLine.kind, selLine.points)} fill="none" stroke={t.pin} strokeOpacity={0.5} strokeWidth={10 * k} strokeLinecap="round" strokeLinejoin="round" /> : null}
+      {placed.filter((l) => l.role !== 'pin').map((l) => (
+        <G key={l.key}>
+          {sel?.type === 'label' && sel.id === l.id ? <Rect x={l.x - (l.text.length * l.size * 0.3 + 6 * k)} y={l.y - l.size} width={l.text.length * l.size * 0.6 + 12 * k} height={l.size * 1.4} fill="none" stroke={t.pin} strokeWidth={1.5 * k} strokeDasharray={`${4 * k} ${3 * k}`} /> : null}
+          <Halo x={l.x} y={l.y} text={l.text} size={l.size} color={l.water ? t.river : t.labelInk} halo={t.halo} font={font} italic={l.water || (t.drawn && l.role !== 'line' && l.bold)} spacing={l.spacing || undefined} angle={l.angle || undefined} weight={l.bold ? '600' : '400'} anchor={l.anchor} />
+        </G>
+      ))}
       {doc.pins.map((p) => {
-        const s = pinShape(p.entityId ? typeOf?.(p.entityId) : undefined, doc.kind);
         const on = sel?.type === 'pin' && sel.id === p.id;
         const dim = !!overlay?.focus && overlay.focus !== p.entityId && overlay.focus !== p.id;
-        return (
-          <G key={p.id}>
-            <PinMark p={p} t={t} shape={s} k={k} selected={on || (!!overlay?.focus && !dim)} dim={dim} />
-            {(() => {
-              const size = (s === 'city' ? 16 : 14) * k;
-              const flip = p.x + 11 * k + p.name.length * size * 0.56 > doc.w - 8;
-              return <Halo x={flip ? p.x - 11 * k : p.x + 11 * k} y={p.y + 5 * k} text={p.name} size={size} color={t.labelInk} halo={t.halo} font={font} weight={s === 'city' ? '700' : '600'} anchor={flip ? 'end' : 'start'} />;
-            })()}
-          </G>
-        );
+        return <PinMark key={p.id} p={p} t={t} shape={shapeOf(p)} k={k} selected={on || (!!overlay?.focus && !dim)} dim={dim} />;
       })}
+      {placed.filter((l) => l.role === 'pin').map((l) => <Halo key={l.key} x={l.x} y={l.y} text={l.text} size={l.size} color={t.labelInk} halo={t.halo} font={font} weight={l.bold ? '700' : '600'} anchor={l.anchor} />)}
       {handlesOf && overlay?.handles ? (
         <G>
           {handlesOf.map((p, i) => {
@@ -296,7 +289,7 @@ export function MapPicture({ doc, width, typeOf, decor = true, focus }: { doc: M
   return (
     <Svg width={width} height={height} viewBox={`0 0 ${doc.w} ${doc.h}`}>
       <MapBase doc={doc} decor={decor} />
-      <MapMarks doc={doc} typeOf={typeOf} scale={Math.max(0.75, width / doc.w)} overlay={{ focus }} />
+      <MapMarks doc={doc} typeOf={typeOf} scale={width / doc.w} overlay={{ focus }} />
     </Svg>
   );
 }

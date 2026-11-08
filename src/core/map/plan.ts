@@ -26,6 +26,8 @@ export interface PlanLabel { text: string; x: number; y: number; size?: 's' | 'm
 export type SeaSide = 'none' | 'north' | 'south' | 'east' | 'west' | 'around';
 
 export interface MapPlan {
+  /** The kind of map the model judged right from the description, when it judged. */
+  kind?: MapKind | null;
   title: string;
   theme: ThemeKey | null;
   /** How far the map reaches from west edge to east edge, in its unit. */
@@ -63,10 +65,10 @@ const KIND_BRIEF: Record<MapKind, string> = {
 
 const SIZE_HINT: Record<MapKind, string> = {
   globe: 'the planet\'s circumference in km (Earth is 40075)',
-  region: 'how many km across',
-  city: 'how many metres across (a town 800 to 2000, a city 2000 to 8000)',
-  site: 'how many metres across (100 to 600)',
-  floor: 'how many metres across (10 to 80)',
+  region: 'in km (a valley 20, a province 150, a kingdom 600, a continent 4000)',
+  city: 'in metres (a village 600, a town 1500, a city 5000 to 15000, a great metropolis 20000 to 50000)',
+  site: 'in metres (a manor and its grounds 300, a fortress 600, a campus 1500)',
+  floor: 'in metres (a house 15, a tavern 25, a temple 60, a palace wing 120)',
 };
 
 const line = (p: PlanPlaceInfo) => `${p.name}${p.type ? ` (${p.type})` : ''}${p.summary ? `: ${p.summary}` : ''}`;
@@ -76,38 +78,39 @@ export function mapPlanPrompt(i: PlanInput): ChatMessage[] {
   const info = KIND_INFO[i.kind];
   const sys = [
     'You are a cartographer for a story world. You sketch the plan of one map as JSON numbers; a program draws it.',
+    'First judge how big the place really is and what kind of map shows it best, from what its entry says, not from its type alone: a school described as the size of a city is a city plan many kilometres across; a "station" that is a whole orbital habitat is a city plan; a castle is a site plan; a single house is a floor plan. If the entry gives a size or a population, follow it.',
     'The world\'s entries are the truth. Never contradict what they say about a place: if a city is on a river, put the river through it; if a tower stands on a hill, the hill is there. Where the entries are silent, invent what makes the place plausible for its climate, history and technology, and keep it consistent with the places around it.',
     'Coordinates are on a grid 100 wide (x, west to east) and 70 high (y, north to south). North is up.',
-    `Area kinds you may use: ${info.areas.join(', ')}. Line kinds: ${info.lines.join(', ')}.`,
+    'Kinds of map: globe (a whole world), region (land and its settlements), city (districts and streets), site (a few buildings and their grounds), floor (rooms of one building).',
+    ...(Object.keys(KIND_INFO) as MapKind[]).map((k) => `On a ${k} map, area kinds: ${KIND_INFO[k].areas.join(', ')}; line kinds: ${KIND_INFO[k].lines.join(', ')}.`),
     'Answer with JSON only, no commentary.',
   ].join('\n');
   const user = [
     `World: ${i.world.name}${i.world.genre ? ` — ${i.world.genre}` : ''}.${i.world.rules ? ` ${i.world.rules}` : ''}`,
     i.within.length ? `It lies within: ${i.within.map(line).join(' › ')}.` : '',
-    `Draw ${info.label.toLowerCase()} of ${line(i.place)}.`,
+    `Map ${line(i.place)}. From its type it would be ${info.label.toLowerCase()} (${info.span}); choose another kind if what the entry says calls for it.`,
     i.place.description ? `What the entry says: ${i.place.description}` : '',
     i.siblings.length ? `Its neighbours in the same place: ${i.siblings.join(', ')}.` : '',
     i.children.length ? `Places inside it that must each be placed, with their names exactly as written:\n${i.children.map((c) => `- ${line(c)}`).join('\n')}` : 'Nothing inside it is recorded yet: invent two to five places that belong here, named to fit the world.',
-    `It is ${KIND_BRIEF[i.kind]}. The map is drawn in a ${THEMES[i.theme].label.toLowerCase()} style.`,
+    `As ${info.label.toLowerCase()} it is ${KIND_BRIEF[i.kind]}. The map is drawn in a ${THEMES[i.theme].label.toLowerCase()} style.`,
     i.wish ? `The person wants: ${i.wish}` : '',
     '',
     'Shape:',
     '{',
+    '  "kind": "globe" | "region" | "city" | "site" | "floor",',
     '  "title": "the name on the map\'s cartouche",',
-    `  "across": number, // ${SIZE_HINT[i.kind]}`,
-    i.kind === 'globe' || i.kind === 'region' || i.kind === 'city' ? '  "sea": "none" | "north" | "south" | "east" | "west" | "around", // where open water is; "around" for an island' : '',
+    `  "across": number, // how far the map reaches west to east: a globe, ${SIZE_HINT.globe}; a region, ${SIZE_HINT.region}; a city, ${SIZE_HINT.city}; a site, ${SIZE_HINT.site}; a floor, ${SIZE_HINT.floor}. The place should fill most of the map.`,
+    '  "sea": "none" | "north" | "south" | "east" | "west" | "around", // where open water is (globe, region and city maps); "around" for an island',
     '  "features": [',
     '    {"kind": "<area kind>", "name": "optional", "x": 30, "y": 20, "w": 25, "h": 15}, // an area: centre and size',
     '    {"kind": "<line kind>", "name": "optional", "points": [[0, 30], [40, 35], [100, 28]]} // a line: two to six points',
     '  ],',
     '  "places": [{"name": "…", "x": 42, "y": 31}],',
-    '  "labels": [{"text": "a name worth writing on the map that is not a place", "x": 70, "y": 12, "size": "s" | "m" | "l"}]',
+    '  "labels": [{"text": "…", "x": 70, "y": 12, "size": "s" | "m" | "l"}] // at most four: names worth writing that have no area or line of their own (a sea, a quarter, a pass). Never the name of this place or of the places it lies within; areas and lines carry their own names',
     '}',
-    i.kind === 'floor'
-      ? 'Rooms: give every room as an area with x, y as its centre and w, h as its size; together they fill the building. A place that is a room sits at that room\'s centre and the room has the place\'s name.'
-      : i.kind === 'city'
-        ? 'Districts: give each as an area; neighbouring districts touch. Put places where the entries say; spread the rest sensibly.'
-        : 'Spread the places plausibly: settlements near water and along roads, strongholds on high ground, nothing on top of another.',
+    'For a floor plan, give every room as an area with x, y as its centre and w, h as its size; together they fill the building; a place that is a room sits at that room\'s centre and the room has the place\'s name.',
+    'For a city plan, give each district as an area; neighbouring districts touch and together they fill most of the map. Put places where the entries say; spread the rest sensibly.',
+    'Elsewhere, spread the places plausibly: settlements near water and along roads, strongholds on high ground, nothing on top of another.',
     'Six to sixteen features is plenty. Keep everything inside the grid.',
   ].filter(Boolean).join('\n');
   return [{ role: 'system', content: sys }, { role: 'user', content: user }];
@@ -159,7 +162,8 @@ export function parseMapPlan(text: string): MapPlan | null {
   if (!features.length && !places.length) return null;
   const sea = typeof raw.sea === 'string' && ['none', 'north', 'south', 'east', 'west', 'around'].includes(raw.sea) ? (raw.sea as SeaSide) : 'none';
   const theme = typeof raw.theme === 'string' && raw.theme in THEMES ? (raw.theme as ThemeKey) : null;
-  return { title: typeof raw.title === 'string' ? raw.title.trim() : '', theme, across: num(raw.across), unit: null, sea, features, places, labels };
+  const kind = typeof raw.kind === 'string' && raw.kind.toLowerCase() in KIND_INFO ? (raw.kind.toLowerCase() as MapKind) : null;
+  return { kind, title: typeof raw.title === 'string' ? raw.title.trim() : '', theme, across: num(raw.across), unit: null, sea, features, places, labels };
 }
 
 /** Is a planned place the same as a recorded one? */

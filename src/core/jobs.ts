@@ -52,7 +52,7 @@ export interface HearInput { model: string; messages: ChatMessage[]; styleId: st
 export interface HearOutput { text: string }
 
 /** A map drawn for a place: the model plans it, the builder draws it. */
-export interface MapInput { model: string; messages: ChatMessage[]; maxTokens?: number; locationId: string; mapKind: MapKind; theme: ThemeKey; title: string; children: BuildChild[]; seed: number; keepPins?: MapPin[] }
+export interface MapInput { model: string; messages: ChatMessage[]; maxTokens?: number; locationId: string; mapKind: MapKind; /** The person chose the kind: the model may not change it. */ kindFixed?: boolean; theme: ThemeKey; title: string; children: BuildChild[]; seed: number; keepPins?: MapPin[] }
 /** `saved`: the place had no map yet, so this one went straight onto it. */
 export interface MapOutput { doc: MapDoc; saved: boolean }
 
@@ -164,7 +164,8 @@ export function finishHear(text: string): HearOutput {
 export function finishMap(input: MapInput, universeId: string, text: string, now: number): MapDoc {
   const plan = parseMapPlan(text);
   if (!plan) throw new Error(`The model did not sketch a usable map: “${text.trim().slice(0, 140)}”. Try again, or another model.`);
-  return buildMap(plan, { locationId: input.locationId, universeId, kind: input.mapKind, theme: input.theme, title: input.title, children: input.children, seed: input.seed, now, keepPins: input.keepPins });
+  const kind = !input.kindFixed && plan.kind ? plan.kind : input.mapKind;
+  return buildMap(plan, { locationId: input.locationId, universeId, kind, theme: input.theme, title: input.title, children: input.children, seed: input.seed, now, keepPins: input.keepPins });
 }
 
 /** A short title for the inbox: what was asked for, in a few words. */
