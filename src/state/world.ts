@@ -11,7 +11,10 @@ import { applyDelta, initialPov, passTime, renderPov } from '@/core/world/surviv
 import { chroniclePrompt, parseChronicle } from '@/core/world/chronicle';
 import { applyThreadUpdates, gmReadPrompt, parseGmRead, parseThreads, seedThreadsPrompt, threadsForChronicle, type GmRead, type Thread } from '@/core/world/gm';
 import { formatTime } from '@/core/world/calendar';
-import { mentions, resolveRefs } from '@/core/world/scan';
+import { locationChain, mentions, resolveRefs } from '@/core/world/scan';
+import { whereLines } from '@/core/map/geo';
+import type { MapDoc } from '@/core/map/types';
+import { getMap } from '@/db/repo/atlas';
 import { renderCheck } from '@/core/world/dice';
 import { newId, now } from '@/core/ids';
 import { canonEvents, getInstance, listEntities, primeInstance, saveEvent, siblingStories } from '@/db/repo/world';
@@ -79,6 +82,8 @@ export async function buildWorldContext(db: SQLiteDatabase, s: Session, path: Be
   const recent = path.filter((b) => b.role !== 'note').slice(-4).map((b) => b.text).join('\n');
   const memory = s.instanceId ? await memoryContext(db, s, { focus: cast, text: recent }) : null;
   if (memory) siblings = siblings.filter((x) => !x.id || !memory.recapped.has(x.id));
+  const scene = extra.scene ?? sceneAt(path, initialScene(s, wb));
+  const where = await mapLines(db, scene.locationId, wb.entities);
   return {
     entities: wb.entities,
     links: wb.links,
@@ -87,7 +92,8 @@ export async function buildWorldContext(db: SQLiteDatabase, s: Session, path: Be
     events,
     siblings,
     now: extra.now ?? clockAt(path, s.clockStart),
-    scene: extra.scene ?? sceneAt(path, initialScene(s, wb)),
+    scene,
+    where,
     player: s.mode === 'pov' ? wb.player : null,
     check: extra.check ?? null,
     read: extra.read ?? null,
@@ -95,6 +101,16 @@ export async function buildWorldContext(db: SQLiteDatabase, s: Session, path: Be
     sim: extra.sim ?? null,
     memory: memory ? { previously: memory.previously, people: memory.people, entries: memory.entries } : null,
   };
+}
+
+/** What the maps of the places around the scene say about distance and direction. */
+async function mapLines(db: SQLiteDatabase, locationId: string | null, entities: WorldEntity[]): Promise<string[]> {
+  if (!locationId) return [];
+  const chain = locationChain(locationId, entities).reverse();
+  if (chain.length < 2) return [];
+  const maps = new Map<string, MapDoc | null>();
+  for (const c of chain.slice(1, 3)) maps.set(c.id, await getMap(db, c.id));
+  return whereLines(chain.map((c) => ({ id: c.id, name: c.name })), (id) => maps.get(id) ?? null);
 }
 
 export async function helperJson(o: { apiKey: string; model: string; messages: Parameters<typeof client.stream>[0]['messages']; maxTokens: number; zdr: boolean; signal?: AbortSignal }): Promise<string> {

@@ -6,6 +6,9 @@ import { ensureAnchor, parseBible, parseFieldValue, parseForgeDrafts, parseInspi
 import type { InspireAspect } from './world/types';
 import { parseVoiceBuild, type VoiceBuild } from './voice';
 import type { ArtBible, FieldDef } from './world/schema';
+import { buildMap, type BuildChild } from './map/build';
+import { parseMapPlan } from './map/plan';
+import type { MapDoc, MapKind, MapPin, ThemeKey } from './map/types';
 
 /**
  * Library work that runs in the background: forging entries, reforging a
@@ -15,7 +18,7 @@ import type { ArtBible, FieldDef } from './world/schema';
  * restarting the app loses nothing: the result waits in the world's inbox.
  * Everything here is pure; the runner lives in state/jobs.ts.
  */
-export type JobKind = 'forge' | 'reforge' | 'bible' | 'workshop' | 'question' | 'inspire' | 'voice' | 'hear';
+export type JobKind = 'forge' | 'reforge' | 'bible' | 'workshop' | 'question' | 'inspire' | 'voice' | 'hear' | 'map';
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 
 export interface ForgeInput {
@@ -48,6 +51,11 @@ export interface VoiceInput { model: string; messages: ChatMessage[]; styleId: s
 export interface HearInput { model: string; messages: ChatMessage[]; styleId: string; scene: string; maxTokens?: number }
 export interface HearOutput { text: string }
 
+/** A map drawn for a place: the model plans it, the builder draws it. */
+export interface MapInput { model: string; messages: ChatMessage[]; maxTokens?: number; locationId: string; mapKind: MapKind; theme: ThemeKey; title: string; children: BuildChild[]; seed: number; keepPins?: MapPin[] }
+/** `saved`: the place had no map yet, so this one went straight onto it. */
+export interface MapOutput { doc: MapDoc; saved: boolean }
+
 export interface QuestionInput { model: string; messages: ChatMessage[]; date: string; maxTokens?: number }
 export interface QuestionOutput { question: string; why: string; about: string }
 
@@ -60,6 +68,7 @@ export interface JobIO {
   inspire: [InspireInput, ForgeOutput];
   voice: [VoiceInput, VoiceBuild];
   hear: [HearInput, HearOutput];
+  map: [MapInput, MapOutput];
 }
 
 export interface Job<K extends JobKind = JobKind> {
@@ -91,6 +100,7 @@ export function proposalCount(j: Job): number {
     case 'reforge':
     case 'bible':
     case 'voice': return j.decisions.all ? 0 : 1;
+    case 'map': return j.decisions.all || (j.output as MapOutput).saved ? 0 : 1;
     default: return 0;
   }
 }
@@ -148,6 +158,13 @@ export function finishVoice(text: string): VoiceBuild {
 export function finishHear(text: string): HearOutput {
   if (!text.trim()) throw new Error('The writer wrote nothing. Try again.');
   return { text: text.trim() };
+}
+
+/** A map plan reply drawn into a map. Throws with a readable reason. */
+export function finishMap(input: MapInput, universeId: string, text: string, now: number): MapDoc {
+  const plan = parseMapPlan(text);
+  if (!plan) throw new Error(`The model did not sketch a usable map: “${text.trim().slice(0, 140)}”. Try again, or another model.`);
+  return buildMap(plan, { locationId: input.locationId, universeId, kind: input.mapKind, theme: input.theme, title: input.title, children: input.children, seed: input.seed, now, keepPins: input.keepPins });
 }
 
 /** A short title for the inbox: what was asked for, in a few words. */

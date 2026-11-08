@@ -13,7 +13,7 @@ import { deleteUniverse, getUniverse, newCharacter, newLore, newSpecies, saveCha
 import { instanceClock, listInstances, newEntity, newInstance, saveEntity, saveInstance, sessionsInInstance } from '@/db/repo/world';
 import { getAgent, listWorkshop } from '@/db/repo/agent';
 import { useJobs, inboxOf } from '@/state/jobs';
-import { Badge, Button, Card, Chip, Field, IconButton, MenuItem, Row, Screen, SearchBox, Section, Sheet, Stepper, T, matches } from '@/ui/components';
+import { Badge, Button, Card, Chip, Field, MenuItem, Row, Screen, SearchBox, Section, Sheet, Stepper, T, matches } from '@/ui/components';
 import { useEntryReforge } from '@/ui/components/Reforge';
 import { ForgeSheet } from '@/ui/components/Forge';
 import type { ForgeKind } from '@/core/world/forge';
@@ -22,25 +22,27 @@ import { StyleBible } from '@/ui/components/StyleBible';
 import { StyleBoard } from '@/ui/components/StyleBoard';
 import { QuestionCard } from '@/ui/components/Question';
 import { InboxList, ProposalSheet } from '@/ui/components/Proposals';
-import { Block, EditActions, EditingBar, Lede, MiniAvatar, SectionsEditor, SectionsView, openEntry, useEditable, useLeaveGuard, workshopRoute } from '@/ui/components/Entry';
+import { Block, EditActions, EditingBar, Lede, MiniAvatar, SectionsEditor, SectionsView, openEntry, useEditable, useLeaveGuard, useStartEditing, workshopRoute } from '@/ui/components/Entry';
 import { useWorld, type EntryRef } from '@/ui/useWorld';
+import { WorldMaps } from '@/ui/map/WorldMaps';
+import { InboxButton } from '@/ui/components/InboxButton';
 import { radius, space, useTheme } from '@/ui/theme';
 
-type Tab = 'world' | 'workshop' | 'entries' | 'instances';
+type Tab = 'world' | 'map' | 'style' | 'workshop' | 'entries' | 'instances';
 type Filter = 'all' | LibKind;
 type Sort = 'name' | 'recent' | 'tied';
 
 /** Older links name the tabs that used to be here. */
 const LEGACY: Record<string, { tab: Tab; kind?: Filter }> = {
   overview: { tab: 'world' }, places: { tab: 'entries', kind: 'location' }, people: { tab: 'entries', kind: 'character' }, factions: { tab: 'entries', kind: 'organization' },
-  things: { tab: 'entries', kind: 'item' }, peoples: { tab: 'entries', kind: 'species' }, lore: { tab: 'entries', kind: 'lore' }, instances: { tab: 'instances' }, workshop: { tab: 'workshop' }, entries: { tab: 'entries' }, world: { tab: 'world' },
+  things: { tab: 'entries', kind: 'item' }, peoples: { tab: 'entries', kind: 'species' }, lore: { tab: 'entries', kind: 'lore' }, instances: { tab: 'instances' }, workshop: { tab: 'workshop' }, entries: { tab: 'entries' }, world: { tab: 'world' }, map: { tab: 'map' }, maps: { tab: 'map' }, style: { tab: 'style' },
 };
 const KINDS: LibKind[] = ['location', 'character', 'organization', 'item', 'species', 'lore'];
 const FORGE_OF: Record<Filter, ForgeKind> = { all: 'mixed', world: 'mixed', location: 'location', character: 'character', organization: 'organization', item: 'item', species: 'species', lore: 'lore' };
 
 /** A world: what it is, its agent and inbox, everything in it, and the versions of it stories happen in. */
 export default function WorldHub() {
-  const { id, tab: tabParam, kind: kindParam } = useLocalSearchParams<{ id: string; tab?: string; kind?: Filter }>();
+  const { id, tab: tabParam, kind: kindParam, edit } = useLocalSearchParams<{ id: string; tab?: string; kind?: Filter; edit?: string }>();
   const db = useSQLiteContext();
   const start = LEGACY[tabParam ?? ''] ?? { tab: 'world' as Tab };
   const [tab, setTab] = useState<Tab>(start.tab);
@@ -64,6 +66,7 @@ export default function WorldHub() {
   const takeSelf = useCallback((row: unknown) => ed.setBuffer((b) => (b ? { ...b, ...(row as Universe), data: { ...b.data, ...(row as Universe).data } } : b)), [ed]);
   const rf = useEntryReforge({ db, universeId: id, row: rowOf, onSelf: takeSelf });
   useLeaveGuard(ed.dirty, ed.commit);
+  useStartEditing(edit, !!ed.saved, ed.begin);
 
   const reloadSide = useCallback(() => {
     if (!id) return;
@@ -105,11 +108,18 @@ export default function WorldHub() {
     router.push(`/world/instance/${i.id}`);
   }
 
-  const tabs: { key: Tab; label: string }[] = [{ key: 'world', label: 'World' }, ...(u.isDefault ? [] : [{ key: 'workshop' as Tab, label: waiting ? `Workshop · ${waiting}` : 'Workshop' }]), { key: 'entries', label: `Entries${w.index.length ? ` · ${w.index.length}` : ''}` }, { key: 'instances', label: 'Instances' }];
+  const tabs: { key: Tab; label: string }[] = [
+    { key: 'world', label: 'World' },
+    { key: 'map', label: 'Map' },
+    ...(u.isDefault ? [] : [{ key: 'style' as Tab, label: 'Style' }, { key: 'workshop' as Tab, label: waiting ? `Workshop · ${waiting}` : 'Workshop' }]),
+    { key: 'entries', label: `Entries${w.index.length ? ` · ${w.index.length}` : ''}` },
+    { key: 'instances', label: 'Instances' },
+  ];
   const bible = bibleOf(u.data.art);
-  const headerRight = () => (tab === 'world'
-    ? <EditActions editing={ed.editing} dirty={ed.dirty} saving={ed.saving} onEdit={ed.begin} onSave={() => void ed.commit()} onDiscard={ed.discard} />
-    : !u.isDefault ? <IconButton name="mail-outline" badge={waiting > 0} onPress={() => setTab('workshop')} /> : null);
+  const inboxIcon = <InboxButton world={u.id} />;
+  const headerRight = () => (tab === 'world' || tab === 'style'
+    ? <EditActions editing={ed.editing} dirty={ed.dirty} saving={ed.saving} onEdit={ed.begin} onSave={() => void ed.commit()} onDiscard={ed.discard} extra={ed.editing ? undefined : inboxIcon} />
+    : inboxIcon);
 
   return (
     <Screen scroll>
@@ -128,9 +138,6 @@ export default function WorldHub() {
           </View>
           <View style={{ height: 18 }} />
           <SectionsEditor defs={WORLD_FIELDS} data={u.data as unknown as Record<string, unknown>} onChange={(p) => ed.change({ data: { ...u.data, ...p } })} onForge={(d) => void rf.open(d.key)} />
-          <Block title="Style bible">
-            <StyleBible value={u.data.art ?? {}} onChange={(art) => ed.change({ data: { ...u.data, art } })} universe={u} people={w.lib?.characters ?? []} entities={w.lib?.entities ?? []} />
-          </Block>
           <Block title="Calendar">
             <Row>
               <Chip label="Real dates" selected={cal.kind === 'gregorian'} onPress={() => setCal({ kind: 'gregorian' })} />
@@ -161,6 +168,7 @@ export default function WorldHub() {
         </>
       ) : (
         <>
+          {!u.isDefault ? <View style={{ marginBottom: space.lg }}><QuestionCard universe={u} /></View> : null}
           <Lede kicker={['World', u.data.genre.split('\n')[0]?.slice(0, 60)].filter(Boolean).join(' · ')} title={u.name} />
           {u.description ? u.description.split(/\n{2,}/).map((p, i) => <T key={i} v="serif" style={{ fontSize: 17, lineHeight: 26, marginBottom: 10 }}>{p.trim()}</T>) : <T v="faint">{u.isDefault ? 'The real world sends nothing to the writer unless you write something here.' : 'No description yet. Tap the pencil to write one, or ask the agent in the Workshop.'}</T>}
           <View style={{ height: 12 }} />
@@ -172,16 +180,28 @@ export default function WorldHub() {
               </Row>
             </Block>
           ) : null}
-          <Block title="Style bible">
-            <StyleBoard bible={bible} lib={w.lib} />
-          </Block>
           <Block title="Calendar"><T v="dim">{cal.kind === 'gregorian' ? 'Real dates' : 'Its own reckoning'} · minute zero is {formatTime(cal, 0)}</T></Block>
+        </>
+      )) : null}
+
+      {tab === 'map' ? <WorldMaps lib={w.lib} /> : null}
+
+      {tab === 'style' ? (ed.editing ? (
+        <>
+          <EditingBar dirty={ed.dirty} />
+          <T v="faint">The style bible is how every picture of this world is made: portraits, places, things, emblems. It is never sent to the writer.</T>
+          <View style={{ height: 8 }} />
+          <StyleBible value={u.data.art ?? {}} onChange={(art) => ed.change({ data: { ...u.data, art } })} universe={u} people={w.lib?.characters ?? []} entities={w.lib?.entities ?? []} />
+        </>
+      ) : (
+        <>
+          <StyleBoard bible={bible} lib={w.lib} />
+          <T v="faint" style={{ marginTop: space.md }}>Tap the pencil to change the bible, or have it written for you. Its maps take their look from the world too; each map can pick its own in the map editor.</T>
         </>
       )) : null}
 
       {tab === 'workshop' ? (
         <>
-          <View style={{ marginBottom: space.lg }}><QuestionCard universe={u} /></View>
           <Section title={`Inbox${waiting ? ` · ${waiting}` : ''}`}>
             <InboxList jobs={inbox} onOpen={setReview} empty="Nothing waiting. What forge, reforge and the agent write lands here for you to accept or dismiss; it keeps going when you leave." />
           </Section>

@@ -33,6 +33,7 @@ export async function deleteUniverse(db: SQLiteDatabase, id: Id): Promise<void> 
     await db.runAsync('DELETE FROM world_events WHERE instance_id IN (SELECT id FROM instances WHERE universe_id = ?)', id);
     await db.runAsync('DELETE FROM instances WHERE universe_id = ?', id);
     await db.runAsync('DELETE FROM entities WHERE universe_id = ?', id);
+    await db.runAsync('DELETE FROM maps WHERE universe_id = ?', id);
     await db.runAsync('UPDATE sessions SET universe_id = ?, instance_id = ? WHERE universe_id = ?', real?.id ?? null, realPrime?.id ?? null, id);
     await db.runAsync('DELETE FROM species WHERE universe_id = ?', id);
     await db.runAsync('DELETE FROM lore WHERE universe_id = ?', id);

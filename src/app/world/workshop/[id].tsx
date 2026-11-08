@@ -1,3 +1,4 @@
+import { InboxButton } from '@/ui/components/InboxButton';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Platform, Pressable, TextInput, View } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -130,7 +131,7 @@ export default function Workshop() {
 
   return (
     <KeyboardShift style={{ flex: 1, backgroundColor: t.bg }} offset={offset}>
-      <Stack.Screen options={{ title: u ? `Workshop · ${u.name}` : 'Workshop', headerRight: () => <IconButton name="reader-outline" onPress={() => { setBriefDraft(brief); setBriefOpen(true); }} /> }} />
+      <Stack.Screen options={{ title: u ? `Workshop · ${u.name}` : 'Workshop', headerRight: () => <Row gap={0}>{u ? <InboxButton world={u.id} /> : null}<IconButton name="reader-outline" onPress={() => { setBriefDraft(brief); setBriefOpen(true); }} /></Row> }} />
       {err ? <View style={{ padding: space.md }}><Banner text={err} onClose={() => setErr(null)} /></View> : null}
       <FlatList
         ref={listRef}

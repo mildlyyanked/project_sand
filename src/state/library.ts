@@ -13,7 +13,8 @@ export async function loadLibrary(db: SQLiteDatabase, universeId: string | null 
     return { universe: null, entities: [], characters, species: [], lore: [] };
   }
   const [universe, entities, characters, species, lore, links] = await Promise.all([getUniverse(db, universeId), listEntities(db, universeId), listCharacters(db), listSpecies(db, universeId), listLore(db, universeId), listLinks(db, universeId)]);
-  return { universe, entities, characters: characters.filter((c) => c.universeId === universeId), species, lore, links };
+  // Characters of no world live in the real one.
+  return { universe, entities, characters: characters.filter((c) => c.universeId === universeId || (!c.universeId && !!universe?.isDefault)), species, lore, links };
 }
 
 export async function savePlan(db: SQLiteDatabase, plan: Plan, o: { newWorld?: boolean } = {}): Promise<void> {

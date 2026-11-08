@@ -17,6 +17,7 @@ import { RetconSheet } from '@/ui/components/Retcon';
 import { Block, ConnectionsView, EditActions, EditingBar, Lede, SectionsEditor, SectionsView, TiesEditor, useEditable, useLeaveGuard, useStartEditing, workshopRoute } from '@/ui/components/Entry';
 import { withDescendants } from '@/ui/worldRefs';
 import { useWorld } from '@/ui/useWorld';
+import { PlaceMapBlock } from '@/ui/map/PlaceMap';
 
 interface Editable { id: string; row: WorldEntity; links: StoredLink[] }
 
@@ -95,6 +96,7 @@ export default function EntityPage() {
         <>
           <Lede kicker={kicker} title={e.name} lede={e.summary} picture={picture} badges={[within ? <T key="w" v="dim">{within}</T> : null, e.keys.length ? <T key="k" v="faint">Also called {e.keys.join(', ')}</T> : null]} />
           <SectionsView defs={[...FIELDS_BY_KIND[e.kind]]} data={e.data} />
+          {e.kind === 'location' ? <Block title="Map"><PlaceMapBlock place={e} parent={e.parentId ? all.find((x) => x.id === e.parentId) : null} /></Block> : null}
           <Block title="Connections" right={e.kind !== 'item' ? <Button small kind="ghost" icon="add" title={e.kind === 'location' ? 'Place inside' : 'Branch'} onPress={() => void addChild()} /> : undefined}>
             <ConnectionsView id={e.id} graph={w.graph} byId={w.byId} empty={e.kind === 'location' ? 'Nothing is tied here yet: no one lives here, nothing sits inside it.' : e.kind === 'organization' ? 'No members, seat or ties yet.' : 'Nobody holds it and it is kept nowhere.'} />
           </Block>

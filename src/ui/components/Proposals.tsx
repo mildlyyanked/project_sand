@@ -1,13 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
-import type { BibleOutput, Job, ReforgeInput, ReforgeOutput } from '@/core/jobs';
+import type { BibleOutput, Job, MapOutput, ReforgeInput, ReforgeOutput } from '@/core/jobs';
+import { MapPicture } from '../map/MapCanvas';
 import { proposalCount } from '@/core/jobs';
 import { changedFields, removing } from '@/core/world/agent';
 import { DRAFT_FIELDS, KIND_NOUN, fieldDef, normName, tiesText, type Draft } from '@/core/world/drafts';
 import { BIBLE_FIELDS } from '@/core/world/schema';
 import { useJobs } from '@/state/jobs';
-import { acceptBible, acceptDrafts, acceptReforge, dismissDrafts, draftsOf } from '@/state/proposals';
+import { acceptBible, acceptDrafts, acceptMap, acceptReforge, dismissDrafts, draftsOf } from '@/state/proposals';
 import { loadLibrary, namesByKind } from '@/state/library';
 import { libraryDrafts } from '@/core/world/drafts';
 import { Badge, Banner, Button, Card, Field, FieldLabel, IconButton, Ionicons, Row, Sheet, T } from './index';
@@ -148,6 +149,24 @@ export function ProposalReview({ job, onDone, onAccepted }: { job: Job; onDone?:
     );
   }
 
+  if (job.kind === 'map') {
+    const out = job.output as MapOutput;
+    const decided = out.saved ? 'accepted' : job.decisions.all;
+    return (
+      <View style={{ gap: 10 }}>
+        <View style={{ borderRadius: radius.md, overflow: 'hidden', alignSelf: 'center' }}><MapPicture doc={out.doc} width={340} /></View>
+        <T v="faint">{out.doc.pins.length} places · {out.doc.areas.length + out.doc.lines.length} shapes</T>
+        {decided ? <Badge label={decided === 'accepted' ? 'used' : 'dismissed'} tone={decided === 'accepted' ? 'ok' : 'dim'} /> : (
+          <Row>
+            <Button title="Use this map" icon="checkmark" loading={busy} onPress={async () => { setBusy(true); try { await acceptMap(db, job); onAccepted?.([]); onDone?.(); } finally { setBusy(false); } }} style={{ flex: 1 }} />
+            <Button kind="outline" title="Keep mine" onPress={async () => { await useJobs.getState().decide(db, job.id, 'all', 'dismissed'); onDone?.(); }} />
+          </Row>
+        )}
+        {!decided ? <T v="faint">Using it replaces the place’s map, hand edits included.</T> : null}
+      </View>
+    );
+  }
+
   if (job.kind === 'bible') {
     const b = (job.output as BibleOutput).bible;
     const decided = job.decisions.all;
@@ -237,7 +256,7 @@ export function ProposalSheet({ jobId, onClose, onAccepted }: { jobId: string | 
   );
 }
 
-const KIND_LABEL: Record<Job['kind'], string> = { forge: 'Forge', reforge: 'Reforge', bible: 'Style bible', workshop: 'Workshop', question: 'Question', inspire: 'Inspiration', voice: 'Voice', hear: 'Voice test' };
+const KIND_LABEL: Record<Job['kind'], string> = { forge: 'Forge', reforge: 'Reforge', bible: 'Style bible', workshop: 'Workshop', question: 'Question', inspire: 'Inspiration', voice: 'Voice', hear: 'Voice test', map: 'Map' };
 
 /** A world's inbox: what is being written, and what waits on a decision. */
 export function InboxList({ jobs, onOpen, empty }: { jobs: Job[]; onOpen: (id: string) => void; empty?: string }) {

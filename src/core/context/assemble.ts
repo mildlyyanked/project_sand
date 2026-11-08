@@ -53,6 +53,8 @@ export interface WorldContext {
   memory?: { previously: string; people: string; entries: string } | null;
   /** Play on the world simulation: the narrator's contract, the scene as it stands, and the turn as decided. */
   sim?: { contract: string; scene: string; turn: string } | null;
+  /** From the maps: how far and which way the places around the scene are. */
+  where?: string[];
 }
 
 export interface AssembleInput {
@@ -184,6 +186,7 @@ export function assembleContext(input: AssembleInput): AssembledContext {
       lines.push(`# Where the scene is: ${chain.map((c) => c.name).join(' › ')}`, [renderEntity(here, entities, refName, { play: !!pov }), ...ties(here.id)].join('\n'));
       const exits = [...childrenOf(here.id, entities), ...(here.parentId ? childrenOf(here.parentId, entities).filter((x) => x.id !== here.id) : [])].filter((x) => x.kind === 'location').slice(0, 12);
       if (exits.length) lines.push(`Nearby: ${exits.map((x) => x.name).join(', ')}.`);
+      if (world.where?.length) lines.push(`Distances and directions, from the maps (use them; do not contradict them):\n${world.where.join('\n')}`);
     } else lines.push(`# Where the scene is: ${world.scene.locationName.trim()}`);
     if (world.scene.present?.length) lines.push(`Also in the scene: ${world.scene.present.join(', ')}.`);
     push({ key: 'place', label: `Place · ${here?.name ?? world.scene.locationName}`, role: 'system', text: lines.join('\n\n') });

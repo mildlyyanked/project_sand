@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { newId, now } from '@/core/ids';
-import { awaiting, finishBible, finishForge, finishHear, finishInspire, finishReforge, finishVoice, type BibleInput, type InspireInput, type ForgeInput, type Job, type JobIO, type JobKind, type QuestionInput, type ReforgeInput, type WorkshopInput, type WorkshopOutput } from '@/core/jobs';
+import { awaiting, finishBible, finishForge, finishHear, finishInspire, finishReforge, finishVoice, finishMap, type BibleInput, type MapInput, type MapOutput, type InspireInput, type ForgeInput, type Job, type JobIO, type JobKind, type QuestionInput, type ReforgeInput, type WorkshopInput, type WorkshopOutput } from '@/core/jobs';
 import { changeDrafts, parseAgentReply, parseQuestion, removing, retconChanges, type AgentRemove, type AgentRevise } from '@/core/world/agent';
 import { affected, mergeEdits, parseRetcon, renameEdits, retconPrompt } from '@/core/world/retcon';
 import { knowledge, libraryDrafts, normName, type Draft } from '@/core/world/drafts';
@@ -10,6 +10,7 @@ import { getWorkshopMessage, patchAgent, saveWorkshop } from '@/db/repo/agent';
 import { complete } from './paint';
 import { runInForeground } from './foreground';
 import { loadLibrary } from './library';
+import { getMap, saveMap } from '@/db/repo/atlas';
 
 /**
  * The background queue for library work. Jobs are saved before they run and
@@ -20,7 +21,7 @@ import { loadLibrary } from './library';
  * background. Results wait, undecided, until someone accepts or dismisses them.
  */
 const CONCURRENCY = 2;
-const TEMPERATURE: Record<JobKind, number> = { forge: 0.9, reforge: 0.85, bible: 0.6, workshop: 0.8, question: 0.95, inspire: 0.85, voice: 0.7, hear: 0.9 };
+const TEMPERATURE: Record<JobKind, number> = { forge: 0.9, reforge: 0.85, bible: 0.6, workshop: 0.8, question: 0.95, inspire: 0.85, voice: 0.7, hear: 0.9, map: 0.8 };
 
 interface JobsState {
   jobs: Job[];
@@ -149,6 +150,15 @@ async function finishJob(db: SQLiteDatabase, j: Job, text: string, finish?: stri
     case 'inspire': return finishInspire(j.input as InspireInput, text);
     case 'voice': return finishVoice(text);
     case 'hear': return finishHear(text);
+    case 'map': {
+      const input = j.input as MapInput;
+      const doc = finishMap(input, j.universeId ?? '', text, now());
+      // A place's first map goes straight onto it; a redraw waits to be compared.
+      const saved = !(await getMap(db, input.locationId));
+      if (saved) await saveMap(db, doc);
+      const out: MapOutput = { doc, saved };
+      return out;
+    }
     case 'question': {
       const q = parseQuestion(text);
       if (!q) throw new Error('The agent did not come up with a question. Try again.');

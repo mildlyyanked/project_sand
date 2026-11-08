@@ -97,7 +97,6 @@ export default function RootLayout() {
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 <Stack.Screen name="settings" options={{ title: 'Settings' }} />
                 <Stack.Screen name="models" options={{ title: '', presentation: 'modal', headerShown: false }} />
-                <Stack.Screen name="new" options={{ title: 'Workshop' }} />
                 <Stack.Screen name="templates" options={{ title: 'Prompt templates' }} />
                 <Stack.Screen name="lab" options={{ title: 'Prompt lab' }} />
                 <Stack.Screen name="session/[id]/index" options={{ title: '' }} />
@@ -112,6 +111,8 @@ export default function RootLayout() {
                 <Stack.Screen name="library/lore/[id]" options={{ title: 'Lore' }} />
                 <Stack.Screen name="world/workshop/[id]" options={{ title: 'Workshop' }} />
                 <Stack.Screen name="world/instance/[id]" options={{ title: 'Instance' }} />
+                <Stack.Screen name="world/map/[id]" options={{ title: 'Map' }} />
+                <Stack.Screen name="inbox" options={{ title: 'Inbox' }} />
                 <Stack.Screen name="stories/[world]" options={{ title: '' }} />
                 <Stack.Screen name="start" options={{ title: 'New story' }} />
               </Stack>

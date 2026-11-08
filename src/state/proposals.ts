@@ -1,6 +1,8 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Universe } from '@/core/types';
-import type { BibleOutput, ForgeOutput, Job, ReforgeInput, ReforgeOutput, WorkshopOutput } from '@/core/jobs';
+import type { BibleOutput, ForgeOutput, Job, MapOutput, ReforgeInput, ReforgeOutput, WorkshopOutput } from '@/core/jobs';
+import { saveMap } from '@/db/repo/atlas';
+import { now as nowMs } from '@/core/ids';
 import { changedFields, removing } from '@/core/world/agent';
 import { DRAFT_FIELDS, type Draft, type Plan } from '@/core/world/drafts';
 import { deleteCharacter, deleteLore, deleteSpecies, getUniverse, saveUniverse } from '@/db/repo/library';
@@ -115,4 +117,11 @@ export async function acceptBible(db: SQLiteDatabase, j: Job): Promise<Universe 
   await saveUniverse(db, next);
   await useJobs.getState().decide(db, j.id, 'all', 'accepted');
   return next;
+}
+
+/** Use a redrawn map in place of the one the place has. */
+export async function acceptMap(db: SQLiteDatabase, j: Job): Promise<void> {
+  const out = j.output as MapOutput;
+  await saveMap(db, { ...out.doc, updatedAt: nowMs() });
+  await useJobs.getState().decide(db, j.id, 'all', 'accepted');
 }

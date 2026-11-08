@@ -10,8 +10,6 @@ import { defaultWorldId, listInstances, primeInstance } from '@/db/repo/world';
 import { useSettings } from '@/state/settings';
 import { Card, Empty, Ionicons, MenuItem, Row, Sheet, T } from '@/ui/components';
 import { StoryCard, useStoryMenu } from '@/ui/components/Stories';
-import { QuestionCard } from '@/ui/components/Question';
-import { dayOf, worldOfTheDay } from '@/core/world/agent';
 import { Avatar } from '@/ui/components/EntryImage';
 import { appVersion } from '@/ui/version';
 import { radius, space, useTheme } from '@/ui/theme';
@@ -63,8 +61,6 @@ export default function Home() {
   }
 
   const realId = worlds.find((w) => w.isDefault)?.id ?? null;
-  // One world's question a day, in turn: the worlds of your own.
-  const questionWorld = worldOfTheDay(worlds.filter((w) => !w.isDefault), dayOf());
   const worldOf = (s: Session) => s.universeId ?? realId;
   const recent = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3);
   const folders = worlds
@@ -84,7 +80,6 @@ export default function Home() {
         contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: 120, flexGrow: 1 }}
         ListHeaderComponent={
           <View style={{ gap: space.sm, marginBottom: recent.length ? space.sm : 0 }}>
-            {questionWorld ? <QuestionCard key={questionWorld.id} universe={questionWorld} hideWhenDone showWorld /> : null}
             {recent.length ? (
               <>
                 <T v="label">Recent</T>
@@ -122,7 +117,6 @@ export default function Home() {
         <MenuItem icon="document-outline" label="Blank" hint="Plain writing in the real world: just the story" onPress={createBlank} />
         <MenuItem icon="planet-outline" label="In a world" hint="Pick a world and an instance; chapters share its memory" onPress={() => { setSheet(false); router.push('/start'); }} />
         <MenuItem icon="game-controller-outline" label="Play a character" hint="Be one person inside a world, on its map" onPress={() => { setSheet(false); router.push('/start?mode=pov'); }} />
-        <MenuItem icon="chatbubbles-outline" label="Workshop it" hint="Talk it through with an editor until a premise lands" onPress={() => { setSheet(false); router.push('/new'); }} />
         {templates.length ? (
           <View style={{ marginTop: space.md, gap: 4 }}>
             <T v="label">From template</T>

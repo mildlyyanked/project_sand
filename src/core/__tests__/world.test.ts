@@ -209,6 +209,9 @@ describe('assembling with a world', () => {
     expect(ctx.layers.find((l) => l.key === 'elements')!.text).toContain('## Salvage Guild');
     expect(ctx.layers.find((l) => l.key === 'characters')!.text).toContain('Home: Vell');
     expect(ctx.layers.find((l) => l.key === 'continuity')!.text).toContain('The flood');
+    expect(ctx.layers.find((l) => l.key === 'place')!.text).not.toContain('from the maps');
+    const mapped = assembleContext({ ...base, session: s, characters: [], universe: universe(), world: { entities: [vell, market, guild], instance: null, events: [], siblings: [], now: 0, scene: { locationId: 'L3', locationName: 'Tide Market' }, player: null, where: ['From Tide Market, on the map of Vell: the Drowned Bell is 400 m north-east (5 minutes on foot).'] } });
+    expect(mapped.layers.find((l) => l.key === 'place')!.text).toContain('from the maps (use them; do not contradict them):\nFrom Tide Market, on the map of Vell: the Drowned Bell is 400 m north-east');
   });
   it('plays: player sheet, ruling and the interactive contract', () => {
     const ora = character({ id: 'c2', name: 'Ora' });

@@ -3,14 +3,15 @@ import { Tabs } from 'expo-router/js-tabs';
 import { router } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSettings } from '@/state/settings';
-import { IconButton } from '@/ui/components';
+import { IconButton, Row } from '@/ui/components';
+import { InboxButton } from '@/ui/components/InboxButton';
 import { useTheme } from '@/ui/theme';
 
 /** Home is three tabs: the stories, the library they draw on, and what it all costs. */
 export default function TabsLayout() {
   const t = useTheme();
   const apiKey = useSettings((s) => s.apiKey);
-  const settingsButton = () => <IconButton name="settings-outline" onPress={() => router.push('/settings')} badge={!apiKey} />;
+  const settingsButton = () => <Row gap={0}><InboxButton /><IconButton name="settings-outline" onPress={() => router.push('/settings')} badge={!apiKey} /></Row>;
   return (
     <Tabs
       screenOptions={{

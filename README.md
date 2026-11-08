@@ -35,9 +35,11 @@ Web also works for desktop use: `npx expo start --web`.
 3. Pick a writer, summarizer and helper model.
 4. Back on the home screen, tap **+**.
 
-## Workshop
+The premise workshop (+ → Workshop it) was retired in 0.20: start blank, in a world, or playing a character, and talk ideas through with a world's agent instead.
 
-**+ → Workshop it** opens a conversation with an editor model. Say anything, answer its questions, ask for premises when ready, then keep pushing on them. When it feels settled, **Draft the brief**: the helper compiles the conversation into a title, a premise with its ideas stated outright, the people with rough setups, a world and a voice. Every field is editable. Creating the story adds those people, the world and the style to your library and attaches them to the session; the brief becomes the story's first note.
+## The inbox
+
+Everything the helpers write in the background (forges, reforges, style bibles, the agent's proposals, voices, maps) waits in the **inbox** until you decide. The envelope is on the Stories and Library headers, on every world's header and in its workshop: it shows a dot when something waits on you and an hourglass while work is running. The inbox lists everything across worlds, waiting first, with a chip per world; opened from a world it starts on that world.
 
 On the home screen, hold a story for Open, Session settings, Duplicate and Delete.
 
@@ -97,8 +99,8 @@ OpenRouter's image models come with their providers' filters. **Settings → Ill
 
 The writer model invents library entries. Every Forge call first reads the world: the world card, a roster of every name in it, and in full the entries that bear on the request (linked to it, named in it, sharing its keywords), within a budget. New entries link to existing ones by exact name.
 
-- **Forge** on Library → Characters and Worlds, on a world's Entries tab (for the kind picked), and **Grow the world** on its Workshop tab (any mix of places, factions, characters, things, peoples and lore).
-- **In the background**: every forge, reforge and style bible is a job, saved before it runs. Close the sheet, leave the screen or the app: it keeps going (two at a time), and anything cut off by the app closing starts again on the next launch. Results wait in the world's **inbox** (Workshop tab, and the envelope on the world's header) until you add, edit or dismiss each one.
+- **Forge** on Library → Worlds (a whole world), on a world's Entries tab (for the kind picked), and **Grow the world** on its Workshop tab (any mix of places, factions, characters, things, peoples and lore).
+- **In the background**: every forge, reforge and style bible is a job, saved before it runs. Close the sheet, leave the screen or the app: it keeps going (two at a time), and anything cut off by the app closing starts again on the next launch. Results wait in the **inbox** (the envelope on the Stories, Library and world headers; also the world's Workshop tab) until you add, edit or dismiss each one.
 - **Surprise me**: no wish needed. The world's loose threads (a faction without a leader or headquarters, a city nobody lives in, an enemy never written, someone a character knows who is not in the library) are offered to the model to pull on.
 - **Grow it** on a place, faction, thing, character, people or lore page (Places inside, Members, People in their life, Belongings, Rivals, Its history...) opens the world's workshop about that entry, with what you asked for: the agent proposes entries tied to it.
 - **Inspired by** (characters): a character from a book, film, show or game, or a real person. The character is an original take on them: look, personality and voice are written from the inspiration in this world's terms and the model's own words, never naming them or borrowing their lines or story. On a character page (edit), pick what it shapes (look, personality, voice) and **Write ... from them** proposes those fields. The name stays on the card and never reaches the writer or a painter: scenes get the character as written, which you can read and change, not an imitation of somebody else's story.
@@ -112,7 +114,7 @@ Replies are read leniently (fenced, prefaced, literal newlines inside strings, b
 
 ## Pictures of the world
 
-Each world has one **style bible** (World tab, in edit): **the look** every picture shares (medium, palette, light, texture, influences), and how **portraits**, **places** and **things** are framed within it; **sigils** have their own line, since heraldry is not a painting. Write it yourself, or **Write the bible** / **Refine the bible** has the helper write all five lines at once so they agree (or the sparkle on one line rewrites just that one), in the background, as a proposal to use or dismiss. **Try it on** paints a test of any character, place or faction with the bible as it stands in the edit, beside the pictures already there, and **Keep** makes it their picture. Settings → Illustrations → **Default style bible** fills any line a world leaves empty. On the World tab the bible reads as a mood board: the look as a quote over a collage of the world's pictures, then the portraits as a gallery, places as wide views, things as studies and sigils as a row of seals, each under its line, each opening its entry. The bible never reaches the writer.
+Each world has one **style bible** (its own **Style** tab; the pencil edits it): **the look** every picture shares (medium, palette, light, texture, influences), and how **portraits**, **places** and **things** are framed within it; **sigils** have their own line, since heraldry is not a painting. Write it yourself, or **Write the bible** / **Refine the bible** has the helper write all five lines at once so they agree (or the sparkle on one line rewrites just that one), in the background, as a proposal to use or dismiss. **Try it on** paints a test of any character, place or faction with the bible as it stands in the edit, beside the pictures already there, and **Keep** makes it their picture. Settings → Illustrations → **Default style bible** fills any line a world leaves empty. On the Style tab the bible reads as a mood board: the look as a quote over a collage of the world's pictures, then the portraits as a gallery, places as wide views, things as studies and sigils as a row of seals, each under its line, each opening its entry. The bible never reaches the writer.
 
 Characters get a **portrait**, places a **view**, factions a **sigil**, things and peoples a **picture**, shown large at the head of their page (tap for full size, with Paint again, the prompt, and remove). The helper describes only the subject (appearance, materials, colours, never a lookalike's name); the app puts the bible's look and the framing for the kind in front of it (the bible's line, or by default: portraits head and shoulders, three-quarter view; views wide at eye level; objects centred on plain ground; sigils by the sigil line), so a world's pictures match. Passage illustrations use the same look.
 
@@ -126,7 +128,7 @@ The fields were consolidated in 0.17: one description for what a place is like (
 
 ## Finding things
 
-A world's **Entries** tab searches every field of every entry, filters by kind, sorts by name, recently changed or most tied, and narrows to what is tied to one entry (tap its tie count). Places and factions are trees: sub-factions and places inside places fold under their parent, with a count, and open with the arrow. Every list in a world (and the Library's characters, voices and worlds) has a search once it holds more than a handful; a search flattens a tree to its matches, each with the path it sits in. Reference pickers (a faction's leader, a character's home or faction, a place's controller) get a search box once there are more than eight to choose from.
+A world's **Entries** tab searches every field of every entry, filters by kind, sorts by name, recently changed or most tied, and narrows to what is tied to one entry (tap its tie count). Places and factions are trees: sub-factions and places inside places fold under their parent, with a count, and open with the arrow. Every list in a world (and the Library's worlds and voices) has a search once it holds more than a handful; a search flattens a tree to its matches, each with the path it sits in. Reference pickers (a faction's leader, a character's home or faction, a place's controller) get a search box once there are more than eight to choose from.
 
 ## Retcon
 
@@ -140,10 +142,14 @@ Stories bring in new names. With the Chronicle on, each passage's chronicle also
 
 Every story lives in a world. **The real world** is the default and sends nothing to the writer unless you write something on its page, so a blank story there is exactly the old vanilla experience: no extra context, no extra calls, free writing. Stories on the Stories tab are grouped by world, with filter chips once there is more than one.
 
-A world (Library → Worlds) is a template with four tabs:
+The **Library** is two things: **Worlds** and **Voices**. Characters live in their world (a world's Entries tab); characters of no world live in the real world. The worlds search also finds the people in them.
 
-- **World**: description, genre and tone, how the world works (magic, physics, technology), society, themes, currency, the style bible, and a calendar (the real Gregorian one, or your own year label, month names, days per year and hours per day).
-- **Workshop**: today's question, the inbox, and the world's agent.
+A world (Library → Worlds) is a template with six tabs:
+
+- **World**: today's question at the top, then the description, genre and tone, how the world works (magic, physics, technology), society, themes, currency, and a calendar (the real Gregorian one, or your own year label, month names, days per year and hours per day).
+- **Map**: the world's atlas (see Maps).
+- **Style**: the style bible, as a mood board; edit it with the pencil.
+- **Workshop**: the inbox and the world's agent.
 - **Entries**: places (a hierarchy: continent › city › district › room), characters, factions, things, peoples (adulthood in their own terms) and lore, searchable and tied together.
 - **Instances**: the versions of the world stories happen in.
 
@@ -151,9 +157,21 @@ A world (Library → Worlds) is a template with four tabs:
 
 Each world has an agent that owns its forging: a curious co-author that has read everything in the world, keeps a **brief** of what you want it to be (the vision, what you love, what to avoid, decisions made, questions open), and talks it through with you in the world's **workshop**. It asks good questions, offers concrete options, notices contradictions and gaps, aims at what the world is thin on, and never repeats what is there. When the conversation has earned it, it proposes new entries and changes to existing ones, which wait for you to add, edit or dismiss. It reworks what exists too: say you do not like a house, talk through what it should be, and it revises it (renaming it if it needs to) or removes it, and every entry that mentions it is brought in line, the way Retcon does; each touched entry is a change to apply, the removal one to confirm. Replies are written in the background and the conversation is kept: leave and come back. Open it from the Workshop tab, or from **Grow it** on any entry to talk about that entry. The brief is yours to edit too (the page icon in the workshop).
 
-**Today's question**: once a day each world's agent asks one question that would most enrich the world, specific and answerable in a few sentences, never one it asked before. Stories shows one world's question a day, in turn, and each world's Workshop tab shows its own. Answer it and the agent folds the answer into the world: changes to the entries it touches, entries it implies, the brief; or skip it, or ask for another.
+**Today's question**: once a day each world's agent asks one question that would most enrich the world, specific and answerable in a few sentences, never one it asked before. It sits at the top of each world's World tab. Answer it and the agent folds the answer into the world: changes to the entries it touches, entries it implies, the brief; or skip it, or ask for another.
 
-The writer gets only what the scene calls for: the world card, the place the scene is in with its parents and children, and any place, faction, thing, person, people or lore whose keywords show up in the recent passages, within the **World** budget (context strategy).
+### Maps
+
+Every place can have a **map**, drawn in its own idiom: a planet or realm is a **globe** on a Mercator projection (graticule, ice at the poles); a continent, region or nation a **regional map** (coasts, rivers, forests, hills, mountains, marsh, fields, the roads between its places); a city, town or district a **city plan** (districts cut into blocks by streets, avenues to the gates, walls for older worlds, the river or harbour); a street, landmark or ruin a **site plan**; a building, room, dungeon, station or ship a **floor plan** (rooms joined by doors, a way in). Maps take their **style** from the world (old parchment, bronze age, street map, survey scan, neon grid, brass and soot, salvage chart, ink and ash), or from the map of the place they are in, so a world's maps match.
+
+**Draw with the model**: the model sketches a plan from the entries (what the place is, what is inside it, where it sits, its neighbours, the world), keeping what they say true; the app gives it shape: fractal coastlines, rivers that wander, forests drawn tree by tree, streets and blocks, rooms and doors. Every place inside gets a pin, matched by name. **Quick sketch** draws one with no model at all. A first map goes straight onto the place; a redraw waits beside the current map (and in the inbox) to compare.
+
+Open a map from the world's **Map** tab, or the **Map** block on any place page (its own map, and where it sits on the map of the place it is in). Drag to pan, pinch or +/− to zoom, the frame button shows it whole. Tap a pin to read the place, see the nearest places with distance, direction and time on foot, open its entry or **its map**; the arrow at the top goes **up** to the map of the place it is in, centred on where you were. **Measure** gives the way between any two points.
+
+The pencil turns the map into an **editor**: **Select** (drag pins and labels; reshape an area or line by its points, add a point with the dots between them, drag inside to move it; rename, change its kind, bring forward or send back, duplicate, delete), **Place** (pin a place inside that is not on the map yet, create a new place there, which becomes an entry, pin one from elsewhere in the world, or add a plain mark), **Area** and **Line** (tap point by point, pick the kind), **Label**, **Erase**, with **Undo** and **Redo**. Settings change the title, kind of map, style, how far it reaches, land or sea, and redraw it (with what should change, keeping your pins if you like). Floor plans snap to a grid. Save keeps it; leaving with unsaved changes asks.
+
+The maps reach the writer: when a scene is set in a place on a map, the writer is told how far and which way the nearest places are, with time on foot ("From Ost, on the map of The Reach: Fenwick is 12 km north-east (2.5 hours on foot)"), so characters can talk about the way somewhere and stay consistent with the map.
+
+The writer gets only what the scene calls for: the world card, the place the scene is in with its parents and children, distances from the maps, and any place, faction, thing, person, people or lore whose keywords show up in the recent passages, within the **World** budget (context strategy).
 
 ### Chapters and instance memory
 

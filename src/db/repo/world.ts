@@ -30,6 +30,15 @@ export async function deleteEntity(db: SQLiteDatabase, id: Id): Promise<void> {
   await db.runAsync('UPDATE entities SET parent_id = ? WHERE parent_id = ?', e.parentId, id);
   await db.runAsync('DELETE FROM links WHERE from_id = ? OR to_id = ?', id, id);
   await db.runAsync('DELETE FROM entities WHERE id = ?', id);
+  await db.runAsync('DELETE FROM maps WHERE location_id = ?', id);
+  // Pins for it on other maps stay, as plain marks with its name.
+  for (const r of await db.getAllAsync<{ location_id: string; data_json: string }>('SELECT location_id, data_json FROM maps WHERE universe_id = ? AND data_json LIKE ?', e.universeId, `%${id}%`)) {
+    try {
+      const m = JSON.parse(r.data_json) as { pins?: { entityId: string | null }[] };
+      for (const p of m.pins ?? []) if (p.entityId === id) p.entityId = null;
+      await db.runAsync('UPDATE maps SET data_json = ? WHERE location_id = ?', JSON.stringify(m), r.location_id);
+    } catch {}
+  }
 }
 export const newEntity = (universeId: Id, kind: EntityKind, name?: string, parentId: Id | null = null): WorldEntity => ({ id: newId(), universeId, kind, name: name ?? (kind === 'location' ? 'New place' : kind === 'organization' ? 'New faction' : 'New thing'), parentId, summary: '', keys: [], data: {}, createdAt: now(), updatedAt: now() });
 
