@@ -12,7 +12,7 @@ import { addArea, addLabel, addLine, addPin, deleteVertex, duplicate, hitTest, i
 import type { AreaKind, LineKind, MapDoc, MapKind, MapPin, Pt, ThemeKey } from '@/core/map/types';
 import type { WorldEntity } from '@/core/world/types';
 import { getEntity, newEntity, saveEntity } from '@/db/repo/world';
-import { drawMap, getMap, saveMap, sketchMap } from '@/state/atlas';
+import { deleteMap, drawMap, getMap, saveMap, sketchMap } from '@/state/atlas';
 import { useJobs } from '@/state/jobs';
 import { useSettings } from '@/state/settings';
 import { Badge, Banner, Button, Chip, Field, IconButton, Ionicons, Row, Segmented, Sheet, SwitchRow, T } from '../components';
@@ -76,6 +76,8 @@ export function MapScreen({ locationId, focus }: { locationId: string; focus?: s
   const [linking, setLinking] = useState<string | null>(null);
   const [proposal, setProposal] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [actions, setActions] = useState(false);
+  const [pickKind, setPickKind] = useState<MapKind | null>(null);
   // Sheets start fresh each time they open.
   const [sheetKey, setSheetKey] = useState(0);
   const [err, setErr] = useState<string | null>(null);
@@ -231,10 +233,23 @@ export function MapScreen({ locationId, focus }: { locationId: string; focus?: s
     try {
       const m = await sketchMap(db, locationId, o);
       if (!m) return;
-      if (!saved) { await saveMap(db, m); setSaved(m); setDoc(m); return; }
+      // Editing, it is one more change (Undo brings the old map back); looking, it replaces the map.
+      if (!saved || !editing) { await saveMap(db, m); setSaved(m); setDoc(m); return; }
       commit(m);
     } finally { setBusy(false); }
   }
+  function removeMap() {
+    Alert.alert('Delete this map?', 'Its pins, areas, lines and labels go with it. The places themselves stay. You can draw a new one straight after.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => { await deleteMap(db, locationId); setSettings(false); setActions(false); setEditing(false); setSel(null); setSaved(null); setDoc(null); setHist({ past: [], future: [] }); } },
+    ]);
+  }
+  const redrawn = async (wish: string, keep: boolean, free: boolean) => {
+    setSettings(false); setActions(false);
+    if (!doc) return;
+    await ask({ kind: free ? undefined : doc.kind, theme: doc.theme, wish, keepPins: keep ? doc.pins : undefined });
+    Alert.alert('Redrawing', 'The model is drawing a new map. It will wait beside this one for you to compare; nothing changes until you choose it.');
+  };
 
   if (!loaded) return null;
   const title = doc?.title || place?.name || 'Map';
@@ -256,8 +271,14 @@ export function MapScreen({ locationId, focus }: { locationId: string; focus?: s
           </View>
         ) : (
           <>
-            <Button title="Draw with the model" icon="sparkles-outline" onPress={() => void ask()} />
-            <Button kind="outline" title="Quick sketch, no model" icon="color-wand-outline" loading={busy} onPress={() => void sketch()} />
+            <T v="label">Kind of map</T>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              <Chip label="Let the model judge" selected={!pickKind} onPress={() => setPickKind(null)} />
+              {KINDS.map((k) => <Chip key={k} label={KIND_INFO[k].label} selected={pickKind === k} onPress={() => setPickKind(k)} />)}
+            </View>
+            <T v="faint">{pickKind ? `Drawn as ${KIND_INFO[pickKind].label.toLowerCase()}.` : 'The model reads the entry and picks the kind and the size; a quick sketch goes by its type.'}</T>
+            <Button title="Draw with the model" icon="sparkles-outline" onPress={() => void ask({ kind: pickKind ?? undefined })} />
+            <Button kind="outline" title="Quick sketch, no model" icon="color-wand-outline" loading={busy} onPress={() => void sketch({ kind: pickKind ?? kindNow })} />
           </>
         )}
       </ScrollView>
@@ -300,7 +321,7 @@ export function MapScreen({ locationId, focus }: { locationId: string; focus?: s
           <Fab icon="add" onPress={() => view.current?.zoomBy(1.6)} />
           <Fab icon="remove" onPress={() => view.current?.zoomBy(1 / 1.6)} />
           <Fab icon="scan-outline" onPress={() => view.current?.fit()} />
-          {editing ? <Fab icon="options-outline" onPress={() => { setSheetKey((k) => k + 1); setSettings(true); }} /> : null}
+          {editing ? <Fab icon="options-outline" onPress={() => { setSheetKey((k) => k + 1); setSettings(true); }} /> : <Fab icon="ellipsis-horizontal" onPress={() => { setSheetKey((k) => k + 1); setActions(true); }} />}
         </View>
       </View>
 
@@ -455,9 +476,14 @@ export function MapScreen({ locationId, focus }: { locationId: string; focus?: s
         doc={doc}
         onClose={() => setSettings(false)}
         onChange={(p) => commit({ ...doc, ...p })}
-        onRedraw={async (wish, keep) => { setSettings(false); await ask({ kind: doc.kind, theme: doc.theme, wish, keepPins: keep ? doc.pins : undefined }); Alert.alert('Redrawing', 'The model is sketching a new map. It will wait beside this one for you to compare; nothing changes until you choose it.'); }}
+        onRedraw={(wish, keep, free) => void redrawn(wish, keep, free)}
         onSketch={async (keep) => { setSettings(false); await sketch({ kind: doc.kind, theme: doc.theme, keepPins: keep ? doc.pins : undefined }); }}
+        onDelete={removeMap}
       />
+      <Sheet key={`actions${sheetKey}`} open={actions} onClose={() => setActions(false)} title="This map">
+        <RedrawControls doc={doc} onRedraw={(wish, keep, free) => void redrawn(wish, keep, free)} onSketch={(keep) => { setActions(false); void sketch({ kind: doc.kind, theme: doc.theme, keepPins: keep ? doc.pins : undefined }); }} onDelete={removeMap} />
+        <T v="faint">To move things, reshape them or change the style and scale, use the pencil.</T>
+      </Sheet>
       <ProposalSheet jobId={proposal} onClose={() => setProposal(null)} onAccepted={() => void load()} />
     </View>
   );
@@ -540,10 +566,8 @@ function LinkSheet({ open, places, onClose, onPick }: { open: boolean; places: W
   );
 }
 
-function SettingsSheet({ open, doc, onClose, onChange, onRedraw, onSketch }: { open: boolean; doc: MapDoc; onClose: () => void; onChange: (p: Partial<MapDoc>) => void; onRedraw: (wish: string, keep: boolean) => void; onSketch: (keep: boolean) => void }) {
+function SettingsSheet({ open, doc, onClose, onChange, onRedraw, onSketch, onDelete }: { open: boolean; doc: MapDoc; onClose: () => void; onChange: (p: Partial<MapDoc>) => void; onRedraw: (wish: string, keep: boolean, free: boolean) => void; onSketch: (keep: boolean) => void; onDelete: () => void }) {
   const t = useTheme();
-  const [wish, setWish] = useState('');
-  const [keep, setKeep] = useState(true);
   const across = doc.scale.per * doc.w;
   const [acrossText, setAcrossText] = useState(String(Math.round(across * 100) / 100));
   return (
@@ -581,14 +605,29 @@ function SettingsSheet({ open, doc, onClose, onChange, onRedraw, onSketch }: { o
       <T v="label">Ground</T>
       <Segmented options={[{ key: 'land', label: 'Land, seas cut in' }, { key: 'water', label: 'Sea, land raised' }]} value={doc.ground} onChange={(g) => onChange({ ground: g })} />
 
-      <T v="label" style={{ marginTop: 8 }}>Redraw</T>
-      <Field label="What should change" placeholder="Move the city to the coast; add a mountain pass to the north…" value={wish} onChangeText={setWish} multiline />
-      <SwitchRow label="Keep my pins where they are" value={keep} onChange={setKeep} />
-      <Button title="Redraw with the model" icon="sparkles-outline" onPress={() => onRedraw(wish.trim(), keep)} />
-      <Button kind="outline" title="Quick sketch, no model" icon="color-wand-outline" onPress={() => onSketch(keep)} />
-      <T v="faint">A quick sketch replaces the map now (Undo brings it back). A model redraw waits beside this map for you to compare.</T>
+      <View style={{ height: 8 }} />
+      <RedrawControls doc={doc} onRedraw={onRedraw} onSketch={onSketch} onDelete={onDelete} editing />
       {doc.pins.length ? <T v="faint">{doc.pins.length} pins · {doc.areas.length} areas · {doc.lines.length} lines · {doc.labels.length} labels</T> : null}
       <View style={{ alignSelf: 'center', borderRadius: radius.md, overflow: 'hidden' }}><MapPicture doc={doc} width={240} decor={false} /></View>
     </Sheet>
+  );
+}
+
+/** Draw the map again (by model or by hand), or delete it. */
+function RedrawControls({ doc, onRedraw, onSketch, onDelete, editing }: { doc: MapDoc; onRedraw: (wish: string, keep: boolean, free: boolean) => void; onSketch: (keep: boolean) => void; onDelete: () => void; editing?: boolean }) {
+  const [wish, setWish] = useState('');
+  const [keep, setKeep] = useState(true);
+  const [free, setFree] = useState(!editing);
+  return (
+    <View style={{ gap: 10 }}>
+      <T v="label">Redraw</T>
+      <Field label="What should change" placeholder="Make it far bigger; move the city to the coast; a pass through the mountains…" value={wish} onChangeText={setWish} multiline />
+      <SwitchRow label="Let the model judge kind and size" hint={`Off: it stays ${KIND_INFO[doc.kind].label.toLowerCase()}.`} value={free} onChange={setFree} />
+      <SwitchRow label="Keep my pins where they are" value={keep} onChange={setKeep} />
+      <Button title="Redraw with the model" icon="sparkles-outline" onPress={() => onRedraw(wish.trim(), keep, free)} />
+      <Button kind="outline" title="Quick sketch, no model" icon="color-wand-outline" onPress={() => onSketch(keep)} />
+      <T v="faint">{editing ? 'A quick sketch replaces the map now (Undo brings it back).' : 'A quick sketch replaces the map now.'} A model redraw waits beside this map for you to compare.</T>
+      <Button kind="danger" icon="trash-outline" title="Delete this map" onPress={onDelete} />
+    </View>
   );
 }

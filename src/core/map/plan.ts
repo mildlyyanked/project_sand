@@ -124,7 +124,7 @@ const pt = (v: unknown): Pt | null => {
 };
 const inGrid = (p: Pt): Pt => [Math.max(0, Math.min(100, p[0])), Math.max(0, Math.min(70, p[1]))];
 
-const ALL_KINDS = new Set<string>(['land', 'water', 'forest', 'mountains', 'hills', 'desert', 'swamp', 'ice', 'farmland', 'district', 'park', 'plaza', 'block', 'room', 'hall', 'yard', 'river', 'road', 'track', 'rail', 'wall', 'street', 'avenue', 'canal', 'corridor', 'border', 'door']);
+const ALL_KINDS = new Set<string>(['land', 'water', 'forest', 'mountains', 'hills', 'desert', 'swamp', 'ice', 'farmland', 'district', 'park', 'plaza', 'block', 'room', 'hall', 'yard', 'river', 'road', 'track', 'rail', 'wall', 'street', 'lane', 'avenue', 'canal', 'corridor', 'border', 'door']);
 const ALIASES: Record<string, string> = { lake: 'water', sea: 'water', ocean: 'water', bay: 'water', harbour: 'water', harbor: 'water', mountain: 'mountains', range: 'mountains', woods: 'forest', jungle: 'forest', marsh: 'swamp', bog: 'swamp', fields: 'farmland', field: 'farmland', square: 'plaza', building: 'block', buildings: 'block', courtyard: 'yard', garden: 'park', path: 'track', railway: 'rail', stream: 'river', street: 'street', hallway: 'corridor', glacier: 'ice', dunes: 'desert', island: 'land', continent: 'land' };
 
 /** A plan from a model's reply, as far as it can be read. Null when nothing usable came back. */

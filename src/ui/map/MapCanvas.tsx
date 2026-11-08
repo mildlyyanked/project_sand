@@ -36,9 +36,12 @@ export const MapBase = memo(function MapBase({ doc, decor = true, zoom = 1 }: { 
   }, [doc.areas]);
   const lines = useMemo(() => {
     const under = doc.lines.filter((l) => l.kind === 'river' || l.kind === 'canal' || l.kind === 'corridor');
-    const over = doc.lines.filter((l) => !under.includes(l) && l.kind !== 'door');
+    const ROADS = ['lane', 'street', 'avenue'] as const;
+    const over = doc.lines.filter((l) => !under.includes(l) && l.kind !== 'door' && !(ROADS as readonly string[]).includes(l.kind));
     const doors = doc.lines.filter((l) => l.kind === 'door');
-    return { under, over, doors };
+    // A town's streets, one path per kind: casings under every street first, then the roadways, so junctions join cleanly.
+    const roads = ROADS.map((k) => ({ kind: k, d: doc.lines.filter((l) => l.kind === k).map((l) => linePath(k, l.points)).join('') })).filter((x) => x.d);
+    return { under, over, doors, roads };
   }, [doc.lines]);
   const bg = doc.kind === 'floor' ? t.paper : doc.ground === 'water' ? t.water : t.land;
   const grat = doc.kind === 'globe' ? graticule(doc) : null;
@@ -98,6 +101,8 @@ export const MapBase = memo(function MapBase({ doc, decor = true, zoom = 1 }: { 
       {layers.namedBlocks.map((a) => <Path key={a.id} d={areaPath(a)} fill={t.block} stroke={t.blockLine} strokeWidth={1.4} />)}
 
       {/* Roads, walls, borders. */}
+      {lines.roads.map((x) => lineStrokes(t, x.kind, doc.kind).slice(0, -1).map((st, i) => <Path key={`${x.kind}-u${i}`} d={x.d} fill="none" stroke={st.color} strokeWidth={st.width * lw} strokeOpacity={st.opacity ?? 1} strokeLinecap="round" strokeLinejoin="round" />))}
+      {lines.roads.map((x) => { const st = lineStrokes(t, x.kind, doc.kind).slice(-1)[0]!; return <Path key={`${x.kind}-top`} d={x.d} fill="none" stroke={st.color} strokeWidth={st.width * lw} strokeOpacity={st.opacity ?? 1} strokeLinecap="round" strokeLinejoin="round" />; })}
       {lines.over.map((l) => lineStrokes(t, l.kind, doc.kind).map((s, i) => <Path key={`${l.id}-${i}`} d={linePath(l.kind, l.points)} fill="none" stroke={s.color} strokeWidth={s.width * lw} strokeDasharray={s.dash?.split(' ').map((v) => Number(v) * lw).join(' ')} strokeOpacity={s.opacity ?? 1} strokeLinecap={s.cap ?? 'round'} strokeLinejoin="round" />))}
 
       {/* Rooms: walls are their outlines; doors cut them. */}

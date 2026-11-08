@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Image, Modal, Pressable, Share, View } from 'react-native';
+import { Image, Pressable, Share, View } from 'react-native';
+import { ImageViewer } from './ImageViewer';
 import * as Clipboard from 'expo-clipboard';
 import { useSQLiteContext } from 'expo-sqlite';
 import type { Universe } from '@/core/types';
@@ -137,12 +138,7 @@ export function EntryImage({ kind, name, data, draft, world, onChange, quiet }: 
       ) : quiet ? null : (
         <T v="faint" style={{ textAlign: 'center' }}>{kind === 'character' ? 'Tap to paint a portrait from the appearance. It shows beside them in lists, pickers and passages, and keeps their look in illustrations.' : kind === 'organization' ? 'Tap to paint the sigil. It shows wherever the faction is picked or listed.' : `Tap to paint it from the entry.${ready.ok ? '' : ' Prompt only for now: copy it into any generator.'}`}</T>
       )}
-      <Modal visible={full && !!img} transparent animationType="fade" onRequestClose={() => setFull(false)}>
-        <Pressable onPress={() => setFull(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
-          {img ? <Image source={{ uri: img.uri }} resizeMode="contain" style={{ width: '100%', height: '80%' }} /> : null}
-          <T v="faint" style={{ marginTop: 10 }}>{name} · {img?.model}</T>
-        </Pressable>
-      </Modal>
+      <ImageViewer open={full && !!img} uri={img?.uri} caption={`${name}${img?.model ? ` · ${img.model}` : ''}`} onClose={() => setFull(false)} />
       <Sheet open={prompt != null} onClose={() => setPrompt(null)} title={`${what.noun.charAt(0).toUpperCase() + what.noun.slice(1)} prompt`}>
         <Field value={prompt ?? ''} onChangeText={setPrompt} multiline style={{ minHeight: 160 }} />
         <Row style={{ flexWrap: 'wrap' }}>

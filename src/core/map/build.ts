@@ -1,7 +1,8 @@
 import { normName } from '../world/drafts';
-import { area, bbox, blob, centroid, clamp, dist, fractal, inside, meander, rect, scatter, seeded, smooth, spanningTree, toPolyline } from './geom';
+import { area, bbox, blob, centroid, clamp, dist, fractal, inside, meander, rect, scatter, seeded, smooth, spanningTree } from './geom';
 import type { MapPlan, PlanFeature } from './plan';
 import { KIND_INFO } from './style';
+import { growTown } from './town';
 import { MAP_H, MAP_W, type AreaKind, type LineKind, type MapArea, type MapDoc, type MapKind, type MapLabel, type MapLine, type MapPin, type MapScale, type Pt, type ThemeKey } from './types';
 
 /**
@@ -317,18 +318,19 @@ export function buildMap(plan: MapPlan, ctx: BuildCtx): MapDoc {
         districts.push({ kind: 'district', name: names[i], x: 50 + Math.cos(a) * 25, y: 35 + Math.sin(a) * 18, w: 28 + r() * 8, h: 20 + r() * 6 });
       }
     }
-    const dAreas = districts.map((f) => addArea('district', f.points && f.points.length >= 3 ? smooth(scaled(f.points), 1, true) : fractal(blob(box(f).cx, box(f).cy, box(f).w / 2, box(f).h / 2, r, 9, 0.12), r, { rounds: 1, rough }), f.name));
-    // Rivers through town are drawn as water lines; avenues join the districts and run out to the gates.
-    for (const f of planned) if (!isAreaKind(f.kind) && f.points) addLine(f.kind, f.kind === 'river' ? meander(scaled(f.points), r, 0.12) : smooth(scaled(f.points), 1), f.name);
-    if (!lines.some((l) => l.kind === 'avenue')) {
-      const cs = dAreas.map((d) => centroid(d.points));
-      for (const [i, j] of spanningTree(cs)) addLine('avenue', smooth(fractal([cs[i]!, cs[j]!], r, { rounds: 2, rough: rough * 0.6, closed: false }), 1));
-      const far = [...cs].sort((a, b) => dist(b, [500, 350]) - dist(a, [500, 350])).slice(0, 3);
-      for (const c of far) {
-        const dx = c[0] - 500; const dy = c[1] - 350; const k = 1 / (Math.hypot(dx, dy) || 1);
-        const edge: Pt = [clamp(500 + dx * k * 900, -20, MAP_W + 20), clamp(350 + dy * k * 900, -20, MAP_H + 20)];
-        if (landAt(edge.map((v, i) => clamp(v, 10, (i ? MAP_H : MAP_W) - 10)) as Pt)) addLine('avenue', smooth(fractal([c, edge], r, { rounds: 2, rough: rough * 0.5, closed: false }), 1));
+    const organicTown = !(ctx.theme === 'modern' || ctx.theme === 'cyberpunk' || ctx.theme === 'scifi');
+    const dAreas = districts.map((f) => addArea('district', f.points && f.points.length >= 3 ? smooth(scaled(f.points), 1, true) : fractal(blob(box(f).cx, box(f).cy, box(f).w / 2, box(f).h / 2, r, 11, organicTown ? 0.2 : 0.08), r, { rounds: 2, rough: organicTown ? 0.22 : rough }), f.name));
+    // Rivers, canals and rails from the plan; the plan's own avenues become the town's main roads.
+    const given: Pt[][] = [];
+    for (const f of planned) {
+      if (isAreaKind(f.kind) || !f.points) continue;
+      if (f.kind === 'avenue' || f.kind === 'street') {
+        const pts = organicTown ? smooth(fractal(scaled(f.points), r, { rounds: 3, rough: 0.07, closed: false }), 1) : smooth(scaled(f.points), 1);
+        given.push(pts);
+        if (f.name) lines.push({ id: ids.next('l'), kind: f.kind, name: f.name, points: pts });
+        continue;
       }
+      addLine(f.kind, f.kind === 'river' ? meander(scaled(f.points), r, 0.12) : smooth(scaled(f.points), 1), f.name);
     }
     // A wall for the cities of older worlds, if the plan did not say.
     const walled = planned.some((f) => f.kind === 'wall') || (['fantasy', 'ancient', 'gothic', 'steampunk'].includes(ctx.theme) && r() < 0.55);
@@ -338,42 +340,26 @@ export function buildMap(plan: MapPlan, ctx: BuildCtx): MapDoc {
       const ring = fractal(blob(b.x + b.w / 2, b.y + b.h / 2, b.w / 2 + 14, b.h / 2 + 14, r, 10, 0.05), r, { rounds: 1, rough: 0.06 });
       addLine('wall', [...ring, ring[0]!]);
     }
-    // Blocks: each district is cut into a grid at its own angle; streets are the gaps.
-    const water = areas.filter((a) => a.kind === 'water');
-    const open = areas.filter((a) => a.kind === 'park' || a.kind === 'plaza' || a.kind === 'forest');
-    const ways = lines.filter((l) => l.kind === 'avenue' || l.kind === 'river' || l.kind === 'canal' || l.kind === 'rail');
     const plazaAt = dAreas[0] ? centroid(dAreas[0].points) : null;
-    if (plazaAt && !areas.some((a) => a.kind === 'plaza')) open.push(addArea('plaza', rect(plazaAt[0] - 22, plazaAt[1] - 16, 44, 32)));
-    let count = 0;
-    for (const d of dAreas) {
-      const grid = ctx.theme === 'modern' || ctx.theme === 'cyberpunk' || ctx.theme === 'scifi';
-      const ang = grid ? (r() - 0.5) * 0.15 : (r() - 0.5) * 1.1;
-      const bw = 20 + r() * 8; const bh = 15 + r() * 6; const gap = 4.5;
-      const [cx, cy] = centroid(d.points);
-      const b = bbox(d.points);
-      const reach = Math.max(b.w, b.h);
-      const cos = Math.cos(ang); const sin = Math.sin(ang);
-      // Rows and columns of uneven size, with a wider street every few: a city grown, not stamped.
-      const steps = (len: number, base: number) => { const out: [number, number][] = []; let at = -reach; let n = 0; while (at < reach) { const sz = base * (0.75 + r() * 0.7); out.push([at, sz]); at += sz + (++n % 4 === 0 ? gap * 1.8 : 0); } return out; };
-      const rows = steps(reach, bh);
-      const cols = steps(reach, bw);
-      for (const [v, rh] of rows) for (const [u, cw] of cols) {
-        if (count > 1400) break;
-        const w = cw - gap; const h = rh - gap;
-        const local: Pt[] = [[u, v], [u + w, v], [u + w, v + h], [u, v + h]];
-        const pts = local.map(([x, y]) => [cx + x * cos - y * sin, cy + x * sin + y * cos] as Pt);
-        const mid = centroid(pts);
-        if (!pts.every((p) => inside(p, d.points))) continue;
-        // Districts overlap at their edges; a block belongs to the first that claims it.
-        if (dAreas.slice(0, dAreas.indexOf(d)).some((o) => inside(mid, o.points))) continue;
-        if (water.some((a) => inside(mid, a.points)) || !landAt(mid)) continue;
-        if (open.some((a) => pts.some((p) => inside(p, a.points)))) continue;
-        if (ways.some((l) => toPolyline(mid, l.points, false) < (l.kind === 'river' ? 22 : 11))) continue;
-        if (r() < 0.05) continue;
-        areas.push({ id: ids.next('b'), kind: 'block', points: pts });
-        count++;
-      }
-    }
+    if (plazaAt && !areas.some((a) => a.kind === 'plaza')) addArea('plaza', organicTown ? fractal(blob(plazaAt[0], plazaAt[1], 18, 14, r, 7, 0.15), r, { rounds: 1, rough: 0.1 }) : rect(plazaAt[0] - 22, plazaAt[1] - 16, 44, 32));
+    // The town itself: streets grown from its main roads, buildings set along them (see town.ts).
+    const half: Partial<Record<LineKind, number>> = { river: 9, canal: 6, rail: 4, wall: 4 };
+    const town = growTown({
+      r,
+      urban: dAreas.map((d) => d.points),
+      open: areas.filter((a) => a.kind === 'water' || a.kind === 'park' || a.kind === 'plaza' || a.kind === 'forest').map((a) => a.points),
+      barriers: lines.filter((l) => half[l.kind]).map((l) => ({ points: l.points, half: half[l.kind]! })),
+      roads: given,
+      centre: plazaAt ?? [MAP_W / 2, MAP_H / 2],
+      grid: !organicTown,
+      w: MAP_W,
+      h: MAP_H,
+    });
+    const round = (pts: Pt[]): Pt[] => pts.map(([x, y]) => [Math.round(x * 10) / 10, Math.round(y * 10) / 10]);
+    for (const pts of town.avenues) if (!given.includes(pts)) addLine('avenue', round(pts));
+    for (const pts of town.streets) addLine('street', round(pts));
+    for (const pts of town.lanes) addLine('lane', round(pts));
+    for (const q of town.buildings) areas.push({ id: ids.next('b'), kind: 'block', points: round(q) });
   } else if (kind === 'site') {
     for (const f of planned) {
       if (!isAreaKind(f.kind)) continue;

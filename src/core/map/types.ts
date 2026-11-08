@@ -12,7 +12,7 @@ export type AreaKind =
   | 'land' | 'water' | 'forest' | 'mountains' | 'hills' | 'desert' | 'swamp' | 'ice' | 'farmland'
   | 'district' | 'park' | 'plaza' | 'block'
   | 'room' | 'hall' | 'yard';
-export type LineKind = 'river' | 'road' | 'track' | 'rail' | 'wall' | 'street' | 'avenue' | 'canal' | 'corridor' | 'border' | 'door';
+export type LineKind = 'river' | 'road' | 'track' | 'rail' | 'wall' | 'street' | 'lane' | 'avenue' | 'canal' | 'corridor' | 'border' | 'door';
 
 export interface MapArea { id: string; kind: AreaKind; name?: string; points: Pt[]; /** Where decoration (trees, peaks) is drawn; derived, not edited. */ marks?: Pt[] }
 export interface MapLine { id: string; kind: LineKind; name?: string; points: Pt[] }

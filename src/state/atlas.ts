@@ -7,7 +7,7 @@ import { mapKindOf, themeFor } from '@/core/map/style';
 import type { MapDoc, MapKind, MapPin, ThemeKey } from '@/core/map/types';
 import type { Library } from '@/core/world/drafts';
 import type { WorldEntity } from '@/core/world/types';
-import { getMap, listMaps, saveMap } from '@/db/repo/atlas';
+import { deleteMap, getMap, listMaps, saveMap } from '@/db/repo/atlas';
 import { getEntity } from '@/db/repo/world';
 import { useJobs } from './jobs';
 import { loadLibrary } from './library';
@@ -103,4 +103,4 @@ export async function sketchMap(db: SQLiteDatabase, locationId: string, o: DrawO
 /** Is a map being drawn for this place right now? */
 export const drawing = (locationId: string) => useJobs.getState().jobs.find((j) => j.kind === 'map' && (j.status === 'queued' || j.status === 'running') && (j.input as { locationId: string }).locationId === locationId);
 
-export { getMap, listMaps, saveMap };
+export { deleteMap, getMap, listMaps, saveMap };

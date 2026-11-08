@@ -106,6 +106,10 @@ export function lineStrokes(t: MapTheme, k: LineKind, kind: MapKind): Stroke[] {
       const w = (kind === 'site' ? 12 : 6) * s;
       return [...glow(t.road, w * 0.4), { color: t.roadCase, width: w + 2, cap: 'round' }, { color: t.road, width: w, cap: 'round' }];
     }
+    case 'lane': {
+      const w = 3.6 * s;
+      return [{ color: t.roadCase, width: w + 1.6, cap: 'round' }, { color: t.road, width: w, cap: 'round', opacity: 0.9 }];
+    }
     case 'avenue': {
       const w = 10 * s;
       return [...glow(t.road, w * 0.4), { color: t.roadCase, width: w + 3, cap: 'round' }, { color: t.road, width: w, cap: 'round' }];

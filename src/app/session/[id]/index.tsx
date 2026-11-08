@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ImageViewer } from '@/ui/components/ImageViewer';
 import { Dimensions, FlatList, Image, Platform, Pressable, ScrollView, Share, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardShift } from '@/ui/keyboard';
@@ -99,6 +100,7 @@ export default function Manuscript() {
   const [draftsOpen, setDraftsOpen] = useState(false);
   const [draftPicker, setDraftPicker] = useState(false);
   const [viewing, setViewing] = useState<Illustration | null>(null);
+  const [zoomed, setZoomed] = useState<string | null>(null);
   const [promptDraft, setPromptDraft] = useState<string | null>(null);
   const listRef = useRef<FlatList<Beat>>(null);
   const inputRef = useRef<TextInput>(null);
@@ -724,11 +726,15 @@ export default function Manuscript() {
         </Row>
       </Sheet>
 
+      <ImageViewer open={!!zoomed} uri={zoomed} onClose={() => setZoomed(null)} />
       {/* Illustration */}
       <Sheet open={!!viewing} onClose={() => setViewing(null)} full>
         {viewing ? (
           <>
-            <Image source={{ uri: viewing.uri }} style={{ width: width - space.lg * 2, height: width - space.lg * 2, borderRadius: radius.lg, backgroundColor: t.surface }} resizeMode="contain" />
+            <Pressable onPress={() => setZoomed(viewing.uri)}>
+              <Image source={{ uri: viewing.uri }} style={{ width: width - space.lg * 2, height: width - space.lg * 2, borderRadius: radius.lg, backgroundColor: t.surface }} resizeMode="contain" />
+            </Pressable>
+            <T v="faint">Tap the picture to zoom in.</T>
             <T v="faint">{viewing.prompt}</T>
             <T v="small">{shortModel(viewing.model)}</T>
             <Row style={{ flexWrap: 'wrap' }}>

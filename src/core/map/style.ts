@@ -15,13 +15,13 @@ export function mapKindOf(type: string | undefined | null): MapKind {
 export const KIND_INFO: Record<MapKind, { label: string; scale: MapScale; areas: AreaKind[]; lines: LineKind[]; span: string }> = {
   globe: { label: 'Globe', scale: { unit: 'km', per: 40 }, areas: ['land', 'water', 'mountains', 'forest', 'desert', 'ice', 'swamp'], lines: ['river', 'border', 'road'], span: 'a whole world' },
   region: { label: 'Regional map', scale: { unit: 'km', per: 0.5 }, areas: ['land', 'water', 'forest', 'mountains', 'hills', 'desert', 'swamp', 'farmland', 'ice'], lines: ['river', 'road', 'track', 'rail', 'border', 'canal', 'wall'], span: 'tens to hundreds of kilometres' },
-  city: { label: 'City plan', scale: { unit: 'm', per: 5 }, areas: ['district', 'water', 'park', 'plaza', 'block', 'land', 'forest'], lines: ['avenue', 'street', 'river', 'canal', 'wall', 'rail'], span: 'a few kilometres' },
+  city: { label: 'City plan', scale: { unit: 'm', per: 5 }, areas: ['district', 'water', 'park', 'plaza', 'block', 'land', 'forest'], lines: ['avenue', 'street', 'lane', 'river', 'canal', 'wall', 'rail'], span: 'a few kilometres' },
   site: { label: 'Site plan', scale: { unit: 'm', per: 0.5 }, areas: ['yard', 'block', 'plaza', 'park', 'forest', 'water', 'land'], lines: ['street', 'track', 'wall', 'canal'], span: 'a few hundred metres' },
   floor: { label: 'Floor plan', scale: { unit: 'm', per: 0.05 }, areas: ['room', 'hall', 'yard'], lines: ['corridor', 'wall', 'door'], span: 'tens of metres' },
 };
 
 export const AREA_LABEL: Record<AreaKind, string> = { land: 'Land', water: 'Water', forest: 'Forest', mountains: 'Mountains', hills: 'Hills', desert: 'Desert', swamp: 'Marsh', ice: 'Ice', farmland: 'Fields', district: 'District', park: 'Park', plaza: 'Square', block: 'Buildings', room: 'Room', hall: 'Hall', yard: 'Yard' };
-export const LINE_LABEL: Record<LineKind, string> = { river: 'River', road: 'Road', track: 'Track', rail: 'Rail', wall: 'Wall', street: 'Street', avenue: 'Avenue', canal: 'Canal', corridor: 'Corridor', border: 'Border', door: 'Door' };
+export const LINE_LABEL: Record<LineKind, string> = { river: 'River', road: 'Road', track: 'Track', rail: 'Rail', wall: 'Wall', street: 'Street', lane: 'Lane', avenue: 'Avenue', canal: 'Canal', corridor: 'Corridor', border: 'Border', door: 'Door' };
 
 export interface MapTheme {
   key: ThemeKey;
