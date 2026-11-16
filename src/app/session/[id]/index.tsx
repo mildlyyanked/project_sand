@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ImageViewer } from '@/ui/components/ImageViewer';
-import { Dimensions, FlatList, Image, Platform, Pressable, ScrollView, Share, TextInput, View } from 'react-native';
+import { Dimensions, FlatList, Image, Platform, Pressable, ScrollView, Share, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardShift } from '@/ui/keyboard';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -19,6 +19,8 @@ import { Bar, TimeEditor } from '@/ui/components/World';
 import { Avatar, worldLine } from '@/ui/components/EntryImage';
 import { LensDrawer } from '@/ui/components/Lens';
 import { useLens } from '@/state/lens';
+import { useReader } from '@/state/reader';
+import { READER_DOCK, ReaderPanel, ReaderPeek } from '@/ui/components/Reader';
 import { segments } from '@/core/lens';
 import { entryTip, findMentions } from '@/core/world/mentions';
 import { EntryTipCard } from '@/ui/components/EntryTip';
@@ -111,6 +113,7 @@ export default function Manuscript() {
   useEffect(() => {
     if (id) void s.open(db, id);
     if (id) void useLens.getState().load(db, id);
+    if (id) void useReader.getState().load(db, id);
   }, [db, id]); // eslint-disable-line react-hooks/exhaustive-deps
   useFocusEffect(
     useCallback(() => {
@@ -194,6 +197,17 @@ export default function Manuscript() {
   }, [refusalAuto, sessionId]);
 
   const streaming = s.streaming;
+  // Read with me: when a passage lands, the reader reads it (and may say something).
+  const readerOn = useReader((x) => x.data.on);
+  const readerOpen = useReader((x) => x.open);
+  const readerUnread = useReader((x) => x.data.unread);
+  const { width: screenW } = useWindowDimensions();
+  const writerMode = session?.mode === 'writer';
+  const docked = writerMode && screenW >= READER_DOCK;
+  const settledProse = streaming ? null : lastProseId;
+  useEffect(() => {
+    if (settledProse && readerOn && writerMode) void useReader.getState().react(db);
+  }, [settledProse, readerOn, writerMode, db]);
   const canSend = mode === 'scene' ? !streaming : !!text.trim() && !streaming;
 
   const send = useCallback(async () => {
@@ -380,13 +394,15 @@ export default function Manuscript() {
   const phaseIcon = !streaming ? 'pencil-outline' : streaming.phase === 'refereeing' ? 'dice-outline' : streaming.phase === 'chronicling' ? 'git-commit-outline' : streaming.phase === 'writing' ? 'pencil-outline' : streaming.phase === 'reweaving' ? 'git-merge-outline' : streaming.phase === 'planning' || streaming.phase === 'proposing' ? 'map-outline' : streaming.phase === 'critiquing' ? 'glasses-outline' : streaming.phase === 'suggesting' ? 'sparkles-outline' : streaming.phase === 'illustrating' ? 'image-outline' : 'albums-outline';
 
   return (
-    <KeyboardShift style={{ flex: 1, backgroundColor: t.bg }} offset={insets.top + (Platform.OS === 'ios' ? 44 : 56)}>
+    <View style={{ flex: 1, flexDirection: 'row', backgroundColor: t.bg }}>
+        <KeyboardShift style={{ flex: 1, backgroundColor: t.bg }} offset={insets.top + (Platform.OS === 'ios' ? 44 : 56)}>
       <Stack.Screen
         options={{
           title: session.title,
           headerRight: () => (
             <Row gap={0}>
               {simMode ? <IconButton name={view === 'map' ? 'book-outline' : 'map-outline'} onPress={() => setView(view === 'map' ? 'journal' : 'map')} /> : null}
+              {writerMode ? <IconButton name={readerOpen ? 'chatbubbles' : 'chatbubbles-outline'} badge={readerUnread > 0} onPress={() => useReader.getState().setOpen(db, !readerOpen)} /> : null}
               <IconButton name="layers-outline" onPress={() => router.push(`/session/${session.id}/context`)} />
               <IconButton name="ellipsis-horizontal" onPress={() => setMenu(true)} />
             </Row>
@@ -509,6 +525,7 @@ export default function Manuscript() {
             <Chip small label="Inventory" onPress={() => { setSheetTab('inventory'); setSheetOpen(true); }} />
           </ScrollView>
         ) : null}
+        {writerMode ? <ReaderPeek /> : null}
         {session.world.newcomers?.length && !streaming && !simMode ? (
           <Pressable onPress={() => setCanonOpen(true)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 8, opacity: pressed ? 0.7 : 1 })}>
             <Ionicons name="person-add-outline" size={14} color={t.accent} />
@@ -890,7 +907,10 @@ export default function Manuscript() {
         onDrift={() => { setDriftOpen(false); if (lastProse) { setDirText('stay strictly in the established voice, and keep every character sounding like themselves'); setDir({ regenerateId: lastProse.id }); } }}
         onChanged={() => void s.reload()}
       />
+      {writerMode && !docked ? <ReaderPanel docked={false} onWriteIt={(idea) => { void askNotificationPermission(); void s.generate({ direction: idea }); }} /> : null}
     </KeyboardShift>
+    {docked ? <ReaderPanel docked onWriteIt={(idea) => { void askNotificationPermission(); void s.generate({ direction: idea }); }} /> : null}
+    </View>
   );
 }
 

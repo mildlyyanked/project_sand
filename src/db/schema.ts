@@ -113,6 +113,10 @@ const MIGRATIONS: string[] = [
   CREATE TABLE maps (location_id TEXT PRIMARY KEY, universe_id TEXT NOT NULL, data_json TEXT NOT NULL, updated_at INTEGER NOT NULL);
   CREATE INDEX maps_universe ON maps(universe_id);
   `,
+  // 15: Read with me, one conversation per story.
+  `
+  CREATE TABLE reader (session_id TEXT PRIMARY KEY, data_json TEXT NOT NULL, updated_at INTEGER NOT NULL);
+  `,
 ];
 
 export async function migrate(db: SQLiteDatabase): Promise<void> {

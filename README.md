@@ -198,6 +198,12 @@ Two switches in a story's settings decide how much of this it uses:
 
 The Clock sheet in a story shows the time, lets you type the date and time, shift by an hour or a day, or skip by any duration ("3 days 4 hours"), and lists the story's events. Every number stepper in the app can be tapped to type a value and held to run.
 
+## Read with me
+
+In writer mode, the chat button in a story's header opens a reader beside the page: a drawer on phones, docked on the right when the screen is at least 900 dp wide. Pick who reads it (Jo, a well-read friend; Margot, a blunt editor; Theo, a genre fan; Ivy, a first-time reader; or describe your own), then start. The reader is a separate agent on the agent model that sees only the prose on the page, never directions, notes, the brief or the world. It texts like a person: short messages that arrive one at a time with a typing pause, opinions, guesses that can be wrong.
+
+It speaks up on its own, sparingly. When a passage settles, it reads it; after a few passages, or a long one, it may say something, and it can choose to stay silent. The bell turns that off, so it only answers when you talk to it. Sometimes it ends with an idea for what could happen next; **Write it** sends that to the writer as the direction for the next passage. What it said while the panel was closed shows as a small bubble above the composer, and the button carries an unread count. **Start over** forgets the chat and keeps reading from the current page. The conversation is kept per story (table `reader`).
+
 ## Playing a character
 
 **Play a character** (from + on Stories, or **Play here** on an instance) puts you inside the world as one of its people. You write what they do or say; the narrator answers as the world, never deciding, speaking or acting for your character.
