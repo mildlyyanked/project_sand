@@ -112,6 +112,7 @@ export default function RootLayout() {
                 <Stack.Screen name="world/workshop/[id]" options={{ title: 'Workshop' }} />
                 <Stack.Screen name="world/instance/[id]" options={{ title: 'Instance' }} />
                 <Stack.Screen name="world/map/[id]" options={{ title: 'Map' }} />
+                <Stack.Screen name="world/create/[id]" options={{ title: 'New world' }} />
                 <Stack.Screen name="inbox" options={{ title: 'Inbox' }} />
                 <Stack.Screen name="stories/[world]" options={{ title: '' }} />
                 <Stack.Screen name="start" options={{ title: 'New story' }} />

@@ -9,6 +9,7 @@ import type { ArtBible, FieldDef } from './world/schema';
 import { buildMap, type BuildChild } from './map/build';
 import { parseMapPlan } from './map/plan';
 import type { MapDoc, MapKind, MapPin, ThemeKey } from './map/types';
+import { parseCreateReply, type CreateMode, type CreateReply } from './world/creation';
 
 /**
  * Library work that runs in the background: forging entries, reforging a
@@ -18,7 +19,7 @@ import type { MapDoc, MapKind, MapPin, ThemeKey } from './map/types';
  * restarting the app loses nothing: the result waits in the world's inbox.
  * Everything here is pure; the runner lives in state/jobs.ts.
  */
-export type JobKind = 'forge' | 'reforge' | 'bible' | 'workshop' | 'question' | 'inspire' | 'voice' | 'hear' | 'map';
+export type JobKind = 'forge' | 'reforge' | 'bible' | 'workshop' | 'question' | 'inspire' | 'voice' | 'hear' | 'map' | 'create';
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 
 export interface ForgeInput {
@@ -56,6 +57,10 @@ export interface MapInput { model: string; messages: ChatMessage[]; maxTokens?: 
 /** `saved`: the place had no map yet, so this one went straight onto it. */
 export interface MapOutput { doc: MapDoc; saved: boolean }
 
+/** One step of creating a world: the overview, the next lore page or entry, or a rework of what is on the table. Its result lands in the creation session. */
+export interface CreateInput { model: string; messages: ChatMessage[]; maxTokens: number; creationId: Id; mode: CreateMode; kind: ForgeKind; /** A rework: the entry being reworked. */ base?: Draft | null; taken: string[] }
+export type CreateOutput = CreateReply;
+
 export interface QuestionInput { model: string; messages: ChatMessage[]; date: string; maxTokens?: number }
 export interface QuestionOutput { question: string; why: string; about: string }
 
@@ -69,6 +74,7 @@ export interface JobIO {
   voice: [VoiceInput, VoiceBuild];
   hear: [HearInput, HearOutput];
   map: [MapInput, MapOutput];
+  create: [CreateInput, CreateOutput];
 }
 
 export interface Job<K extends JobKind = JobKind> {
@@ -166,6 +172,19 @@ export function finishMap(input: MapInput, universeId: string, text: string, now
   if (!plan) throw new Error(`The model did not sketch a usable map: “${text.trim().slice(0, 140)}”. Try again, or another model.`);
   const kind = !input.kindFixed && plan.kind ? plan.kind : input.mapKind;
   return buildMap(plan, { locationId: input.locationId, universeId, kind, theme: input.theme, title: input.title, children: input.children, seed: input.seed, now, keepPins: input.keepPins });
+}
+
+/** A step of world creation as what goes on the table. Throws with a readable reason. */
+export function finishCreate(input: CreateInput, text: string, finish?: string): CreateOutput {
+  const r = parseCreateReply(input.mode, input.kind, text, input.base);
+  if (!r || (!r.draft && !(input.mode === 'lore' && r.done))) {
+    const { peek, tail } = peekOf(text);
+    if (finish === 'length') throw new Error(`The reply was still unfinished after it was continued three times. Try again, or another model. It began: “${peek}…”`);
+    throw new Error(peek ? `The model did not answer with the expected JSON. It began: “${peek}…”${tail} Try again, or another model.` : 'The model returned nothing. Try again or another model.');
+  }
+  const d = r.draft;
+  if (d && (input.mode === 'lore' || input.mode === 'entry') && input.taken.includes(`${d.kind}:${normName(d.name)}`)) throw new Error(`It offered ${d.name}, which this world already has. Try again, or say what you want next.`);
+  return r;
 }
 
 /** A short title for the inbox: what was asked for, in a few words. */

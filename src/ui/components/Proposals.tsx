@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
-import type { BibleOutput, Job, MapOutput, ReforgeInput, ReforgeOutput } from '@/core/jobs';
+import { router } from 'expo-router';
+import type { BibleOutput, CreateInput, Job, MapOutput, ReforgeInput, ReforgeOutput } from '@/core/jobs';
 import { MapPicture } from '../map/MapCanvas';
 import { proposalCount } from '@/core/jobs';
 import { changedFields, removing } from '@/core/world/agent';
@@ -256,7 +257,7 @@ export function ProposalSheet({ jobId, onClose, onAccepted }: { jobId: string | 
   );
 }
 
-const KIND_LABEL: Record<Job['kind'], string> = { forge: 'Forge', reforge: 'Reforge', bible: 'Style bible', workshop: 'Workshop', question: 'Question', inspire: 'Inspiration', voice: 'Voice', hear: 'Voice test', map: 'Map' };
+const KIND_LABEL: Record<Job['kind'], string> = { forge: 'Forge', reforge: 'Reforge', bible: 'Style bible', workshop: 'Workshop', question: 'Question', inspire: 'Inspiration', voice: 'Voice', hear: 'Voice test', map: 'Map', create: 'Creation' };
 
 /** A world's inbox: what is being written, and what waits on a decision. */
 export function InboxList({ jobs, onOpen, empty }: { jobs: Job[]; onOpen: (id: string) => void; empty?: string }) {
@@ -267,7 +268,7 @@ export function InboxList({ jobs, onOpen, empty }: { jobs: Job[]; onOpen: (id: s
   return (
     <View style={{ gap: 8 }}>
       {shown.map((j) => (
-        <Pressable key={j.id} onPress={() => onOpen(j.id)} style={({ pressed }) => ({ gap: 4, padding: 12, borderRadius: radius.md, backgroundColor: t.surface, borderWidth: 1, borderColor: proposalCount(j) ? t.accent : t.border, opacity: pressed ? 0.75 : 1 })}>
+        <Pressable key={j.id} onPress={() => (j.kind === 'create' ? router.push(`/world/create/${(j.input as CreateInput).creationId}`) : onOpen(j.id))} style={({ pressed }) => ({ gap: 4, padding: 12, borderRadius: radius.md, backgroundColor: t.surface, borderWidth: 1, borderColor: proposalCount(j) ? t.accent : t.border, opacity: pressed ? 0.75 : 1 })}>
           <Row between><T numberOfLines={1} style={{ flex: 1 }}>{j.title}</T><Badge label={KIND_LABEL[j.kind]} /></Row>
           <JobStatusLine job={j} live={live[j.id]} />
         </Pressable>

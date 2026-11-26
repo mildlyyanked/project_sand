@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { newId, now } from '@/core/ids';
-import { awaiting, finishBible, finishForge, finishHear, finishInspire, finishReforge, finishVoice, finishMap, type BibleInput, type MapInput, type MapOutput, type InspireInput, type ForgeInput, type Job, type JobIO, type JobKind, type QuestionInput, type ReforgeInput, type WorkshopInput, type WorkshopOutput } from '@/core/jobs';
+import { awaiting, finishBible, finishCreate, finishForge, finishHear, finishInspire, finishReforge, finishVoice, finishMap, type BibleInput, type CreateInput, type MapInput, type MapOutput, type InspireInput, type ForgeInput, type Job, type JobIO, type JobKind, type QuestionInput, type ReforgeInput, type WorkshopInput, type WorkshopOutput } from '@/core/jobs';
 import { changeDrafts, parseAgentReply, parseQuestion, removing, retconChanges, type AgentRemove, type AgentRevise } from '@/core/world/agent';
 import { affected, mergeEdits, parseRetcon, renameEdits, retconPrompt } from '@/core/world/retcon';
 import { knowledge, libraryDrafts, normName, type Draft } from '@/core/world/drafts';
@@ -11,6 +11,8 @@ import { complete } from './paint';
 import { runInForeground } from './foreground';
 import { loadLibrary } from './library';
 import { getMap, saveMap } from '@/db/repo/atlas';
+import { landed } from '@/core/world/creation';
+import { getCreation, saveCreation } from '@/db/repo/creation';
 
 /**
  * The background queue for library work. Jobs are saved before they run and
@@ -21,7 +23,7 @@ import { getMap, saveMap } from '@/db/repo/atlas';
  * background. Results wait, undecided, until someone accepts or dismisses them.
  */
 const CONCURRENCY = 2;
-const TEMPERATURE: Record<JobKind, number> = { forge: 0.9, reforge: 0.85, bible: 0.6, workshop: 0.8, question: 0.95, inspire: 0.85, voice: 0.7, hear: 0.9, map: 0.8 };
+const TEMPERATURE: Record<JobKind, number> = { forge: 0.9, reforge: 0.85, bible: 0.6, workshop: 0.8, question: 0.95, inspire: 0.85, voice: 0.7, hear: 0.9, map: 0.8, create: 0.9 };
 
 interface JobsState {
   jobs: Job[];
@@ -162,6 +164,14 @@ async function finishJob(db: SQLiteDatabase, j: Job, text: string, finish?: stri
       const saved = !(await getMap(db, input.locationId));
       if (saved) await saveMap(db, doc);
       const out: MapOutput = { doc, saved };
+      return out;
+    }
+    case 'create': {
+      const input = j.input as CreateInput;
+      const out = finishCreate(input, text, finish);
+      // On the table of its session, unless the session has moved on to something else since.
+      const c = await getCreation(db, input.creationId);
+      if (c && c.jobId === j.id) await saveCreation(db, landed(c, input.mode, out, now()));
       return out;
     }
     case 'question': {

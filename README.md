@@ -99,7 +99,7 @@ OpenRouter's image models come with their providers' filters. **Settings → Ill
 
 The writer model invents library entries. Every Forge call first reads the world: the world card, a roster of every name in it, and in full the entries that bear on the request (linked to it, named in it, sharing its keywords), within a budget. New entries link to existing ones by exact name.
 
-- **Forge** on Library → Worlds (a whole world), on a world's Entries tab (for the kind picked), and **Grow the world** on its Workshop tab (any mix of places, factions, characters, things, peoples and lore).
+- **Forge** on a world's Entries tab (for the kind picked), and **Grow the world** on its Workshop tab (any mix of places, factions, characters, things, peoples and lore). A whole new world is made in stages: see Creating a world below.
 - **In the background**: every forge, reforge and style bible is a job, saved before it runs. Close the sheet, leave the screen or the app: it keeps going (two at a time), and anything cut off by the app closing starts again on the next launch. Results wait in the **inbox** (the envelope on the Stories, Library and world headers; also the world's Workshop tab) until you add, edit or dismiss each one.
 - **Surprise me**: no wish needed. The world's loose threads (a faction without a leader or headquarters, a city nobody lives in, an enemy never written, someone a character knows who is not in the library) are offered to the model to pull on.
 - **Grow it** on a place, faction, thing, character, people or lore page (Places inside, Members, People in their life, Belongings, Rivals, Its history...) opens the world's workshop about that entry, with what you asked for: the agent proposes entries tied to it.
@@ -111,6 +111,16 @@ The writer model invents library entries. Every Forge call first reads the world
 Every field of every existing entry (world, place, faction, thing, character, people, lore) has the same sparkle: the model rewrites that field given the entry and what in the world bears on it; reference fields pick from the world's names. Reforged links follow the same two-way rules.
 
 Replies are read leniently (fenced, prefaced, literal newlines inside strings, bare quotes inside strings, trailing commas), and a reply cut off by the length limit keeps every entry that arrived whole, with a note saying so.
+
+## Creating a world
+
+**Forge a world** on Library → Worlds builds a world in three stages, with one entry on the table at a time.
+
+1. **Overview**: from your wish (or a surprise), the world entry everything else is built from: its premise, how it works, its society, with a calendar and a style bible. Read it, edit it by hand (every field has its sparkle), **Rework** it with an instruction as often as you like (each rework can be undone), or start over from another wish. Approving it creates the world.
+2. **Lore**: its systems and basic concepts (how its magic or technology works, its faith, its history, how power, law and money work), one page at a time. A new page is written only when the last is approved or dropped, and each takes the overview and every approved page as true. The model says when it judges the foundations covered; you can ask for one more page, name the page you want, or move on whenever you like.
+3. **World**: what is concrete (places, factions, peoples, characters, things), one entry at a time, from the large to the small: realms and powers before cities, cities before districts, places before the people in them. Each entry is approved, reworked or dropped; a dropped one is remembered so it is not offered again. Say what you want next, pick a kind, or tap one of the model's own suggestions; left alone, it picks what the world needs most. **Conclude** when the world is fleshed out enough.
+
+Everything approved goes into the world at once, so the next entry is written from the world as it really stands, and a world in creation can already be opened, edited and used. The session is saved at every step and written in the background: leave the screen or close the app and it is where you left it, or further along. Unfinished sessions wait at the top of Library → Worlds, on the world's own page and in the inbox. **Build step by step** on a world's Workshop tab takes any existing world through the same stages, or goes back into a concluded session.
 
 ## Pictures of the world
 

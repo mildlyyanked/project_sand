@@ -8,6 +8,9 @@ import { listUniverses } from '@/db/repo/library';
 import { useJobs } from '@/state/jobs';
 import { Button, Chip, Screen, Section, T } from '@/ui/components';
 import { InboxList, ProposalSheet } from '@/ui/components/Proposals';
+import { CreationCards } from '@/ui/components/Creation';
+import type { Creation } from '@/core/world/creation';
+import { listCreations } from '@/db/repo/creation';
 import { space } from '@/ui/theme';
 
 const shown = (j: Job) => j.kind !== 'question' && j.status !== 'cancelled' && (awaiting(j) || j.status === 'queued' || j.status === 'running' || j.status === 'failed');
@@ -23,8 +26,9 @@ export default function Inbox() {
   const [filter, setFilter] = useState<string | 'all'>(world ?? 'all');
   const [open, setOpen] = useState<string | null>(null);
   const [worlds, setWorlds] = useState<Universe[]>([]);
+  const [creating, setCreating] = useState<Creation[]>([]);
   const jobs = useJobs((s) => s.jobs);
-  useFocusEffect(useCallback(() => { void useJobs.getState().refresh(db); void listUniverses(db).then(setWorlds); }, [db]));
+  useFocusEffect(useCallback(() => { void useJobs.getState().refresh(db); void listUniverses(db).then(setWorlds); void listCreations(db).then((c) => setCreating(c.filter((x) => x.stage !== 'done'))); }, [db]));
   const all = useMemo(() => jobs.filter(shown), [jobs]);
   const inFilter = all.filter((j) => filter === 'all' || (filter === 'voices' ? !j.universeId : j.universeId === filter));
   const groups: { key: string; name: string; jobs: Job[] }[] = useMemo(() => {
@@ -51,11 +55,12 @@ export default function Inbox() {
           {keys.map((k) => <Chip key={k} label={`${k === 'voices' ? 'Voices' : worlds.find((u) => u.id === k)?.name ?? 'A world'}${counts(k) ? ` · ${counts(k)}` : ''}`} selected={filter === k} onPress={() => setFilter(k)} />)}
         </ScrollView>
       ) : null}
+      {(() => { const mine = creating.filter((c) => filter === 'all' || c.universeId === filter); return mine.length ? <Section title="Worlds being created"><CreationCards sessions={mine} /></Section> : null; })()}
       {groups.length ? groups.map((g) => (
         <Section key={g.key} title={`${g.name}${g.jobs.filter(awaiting).length ? ` · ${g.jobs.filter(awaiting).length} waiting` : ''}`}>
           <InboxList jobs={g.jobs} onOpen={setOpen} />
         </Section>
-      )) : (
+      )) : creating.length ? null : (
         <View style={{ gap: 8, paddingTop: space.lg }}>
           <T v="h">Nothing waiting</T>
           <T v="dim">What Forge, Reforge, the world’s agent, the style bible, voices and maps write lands here for you to accept or dismiss. It keeps going when you leave the app.</T>

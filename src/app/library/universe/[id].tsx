@@ -26,6 +26,10 @@ import { Block, EditActions, EditingBar, Lede, MiniAvatar, SectionsEditor, Secti
 import { useWorld, type EntryRef } from '@/ui/useWorld';
 import { WorldMaps } from '@/ui/map/WorldMaps';
 import { InboxButton } from '@/ui/components/InboxButton';
+import { CreationCards } from '@/ui/components/Creation';
+import type { Creation } from '@/core/world/creation';
+import { creationOf } from '@/db/repo/creation';
+import { buildOn } from '@/state/creation';
 import { radius, space, useTheme } from '@/ui/theme';
 
 type Tab = 'world' | 'map' | 'style' | 'workshop' | 'entries' | 'instances';
@@ -56,6 +60,7 @@ export default function WorldHub() {
   const [instances, setInstances] = useState<(WorldInstance & { clock: number; stories: number })[]>([]);
   const [newInst, setNewInst] = useState<{ name: string; description: string } | null>(null);
   const [preview, setPreview] = useState<{ brief: string; last: WorkshopMessage | null }>({ brief: '', last: null });
+  const [creation, setCreation] = useState<Creation | null>(null);
   const ed = useEditable<Universe>(() => getUniverse(db, id!), (v) => saveUniverse(db, v), [id]);
   const w = useWorld(id);
   const jobs = useJobs((s) => s.jobs);
@@ -72,6 +77,7 @@ export default function WorldHub() {
     if (!id) return;
     void useJobs.getState().refresh(db);
     void listInstances(db, id).then(async (inst) => setInstances(await Promise.all(inst.map(async (i) => ({ ...i, clock: await instanceClock(db, i.id), stories: (await sessionsInInstance(db, i.id)).length })))));
+    void creationOf(db, id).then(setCreation);
     void Promise.all([getAgent(db, id), listWorkshop(db, id, 4)]).then(([a, m]) => setPreview({ brief: a.brief, last: [...m].reverse().find((x) => x.role === 'agent' && x.text) ?? null }));
   }, [db, id]);
   useFocusEffect(reloadSide);
@@ -168,6 +174,7 @@ export default function WorldHub() {
         </>
       ) : (
         <>
+          {creation && creation.stage !== 'done' ? <View style={{ marginBottom: space.lg }}><CreationCards sessions={[creation]} worldLink={false} /></View> : null}
           {!u.isDefault ? <View style={{ marginBottom: space.lg }}><QuestionCard universe={u} /></View> : null}
           <Lede kicker={['World', u.data.genre.split('\n')[0]?.slice(0, 60)].filter(Boolean).join(' · ')} title={u.name} />
           {u.description ? u.description.split(/\n{2,}/).map((p, i) => <T key={i} v="serif" style={{ fontSize: 17, lineHeight: 26, marginBottom: 10 }}>{p.trim()}</T>) : <T v="faint">{u.isDefault ? 'The real world sends nothing to the writer unless you write something here.' : 'No description yet. Tap the pencil to write one, or ask the agent in the Workshop.'}</T>}
@@ -213,9 +220,10 @@ export default function WorldHub() {
             </Card>
             <Row style={{ flexWrap: 'wrap' }}>
               <Button small kind="outline" icon="leaf-outline" title="Grow the world" onPress={() => setForge('mixed')} />
+              <Button small kind="outline" icon="layers-outline" title={creation && creation.stage !== 'done' ? 'Continue creating' : 'Build step by step'} onPress={async () => { const c = await buildOn(db, u.id); router.push(`/world/create/${c.id}`); }} />
               <Button small kind="ghost" icon="help-circle-outline" title="What does it need?" onPress={() => router.push(`${workshopRoute(u.id)}?intent=${encodeURIComponent('whatever this world most needs next')}` as never)} />
             </Row>
-            <T v="faint">The agent is a curious co-author: it knows everything in this world, keeps a brief of what you want, and proposes entries and changes. Grow the world forges a batch straight away.</T>
+            <T v="faint">The agent is a curious co-author: it knows everything in this world, keeps a brief of what you want, and proposes entries and changes. Grow the world forges a batch straight away. Build step by step puts one entry on the table at a time, lore first, then the world from the large to the small.</T>
           </Section>
         </>
       ) : null}

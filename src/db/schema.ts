@@ -117,6 +117,11 @@ const MIGRATIONS: string[] = [
   `
   CREATE TABLE reader (session_id TEXT PRIMARY KEY, data_json TEXT NOT NULL, updated_at INTEGER NOT NULL);
   `,
+  // 16: worlds created in stages: one session per world being built, kept until it is concluded.
+  `
+  CREATE TABLE creations (id TEXT PRIMARY KEY, universe_id TEXT, stage TEXT NOT NULL, data_json TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX creations_universe ON creations(universe_id);
+  `,
 ];
 
 export async function migrate(db: SQLiteDatabase): Promise<void> {

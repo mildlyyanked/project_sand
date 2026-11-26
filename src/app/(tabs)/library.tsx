@@ -8,7 +8,9 @@ import { voiceOf } from '@/core/voice';
 import { listCharacters, listStyles, listUniverses, newStyle, newUniverse, saveStyle, saveUniverse } from '@/db/repo/library';
 import { listEntities } from '@/db/repo/world';
 import { Button, Card, Empty, Ionicons, ListItem, Row, SearchBox, Segmented, Screen, T, matches } from '@/ui/components';
-import { ForgeSheet } from '@/ui/components/Forge';
+import { CreationCards } from '@/ui/components/Creation';
+import type { Creation } from '@/core/world/creation';
+import { listCreations } from '@/db/repo/creation';
 import { Avatar } from '@/ui/components/EntryImage';
 import { space, useTheme } from '@/ui/theme';
 
@@ -28,12 +30,12 @@ export default function Library() {
   const [styles, setStyles] = useState<Style[]>([]);
   const [worlds, setWorlds] = useState<Universe[]>([]);
   const [places, setPlaces] = useState<Record<string, number>>({});
-  const [forge, setForge] = useState(false);
+  const [creating, setCreating] = useState<Creation[]>([]);
   const [q, setQ] = useState('');
 
   const load = useCallback(() => {
-    void Promise.all([listCharacters(db), listStyles(db), listUniverses(db)]).then(async ([c, s, w]) => {
-      setChars(c); setStyles(s); setWorlds(w);
+    void Promise.all([listCharacters(db), listStyles(db), listUniverses(db), listCreations(db)]).then(async ([c, s, w, cr]) => {
+      setChars(c); setStyles(s); setWorlds(w); setCreating(cr.filter((x) => x.stage !== 'done'));
       const counts = await Promise.all(w.map(async (u) => [u.id, (await listEntities(db, u.id)).length] as const));
       setPlaces(Object.fromEntries(counts));
     });
@@ -47,7 +49,9 @@ export default function Library() {
 
   const people = (u: Universe) => chars.filter((c) => c.universeId === u.id || (!c.universeId && u.isDefault)).length;
   const sorted = [...worlds].sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || b.updatedAt - a.updatedAt);
-  const shownWorlds = sorted.filter((w) => matches(q, w.name, w.description, w.data.genre, ...chars.filter((c) => c.universeId === w.id || (!c.universeId && w.isDefault)).map((c) => c.name)));
+  // A world still being created shows as its session, which leads to both.
+  const inCreation = new Set(q.trim() ? [] : creating.map((c) => c.universeId));
+  const shownWorlds = sorted.filter((w) => !inCreation.has(w.id) && matches(q, w.name, w.description, w.data.genre, ...chars.filter((c) => c.universeId === w.id || (!c.universeId && w.isDefault)).map((c) => c.name)));
   const hits = q.trim() ? chars.filter((c) => matches(q, c.name, c.summary, c.data.occupation)) : [];
 
   return (
@@ -57,6 +61,7 @@ export default function Library() {
         {(tab === 'styles' ? styles.length : worlds.length) > 5 || tab === 'worlds' ? <SearchBox value={q} onChange={setQ} placeholder={tab === 'styles' ? 'Search voices' : 'Search worlds and the people in them'} /> : null}
         {tab === 'worlds' ? (
           <>
+            {!q.trim() ? <CreationCards sessions={creating} /> : null}
             {shownWorlds.map((u) => (
               <Card key={u.id} onPress={() => router.push(`/library/universe/${u.id}`)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 {u.isDefault ? <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: t.surface2, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="earth-outline" size={22} color={t.dim} /></View> : <Avatar data={u.data as unknown as Record<string, unknown>} name={u.name} size={44} />}
@@ -74,7 +79,7 @@ export default function Library() {
                 {hits.slice(0, 30).map((c) => <ListItem key={c.id} left={<Avatar data={c.data as Record<string, unknown>} name={c.name} />} title={c.name} subtitle={[worlds.find((w) => w.id === c.universeId)?.name ?? 'The real world', c.summary].filter(Boolean).join(' · ')} onPress={() => router.push(`/library/character/${c.id}`)} />)}
               </View>
             ) : null}
-            {!shownWorlds.length && !hits.length ? <Empty icon="planet-outline" title={q ? 'Nothing matches' : 'No worlds'} hint="Worlds hold places, factions, characters, peoples, things and lore shared across stories." /> : null}
+            {!shownWorlds.length && !hits.length && !(creating.length && !q.trim()) ? <Empty icon="planet-outline" title={q ? 'Nothing matches' : 'No worlds'} hint="Worlds hold places, factions, characters, peoples, things and lore shared across stories." /> : null}
           </>
         ) : null}
         {tab === 'styles' && (styles.length ? styles.filter((x) => matches(q, x.name, x.influences, x.register, voiceOf(x).authors.join(' '))).map((s) => <ListItem key={s.id} title={s.name} subtitle={[voiceOf(s).authors.length ? `writes like ${voiceOf(s).authors.join(' and ')}` : '', [s.pointOfView, s.tense].filter(Boolean).join(', '), s.system ? 'own writer prompt' : '', s.refusalChain.length ? `${s.refusalChain.length} persistence step${s.refusalChain.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')} onPress={() => router.push(`/library/style/${s.id}`)} />) : <Empty icon="text-outline" title="No voices" hint="A voice is how the prose reads: who it writes like, its rules, samples and form. Start from one in the gallery below, or build your own." />)}
@@ -87,10 +92,9 @@ export default function Library() {
       </View>
       <Row style={{ marginTop: space.xl }}>
         <Button title={tab === 'worlds' ? 'New world' : 'New voice'} icon="add" onPress={add} style={{ flex: 1 }} />
-        {tab === 'worlds' ? <Button kind="outline" title="Forge a world" icon="sparkles-outline" onPress={() => setForge(true)} style={{ flex: 1 }} /> : null}
+        {tab === 'worlds' ? <Button kind="outline" title="Forge a world" icon="sparkles-outline" onPress={() => router.push('/world/create/new')} style={{ flex: 1 }} /> : null}
       </Row>
-      {tab === 'worlds' ? <T v="faint" style={{ marginTop: space.sm }}>Characters, places and everything else are made inside a world: open it, then Entries or its Workshop.</T> : null}
-      <ForgeSheet open={forge} onClose={() => setForge(false)} kind="world" onSaved={load} />
+      {tab === 'worlds' ? <T v="faint" style={{ marginTop: space.sm }}>Forge a world builds one in stages: its overview, its core lore, then what is in it, one entry at a time. Characters, places and everything else are made inside a world: open it, then Entries or its Workshop.</T> : null}
     </Screen>
   );
 }

@@ -34,6 +34,9 @@ function shapeField(def: FieldDef): string | null {
   }
 }
 
+/** A field with another word on how to fill it, where a caller wants more (or less) than the usual. */
+const hinted = (d: FieldDef, hints: Record<string, string>): FieldDef => (hints[d.key] ? { ...d, forge: hints[d.key] } : d);
+
 const SPECIAL: Partial<Record<LibKind, string[]>> = {
   location: ['"within": string (the place it sits inside, by exact name, or "")', '"seatOf": string (the faction whose capital or headquarters this is, by exact name, or "")'],
   organization: ['"within": string (parent faction by exact name, or "")'],
@@ -41,9 +44,9 @@ const SPECIAL: Partial<Record<LibKind, string[]>> = {
 };
 
 /** The JSON shape forge asks for, built from the same fields the editors show, so the two never drift. */
-export function entryShape(kind: Exclude<LibKind, 'world'>): string {
+export function entryShape(kind: Exclude<LibKind, 'world'>, hints: Record<string, string> = {}): string {
   const special = SPECIAL[kind] ?? [];
-  const fields = DRAFT_FIELDS[kind].filter((d) => !special.some((x) => x.startsWith(`"${d.key}"`))).map(shapeField).filter((x): x is string => !!x);
+  const fields = DRAFT_FIELDS[kind].filter((d) => !special.some((x) => x.startsWith(`"${d.key}"`))).map((d) => shapeField(hinted(d, hints))).filter((x): x is string => !!x);
   const name = kind === 'lore' ? '"title"' : '"name"';
   const ties = DRAFT_FIELDS[kind].some((d) => d.type === 'ties') ? [TIE_SHAPE] : [];
   // Within and seat of read best next to the name; attributes after the person.
@@ -57,13 +60,24 @@ const LIST_KEY: Record<Exclude<LibKind, 'world'>, string> = { location: 'places'
 const LIST_ALIASES: Record<Exclude<LibKind, 'world'>, string[]> = { location: ['places', 'locations'], organization: ['factions', 'organizations', 'groups'], item: ['things', 'items', 'objects'], species: ['species', 'peoples', 'races'], lore: ['lore', 'entries'], character: ['characters', 'people', 'persons'] };
 
 const BIBLE_SHAPE = `"art": {${BIBLE_FIELDS.map((b) => `"${b.key}": string (${b.hint.toLowerCase().replace(/\.$/, '')})`).join(', ')}} (the style bible every picture of this world follows: one line each, one coherent look)`;
-const worldShape = () => `{"name": string (2 to 4 words), ${DRAFT_FIELDS.world.map(shapeField).filter(Boolean).join(', ')}, ${BIBLE_SHAPE}, "calendar": {"kind": "custom" | "gregorian", "yearLabel": string, "startYear": number, "daysPerYear": number, "monthNames": string[], "start": "YYYY-MM-DDTHH:MM" for gregorian}, "places": [${SHAPE_OF('location')}] (4 to 7, nested: at least one place inside another), "factions": [${SHAPE_OF('organization')}] (2 to 4), "species": [${SHAPE_OF('species')}] (0 to 3, only if the world calls for them), "lore": [${SHAPE_OF('lore')}] (2 to 4)}`;
-const mixedShape = () => `{"places": [${SHAPE_OF('location')}], "factions": [${SHAPE_OF('organization')}], "characters": [${SHAPE_OF('character')}], "things": [${SHAPE_OF('item')}], "species": [${SHAPE_OF('species')}], "lore": [${SHAPE_OF('lore')}]} (leave out the lists you do not use)`;
+/** The world itself, without anything in it: name, fields, style bible, calendar. */
+const worldHead = (hints: Record<string, string> = {}) => `"name": string (2 to 4 words), ${DRAFT_FIELDS.world.map((d) => shapeField(hinted(d, hints))).filter(Boolean).join(', ')}, ${BIBLE_SHAPE}, "calendar": {"kind": "custom" | "gregorian", "yearLabel": string, "startYear": number, "daysPerYear": number, "monthNames": string[], "start": "YYYY-MM-DDTHH:MM" for gregorian}`;
+const worldShape = () => `{${worldHead()}, "places": [${SHAPE_OF('location')}] (4 to 7, nested: at least one place inside another), "factions": [${SHAPE_OF('organization')}] (2 to 4), "species": [${SHAPE_OF('species')}] (0 to 3, only if the world calls for them), "lore": [${SHAPE_OF('lore')}] (2 to 4)}`;
+
+/** A world's overview alone, as an object's members: what a world is before anything is put in it. */
+export const overviewMembers = (hints: Record<string, string> = {}) => worldHead(hints);
+
+/** The lists a reply may hold, as an object's members, so a caller can ask for more beside them. */
+export function forgeLists(kind: Exclude<ForgeKind, 'world'>, hints: Record<string, string> = {}): string {
+  const one = (k: Exclude<LibKind, 'world'>) => `"${LIST_KEY[k]}": [${entryShape(k, hints)}]`;
+  return kind === 'mixed' ? (['location', 'organization', 'character', 'item', 'species', 'lore'] as const).map(one).join(', ') : one(kind);
+}
+const mixedShape = () => `{${forgeLists('mixed')}} (leave out the lists you do not use)`;
 
 export function forgeShape(kind: ForgeKind): string {
   if (kind === 'world') return worldShape();
   if (kind === 'mixed') return mixedShape();
-  return `{"${LIST_KEY[kind]}": [${SHAPE_OF(kind)}]}`;
+  return `{${forgeLists(kind)}}`;
 }
 
 const NOUN: Record<ForgeKind, [string, string]> = { world: ['world', 'worlds'], location: ['place', 'places'], organization: ['faction', 'factions'], item: ['thing', 'things'], species: ['people', 'peoples'], lore: ['lore entry', 'lore entries'], character: ['character', 'characters'], mixed: ['entry', 'entries'] };

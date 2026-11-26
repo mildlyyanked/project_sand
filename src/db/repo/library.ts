@@ -43,6 +43,7 @@ export async function deleteUniverse(db: SQLiteDatabase, id: Id): Promise<void> 
     await db.runAsync('DELETE FROM jobs WHERE universe_id = ?', id);
     await db.runAsync('DELETE FROM workshop WHERE universe_id = ?', id);
     await db.runAsync('DELETE FROM agent WHERE universe_id = ?', id);
+    await db.runAsync('DELETE FROM creations WHERE universe_id = ?', id);
     await db.runAsync('DELETE FROM universes WHERE id = ?', id);
   });
 }
